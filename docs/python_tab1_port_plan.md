@@ -260,6 +260,8 @@ Tasks:
   options, calibration summary, and retry/metadata/processing diagnostics.
 - Added optional JSON workflow config support so CLI, future desktop UI, and
   future web UI can share the same processing option schema.
+- Added a post-processing CLI for exporting q-binned 1D curves and JSON
+  reports directly from existing Python-native `*_2Dinfo.h5` files.
 
 ## Next Step
 
