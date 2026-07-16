@@ -1,6 +1,6 @@
 import json
 
-from pgixs_python.workflows.config_schema import build_workflow_schema, write_workflow_schema
+from pgixs_python.workflows.config_schema import build_batch_schema, build_workflow_schema, write_workflow_schema
 from pgixs_python.workflows.gixs_process import build_parser as build_gixs_parser
 from pgixs_python.workflows.common import parser_config_keys
 
@@ -26,3 +26,13 @@ def test_write_workflow_schema_writes_json(tmp_path):
     loaded = json.loads(out.read_text(encoding="utf-8"))
     assert loaded["title"] == "PGIXS 1D H5 Export Config"
     assert "q_scale" in loaded["properties"]
+
+
+def test_build_batch_schema_accepts_object_or_array_shape():
+    schema = build_batch_schema()
+
+    assert schema["title"] == "PGIXS Batch Workflow Config"
+    assert len(schema["oneOf"]) == 2
+    job_props = schema["$defs"]["job"]["properties"]
+    assert job_props["workflow"]["enum"] == ["trxs", "gixs", "export-1d"]
+    assert job_props["args"]["items"]["type"] == "string"

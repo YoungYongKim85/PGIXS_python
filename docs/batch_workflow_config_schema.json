@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PGIXS Batch Workflow Config",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/jobArray"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobs"
+      ],
+      "properties": {
+        "jobs": {
+          "$ref": "#/$defs/jobArray"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "jobArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/job"
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string",
+          "enum": [
+            "trxs",
+            "gixs",
+            "export-1d"
+          ]
+        },
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    }
+  }
+}

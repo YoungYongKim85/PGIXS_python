@@ -42,7 +42,51 @@ def build_workflow_schema(workflow: str) -> dict[str, Any]:
         from pgixs_python.workflows.export_1d_from_h5 import build_parser
 
         return build_config_schema(build_parser(), "PGIXS 1D H5 Export Config")
+    if workflow_key == "batch":
+        return build_batch_schema()
     raise ValueError(f"Unknown workflow for config schema: {workflow}")
+
+
+def build_batch_schema() -> dict[str, Any]:
+    """Return the JSON Schema for a PGIXS batch workflow file."""
+
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "PGIXS Batch Workflow Config",
+        "oneOf": [
+            {"$ref": "#/$defs/jobArray"},
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["jobs"],
+                "properties": {
+                    "jobs": {"$ref": "#/$defs/jobArray"},
+                },
+            },
+        ],
+        "$defs": {
+            "jobArray": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/$defs/job"},
+            },
+            "job": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["workflow"],
+                "properties": {
+                    "label": {"type": "string"},
+                    "workflow": {"type": "string", "enum": ["trxs", "gixs", "export-1d"]},
+                    "config": {"type": ["string", "null"]},
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "default": [],
+                    },
+                },
+            },
+        },
+    }
 
 
 def write_workflow_schema(workflow: str, output_path: str | Path) -> Path:
@@ -57,7 +101,7 @@ def write_workflow_schema(workflow: str, output_path: str | Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate PGIXS workflow JSON config schema files.")
-    parser.add_argument("--workflow", choices=["trxs", "gixs", "export-1d", "all"], default="all")
+    parser.add_argument("--workflow", choices=["trxs", "gixs", "export-1d", "batch", "all"], default="all")
     parser.add_argument("--out", default="docs", help="Output file for one schema or directory for --workflow all.")
     args = parser.parse_args(argv)
 
@@ -67,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             write_workflow_schema("trxs", out_dir / "trxs_workflow_config_schema.json"),
             write_workflow_schema("gixs", out_dir / "gixs_workflow_config_schema.json"),
             write_workflow_schema("export-1d", out_dir / "export_1d_config_schema.json"),
+            write_workflow_schema("batch", out_dir / "batch_workflow_config_schema.json"),
         ]
     else:
         written = [write_workflow_schema(args.workflow, args.out)]
@@ -116,6 +161,7 @@ def _apply_known_constraints(dest: str, schema: dict[str, Any]) -> None:
 
 
 __all__ = [
+    "build_batch_schema",
     "build_config_schema",
     "build_workflow_schema",
     "write_workflow_schema",
