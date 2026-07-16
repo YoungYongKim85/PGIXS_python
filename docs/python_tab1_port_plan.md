@@ -35,8 +35,7 @@ Out of scope for this folder:
 - H5 frame loading should retry once, then mark failed frames as `NaN`.
 - Average functions must omit `NaN` and return valid-count/coverage diagnostics
   where useful.
-- Use H5 as the Python-native internal output. Keep MATLAB compatibility as an
-  explicit export path, not the primary storage contract.
+- Use H5 as the Python-native 2D-info output contract.
 - Do not start Tab3 or web implementation from this folder.
 
 ## Phase 1. Environment
@@ -189,6 +188,23 @@ Tasks:
   available again.
 - Confirm detector-gap average behavior.
 - Confirm saved `*_2Dinfo.h5` round-trips in Python.
+
+## Phase 10. UI Design Planning Gate
+
+This phase starts only after the Python Tab1 core workflow is stable enough
+for routine real-data processing.
+
+Tasks:
+
+- Review the finished CLI/config workflow together before UI implementation.
+- Interview target users and decide which workflows must be first-class UI
+  actions.
+- Discuss desktop UI vs local web UI tradeoffs before choosing a framework.
+- Define the main screen layout, required panels, plot interactions, progress
+  messages, error-reporting behavior, and file-management model.
+- Decide how config JSON maps to UI controls so CLI, desktop UI, and later web
+  UI stay consistent.
+- Create UI mockups/wireframes and review them together before writing UI code.
 
 ## Progress Log
 
