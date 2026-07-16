@@ -244,6 +244,8 @@ Tasks:
 - Wired q-binned 1D export into TrXS/GIXS workflow CLIs with configurable
   q-range, bin count, linear/log binning, std, coverage diagnostics, and
   optional figure output.
+- Added workflow JSON report export for input files, output files, processing
+  options, calibration summary, and retry/metadata/processing diagnostics.
 
 ## Next Step
 

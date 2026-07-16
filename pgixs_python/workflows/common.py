@@ -9,7 +9,7 @@ import numpy as np
 
 from pgixs_python.calibration.calibration_io import StandardCalibration, load_standard_calibration
 from pgixs_python.averaging import qbin_average
-from pgixs_python.export import OneDExport, save_1d_data, save_1d_figure
+from pgixs_python.export import OneDExport, WorkflowReport, save_1d_data, save_1d_figure, save_workflow_report_json
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
 from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
@@ -51,6 +51,12 @@ class WorkflowExportResult:
     message: str = ""
 
 
+@dataclass
+class WorkflowReportResult:
+    report_path: Path | None = None
+    message: str = ""
+
+
 def add_h5_input_arguments(parser) -> None:
     parser.add_argument("--input", required=False, help="Input H5 detector file or folder.")
     parser.add_argument("--dataset", default=DEFAULT_DETECTOR_DATASET, help="H5 detector dataset path.")
@@ -77,6 +83,7 @@ def add_output_arguments(parser) -> None:
     parser.add_argument("--export-std", action="store_true", help="Include standard deviation in 1D export.")
     parser.add_argument("--export-diagnostics", action="store_true", help="Include valid-count and coverage columns.")
     parser.add_argument("--export-figure", action="store_true", help="Also save a PNG 1D figure when matplotlib is installed.")
+    parser.add_argument("--report-json", action="store_true", help="Save a JSON report with workflow options and diagnostics.")
 
 
 def add_processing_arguments(parser) -> None:
@@ -420,6 +427,56 @@ def format_1d_export_summary(result: WorkflowExportResult) -> str:
     return result.message
 
 
+def save_workflow_report(
+    args,
+    measurement_mode: str,
+    raw_stack: H5SeriesLoadResult,
+    processed_stack: H5SeriesLoadResult,
+    qmap_result: WorkflowQMap | None,
+    processing_result: WorkflowProcessingResult,
+    output_path: Path | None,
+    export_result: WorkflowExportResult,
+) -> WorkflowReportResult:
+    """Save optional JSON provenance/diagnostics report."""
+
+    if not getattr(args, "report_json", False):
+        return WorkflowReportResult(message="  report: skipped\n")
+
+    out_arg = getattr(args, "out", None) or "outputs"
+    out_dir = _resolve_export_output_dir(out_arg)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(raw_stack.records[0].file_path).stem or measurement_mode.lower()
+    report_path = out_dir / f"{stem}_{measurement_mode}_report.json"
+
+    report = WorkflowReport(
+        measurement_mode=measurement_mode,
+        input_files=[str(record.file_path) for record in raw_stack.records],
+        output_files={
+            "two_d_info": str(output_path) if output_path is not None else None,
+            "one_d_data": str(export_result.data_path) if export_result.data_path is not None else None,
+            "one_d_figure": str(export_result.figure_path) if export_result.figure_path is not None else None,
+        },
+        options=_workflow_options_for_report(args),
+        calibration=_qmap_report(qmap_result),
+        diagnostics={
+            "frame_count": int(processed_stack.stack.shape[0]),
+            "image_shape": [int(processed_stack.stack.shape[1]), int(processed_stack.stack.shape[2])],
+            "retry_failed_frames": raw_stack.retry_failed_frames,
+            "metadata_failed_frames": raw_stack.metadata_failed_frames,
+            "counts": raw_stack.counts,
+            "timestamps": raw_stack.timestamps,
+            "temperatures": raw_stack.temperatures,
+            **processing_result.diagnostics,
+        },
+    )
+    save_workflow_report_json(report_path, report)
+    return WorkflowReportResult(report_path=report_path, message=f"  report: saved {report_path}\n")
+
+
+def format_report_summary(result: WorkflowReportResult) -> str:
+    return result.message
+
+
 def _axis_from_map(qmap: np.ndarray | None, axis: int) -> np.ndarray | None:
     if qmap is None:
         return None
@@ -497,6 +554,56 @@ def _build_q_bins(
     bins = np.clip(bins, 0, centers.size - 1)
     bin_index[in_range] = bins
     return centers, bin_index, in_range
+
+
+def _workflow_options_for_report(args) -> dict[str, object]:
+    names = [
+        "dataset",
+        "detector",
+        "incident_angle",
+        "metadata_mode",
+        "reference_timestamp",
+        "retry_count",
+        "normalization",
+        "background",
+        "background_ic",
+        "background_bc",
+        "no_clamp_negative",
+        "mask_detector",
+        "grid_remove",
+        "detector_correction",
+        "export_1d",
+        "export_format",
+        "q_bins",
+        "q_min",
+        "q_max",
+        "q_scale",
+        "export_std",
+        "export_diagnostics",
+        "export_figure",
+    ]
+    return {name: getattr(args, name) for name in names if hasattr(args, name)}
+
+
+def _qmap_report(qmap_result: WorkflowQMap | None) -> dict[str, object]:
+    if qmap_result is None:
+        return {"qmap_built": False}
+    cal = qmap_result.calibration
+    q = qmap_result.q_map[np.isfinite(qmap_result.q_map)]
+    qz = qmap_result.qz_map[np.isfinite(qmap_result.qz_map)]
+    return {
+        "qmap_built": True,
+        "detector": cal.detector,
+        "beam_center": cal.beam_center,
+        "wavelength": cal.wavelength,
+        "energy_kev": cal.energy_kev,
+        "sdd": cal.sdd,
+        "pixel_size": cal.pixel_size,
+        "q_min": float(np.min(q)) if q.size else float("nan"),
+        "q_max": float(np.max(q)) if q.size else float("nan"),
+        "qz_min": float(np.min(qz)) if qz.size else float("nan"),
+        "qz_max": float(np.max(qz)) if qz.size else float("nan"),
+    }
 
 
 def _load_background_for_processing(args) -> tuple[np.ndarray | None, np.ndarray | None]:

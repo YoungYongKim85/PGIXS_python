@@ -15,9 +15,11 @@ from pgixs_python.workflows.common import (
     format_output_summary,
     format_processing_summary,
     format_qmap_summary,
+    format_report_summary,
     load_h5_input_stack,
     load_workflow_qmap,
     process_workflow_stack,
+    save_workflow_report,
     save_workflow_two_d_info,
 )
 
@@ -41,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     processed = process_workflow_stack(args, result, qmap)
     output_path = save_workflow_two_d_info(args, "TrXS", processed.stack_result, qmap, processed.diagnostics)
     export_1d = export_workflow_1d(args, "TrXS", processed.stack_result, qmap)
+    report = save_workflow_report(args, "TrXS", result, processed.stack_result, qmap, processed, output_path, export_1d)
     parser.exit(
         status=0,
         message=(
@@ -49,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             + format_processing_summary(processed)
             + format_output_summary(output_path)
             + format_1d_export_summary(export_1d)
+            + format_report_summary(report)
         ),
     )
     return 0

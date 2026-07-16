@@ -12,8 +12,11 @@ from pgixs_python.workflows.common import (
     format_1d_export_summary,
     format_processing_summary,
     format_qmap_summary,
+    format_report_summary,
     load_workflow_qmap,
     process_workflow_stack,
+    save_workflow_report,
+    WorkflowExportResult,
     _nanmean_no_warning,
 )
 
@@ -207,3 +210,68 @@ def test_export_workflow_1d_writes_csv(tmp_path):
     assert result.data_path.read_text(encoding="utf-8").splitlines()[0] == (
         "q,intensity,standard_deviation,valid_count,coverage"
     )
+
+
+def test_save_workflow_report_writes_json(tmp_path):
+    stack_result = H5SeriesLoadResult(
+        stack=np.ones((1, 2, 2), dtype=np.float32),
+        records=[H5FrameRecord(Path("sample.h5"), 1, True, H5RetryReport(True, 1))],
+        counts=np.ones((1, 2), dtype=np.float32),
+        timestamps=np.array([0.0], dtype=np.float64),
+        temperatures=np.full((1, 3), np.nan, dtype=np.float32),
+        retry_failed_frames=np.array([], dtype=np.int32),
+        metadata_failed_frames=np.array([], dtype=np.int32),
+    )
+    processed = process_workflow_stack(
+        argparse.Namespace(
+            normalization="None",
+            background=None,
+            no_clamp_negative=False,
+            grid_remove=False,
+            detector_correction=False,
+            detector="Eiger4M",
+        ),
+        stack_result,
+        qmap_result=None,
+    )
+    args = argparse.Namespace(
+        report_json=True,
+        out=str(tmp_path),
+        dataset="/entry/data/data",
+        detector="Eiger4M",
+        metadata_mode="",
+        reference_timestamp=None,
+        retry_count=1,
+        normalization="None",
+        background=None,
+        background_ic=None,
+        background_bc=None,
+        no_clamp_negative=False,
+        mask_detector=False,
+        grid_remove=False,
+        detector_correction=False,
+        export_1d=False,
+        export_format="csv",
+        q_bins=600,
+        q_min=None,
+        q_max=None,
+        q_scale="linear",
+        export_std=False,
+        export_diagnostics=False,
+        export_figure=False,
+    )
+
+    report = save_workflow_report(
+        args,
+        "TrXS",
+        stack_result,
+        processed.stack_result,
+        None,
+        processed,
+        None,
+        export_result=WorkflowExportResult(),
+    )
+
+    assert report.report_path is not None
+    assert report.report_path.exists()
+    assert "report: saved" in format_report_summary(report)
