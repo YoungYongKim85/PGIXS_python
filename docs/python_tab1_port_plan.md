@@ -220,6 +220,8 @@ Tasks:
 - Wired standard calibration loading and Q-map summary generation into TrXS
   and GIXS workflow commands.
 - Added workflow `*_2Dinfo.h5` assembly and save path for calibrated H5 inputs.
+- Expanded q-bin averaging with median/Huber robust intensity, std proxy,
+  valid-count, geometry-count, and coverage diagnostics.
 
 ## Next Step
 
@@ -230,5 +232,5 @@ Continue Phase 2 with H5 IO:
 2. Validate frame-axis selection against real EIGER H5 fixtures.
 3. Validate workflow `*_2Dinfo.h5` round-trips in a Python 3.10 environment
    with `h5py`, then compare against MATLAB 2D-info once MATLAB is available.
-4. Validate Q-map output against MATLAB on real detector dimensions once
-   MATLAB is available; then continue processing corrections and averaging.
+4. Continue detector corrections and sector/cake averaging with coverage
+   diagnostics to prevent detector-gap artifacts.
