@@ -224,6 +224,7 @@ Tasks:
   valid-count, geometry-count, and coverage diagnostics.
 - Added pixel-radius bin map and radius average with Q-axis and coverage
   diagnostics.
+- Added angular/sector radius average with coverage drop diagnostics.
 
 ## Next Step
 
