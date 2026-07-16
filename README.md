@@ -90,6 +90,7 @@ Minimal smoke test without pytest:
 
 ```powershell
 python tests\run_smoke.py
+python tests\run_unit_harness.py
 ```
 
 Pytest test suite:

@@ -70,5 +70,6 @@ future desktop/web UI control contract.
 
 ```powershell
 python tests\run_smoke.py
+python tests\run_unit_harness.py
 python -m compileall pgixs_python tests
 ```

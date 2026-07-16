@@ -281,6 +281,8 @@ Tasks:
 - Added a generated JSON Schema for batch workflow files.
 - Updated Python 3.10 dependency pins and added a CLI quickstart covering
   single workflows, H5 1D export, batch execution, and schema regeneration.
+- Added a lightweight no-pytest unit harness for quick validation on fresh
+  desktop installs.
 
 ## Next Step
 
