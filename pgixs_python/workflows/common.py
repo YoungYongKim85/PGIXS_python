@@ -267,7 +267,7 @@ def build_two_d_info(
 ) -> TwoDInfo:
     """Build Python-native 2D-info from a loaded stack and workflow Q-map."""
 
-    data2d = np.nanmean(stack_result.stack, axis=0).astype(np.float32)
+    data2d = _nanmean_no_warning(stack_result.stack, axis=0).astype(np.float32)
     cal = qmap_result.calibration
     return TwoDInfo(
         measurement_mode=measurement_mode,
@@ -357,6 +357,18 @@ def _resolve_two_d_info_output_path(
     first_file = Path(stack_result.records[0].file_path)
     stem = first_file.stem or measurement_mode.lower()
     return out_path / f"{stem}_{measurement_mode}_2Dinfo.h5"
+
+
+def _nanmean_no_warning(values: np.ndarray, axis: int) -> np.ndarray:
+    """NaN-omitting mean that leaves all-NaN pixels as NaN without warnings."""
+
+    arr = np.asarray(values, dtype=np.float32)
+    finite = np.isfinite(arr)
+    counts = np.sum(finite, axis=axis)
+    sums = np.sum(np.where(finite, arr, 0), axis=axis)
+    out = np.full(sums.shape, np.nan, dtype=np.float32)
+    np.divide(sums, counts, out=out, where=counts > 0)
+    return out
 
 
 def _load_background_for_processing(args) -> tuple[np.ndarray | None, np.ndarray | None]:

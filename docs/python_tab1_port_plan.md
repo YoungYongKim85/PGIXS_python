@@ -233,6 +233,11 @@ Tasks:
   detector correction factor functions with NaN-preserving application.
 - Wired optional normalization, background subtraction, detector mask,
   Eiger4M grid removal, and detector correction into TrXS/GIXS workflow CLIs.
+- Validated real H5 workflow execution for `test/kink_test` GIXS and
+  `test/standard/8.95keVSAXS` TrXS JSON-standard cases; both saved and
+  round-tripped Python-native `*_2Dinfo.h5` outputs.
+- Replaced workflow stack `nanmean` with an all-NaN-safe mean to keep detector
+  gaps as NaN without runtime warnings.
 
 ## Next Step
 

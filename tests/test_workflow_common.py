@@ -12,6 +12,7 @@ from pgixs_python.workflows.common import (
     format_qmap_summary,
     load_workflow_qmap,
     process_workflow_stack,
+    _nanmean_no_warning,
 )
 
 
@@ -142,3 +143,18 @@ def test_process_workflow_stack_applies_normalization_and_diagnostics():
     np.testing.assert_allclose(processed.stack_result.stack[0], np.array([[1, 2]], dtype=np.float32))
     np.testing.assert_allclose(processed.stack_result.stack[1], np.array([[6, 8]], dtype=np.float32))
     assert "normalization: IC" in format_processing_summary(processed)
+
+
+def test_nanmean_no_warning_keeps_all_nan_pixels():
+    stack = np.array(
+        [
+            [[1.0, np.nan], [np.nan, 4.0]],
+            [[3.0, np.nan], [np.nan, 6.0]],
+        ],
+        dtype=np.float32,
+    )
+
+    out = _nanmean_no_warning(stack, axis=0)
+
+    np.testing.assert_allclose(out[:, 0], np.array([2.0, np.nan], dtype=np.float32), equal_nan=True)
+    np.testing.assert_allclose(out[:, 1], np.array([np.nan, 5.0], dtype=np.float32), equal_nan=True)
