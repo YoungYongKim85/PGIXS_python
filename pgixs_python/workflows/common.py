@@ -8,6 +8,8 @@ from pathlib import Path
 import numpy as np
 
 from pgixs_python.calibration.calibration_io import StandardCalibration, load_standard_calibration
+from pgixs_python.averaging import qbin_average
+from pgixs_python.export import OneDExport, save_1d_data, save_1d_figure
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
 from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
@@ -42,6 +44,13 @@ class WorkflowProcessingResult:
     diagnostics: dict[str, np.ndarray | str | int | float]
 
 
+@dataclass
+class WorkflowExportResult:
+    data_path: Path | None = None
+    figure_path: Path | None = None
+    message: str = ""
+
+
 def add_h5_input_arguments(parser) -> None:
     parser.add_argument("--input", required=False, help="Input H5 detector file or folder.")
     parser.add_argument("--dataset", default=DEFAULT_DETECTOR_DATASET, help="H5 detector dataset path.")
@@ -59,6 +68,15 @@ def add_calibration_arguments(parser, include_incident_angle: bool = False) -> N
 
 def add_output_arguments(parser) -> None:
     parser.add_argument("--out", required=False, help="Output H5 file or directory for Python-native 2D-info.")
+    parser.add_argument("--export-1d", action="store_true", help="Export q-binned 1D data from the processed 2D image.")
+    parser.add_argument("--export-format", default="csv", choices=["csv", "dat"], help="1D export file format.")
+    parser.add_argument("--q-bins", type=int, default=600, help="Number of q bins for 1D export.")
+    parser.add_argument("--q-min", type=float, default=None, help="Optional minimum q for 1D export.")
+    parser.add_argument("--q-max", type=float, default=None, help="Optional maximum q for 1D export.")
+    parser.add_argument("--q-scale", default="linear", choices=["linear", "log"], help="1D q-bin spacing.")
+    parser.add_argument("--export-std", action="store_true", help="Include standard deviation in 1D export.")
+    parser.add_argument("--export-diagnostics", action="store_true", help="Include valid-count and coverage columns.")
+    parser.add_argument("--export-figure", action="store_true", help="Also save a PNG 1D figure when matplotlib is installed.")
 
 
 def add_processing_arguments(parser) -> None:
@@ -336,6 +354,72 @@ def format_output_summary(path: Path | None) -> str:
     return f"  output: saved {path}\n"
 
 
+def export_workflow_1d(
+    args,
+    measurement_mode: str,
+    stack_result: H5SeriesLoadResult,
+    qmap_result: WorkflowQMap | None,
+) -> WorkflowExportResult:
+    """Export a q-binned 1D curve when requested."""
+
+    if not getattr(args, "export_1d", False):
+        return WorkflowExportResult(message="  1D export: skipped\n")
+    if qmap_result is None:
+        raise RuntimeError("Cannot export 1D data without --standard because Q maps are required.")
+
+    out_arg = getattr(args, "out", None) or "outputs"
+    out_dir = _resolve_export_output_dir(out_arg)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(stack_result.records[0].file_path).stem or measurement_mode.lower()
+
+    data2d = _nanmean_no_warning(stack_result.stack, axis=0)
+    q = np.asarray(qmap_result.q_map, dtype=np.float32)
+    centers, bin_index, geom_mask = _build_q_bins(
+        q,
+        n_bins=int(getattr(args, "q_bins", 600)),
+        q_min=getattr(args, "q_min", None),
+        q_max=getattr(args, "q_max", None),
+        q_scale=getattr(args, "q_scale", "linear"),
+    )
+    average = qbin_average(
+        data2d,
+        bin_index,
+        centers.size,
+        calc_std=bool(getattr(args, "export_std", False)),
+        geom_mask=geom_mask,
+    )
+
+    std = average.std if getattr(args, "export_std", False) else None
+    export = OneDExport(
+        x=centers,
+        intensity=average.intensity,
+        std=std,
+        counts=average.counts.astype(np.float32),
+        coverage=average.coverage,
+        x_label="q",
+        intensity_label="intensity",
+    )
+    suffix = str(getattr(args, "export_format", "csv")).lower()
+    data_path = save_1d_data(
+        out_dir / f"{stem}_{measurement_mode}_1D.{suffix}",
+        export,
+        include_diagnostics=bool(getattr(args, "export_diagnostics", False)),
+    )
+
+    figure_path = None
+    if getattr(args, "export_figure", False):
+        figure_path = save_1d_figure(out_dir / f"{stem}_{measurement_mode}_1D.png", export)
+
+    msg = f"  1D export: saved {data_path}"
+    if figure_path is not None:
+        msg += f"\n  1D figure: saved {figure_path}"
+    return WorkflowExportResult(data_path=data_path, figure_path=figure_path, message=msg + "\n")
+
+
+def format_1d_export_summary(result: WorkflowExportResult) -> str:
+    return result.message
+
+
 def _axis_from_map(qmap: np.ndarray | None, axis: int) -> np.ndarray | None:
     if qmap is None:
         return None
@@ -359,6 +443,13 @@ def _resolve_two_d_info_output_path(
     return out_path / f"{stem}_{measurement_mode}_2Dinfo.h5"
 
 
+def _resolve_export_output_dir(out_arg: str | Path) -> Path:
+    out_path = Path(out_arg)
+    if out_path.suffix.lower() in {".h5", ".hdf5"}:
+        return out_path.parent if str(out_path.parent) else Path(".")
+    return out_path
+
+
 def _nanmean_no_warning(values: np.ndarray, axis: int) -> np.ndarray:
     """NaN-omitting mean that leaves all-NaN pixels as NaN without warnings."""
 
@@ -369,6 +460,43 @@ def _nanmean_no_warning(values: np.ndarray, axis: int) -> np.ndarray:
     out = np.full(sums.shape, np.nan, dtype=np.float32)
     np.divide(sums, counts, out=out, where=counts > 0)
     return out
+
+
+def _build_q_bins(
+    q_map: np.ndarray,
+    n_bins: int,
+    q_min: float | None,
+    q_max: float | None,
+    q_scale: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    q = np.asarray(q_map, dtype=np.float32)
+    finite = np.isfinite(q)
+    finite_values = q[finite]
+    if finite_values.size == 0:
+        raise ValueError("q_map has no finite values.")
+
+    lo = float(np.nanmin(finite_values)) if q_min is None else float(q_min)
+    hi = float(np.nanmax(finite_values)) if q_max is None else float(q_max)
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        raise ValueError("Invalid q export range.")
+
+    if str(q_scale).lower() == "log":
+        positive = finite_values[finite_values > 0]
+        if positive.size == 0:
+            raise ValueError("Log q export requires positive finite q values.")
+        lo = max(lo, float(np.nanmin(positive)))
+        edges = np.geomspace(lo, hi, int(n_bins) + 1, dtype=np.float32)
+        centers = np.sqrt(edges[:-1] * edges[1:]).astype(np.float32)
+    else:
+        edges = np.linspace(lo, hi, int(n_bins) + 1, dtype=np.float32)
+        centers = ((edges[:-1] + edges[1:]) / 2.0).astype(np.float32)
+
+    bin_index = np.full(q.shape, -1, dtype=np.int64)
+    in_range = finite & (q >= edges[0]) & (q <= edges[-1])
+    bins = np.searchsorted(edges, q[in_range], side="right") - 1
+    bins = np.clip(bins, 0, centers.size - 1)
+    bin_index[in_range] = bins
+    return centers, bin_index, in_range
 
 
 def _load_background_for_processing(args) -> tuple[np.ndarray | None, np.ndarray | None]:

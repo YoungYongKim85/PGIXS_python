@@ -238,6 +238,12 @@ Tasks:
   round-tripped Python-native `*_2Dinfo.h5` outputs.
 - Replaced workflow stack `nanmean` with an all-NaN-safe mean to keep detector
   gaps as NaN without runtime warnings.
+- Added 1D data export helpers for `.csv/.dat` with default q/intensity/std
+  columns and optional count/coverage diagnostics, plus optional matplotlib
+  figure export.
+- Wired q-binned 1D export into TrXS/GIXS workflow CLIs with configurable
+  q-range, bin count, linear/log binning, std, coverage diagnostics, and
+  optional figure output.
 
 ## Next Step
 

@@ -9,6 +9,8 @@ from pgixs_python.workflows.common import (
     add_h5_input_arguments,
     add_output_arguments,
     add_processing_arguments,
+    export_workflow_1d,
+    format_1d_export_summary,
     format_h5_series_summary,
     format_output_summary,
     format_processing_summary,
@@ -38,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     qmap = load_workflow_qmap(args, result.stack.shape[1:3], mode="gixs")
     processed = process_workflow_stack(args, result, qmap)
     output_path = save_workflow_two_d_info(args, "GIXS", processed.stack_result, qmap, processed.diagnostics)
+    export_1d = export_workflow_1d(args, "GIXS", processed.stack_result, qmap)
     parser.exit(
         status=0,
         message=(
@@ -45,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             + format_qmap_summary(qmap)
             + format_processing_summary(processed)
             + format_output_summary(output_path)
+            + format_1d_export_summary(export_1d)
         ),
     )
     return 0

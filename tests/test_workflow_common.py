@@ -8,6 +8,8 @@ from pgixs_python.io.h5_loader import H5RetryReport
 from pgixs_python.io.h5_series import H5FrameRecord, H5SeriesLoadResult
 from pgixs_python.workflows.common import (
     build_two_d_info,
+    export_workflow_1d,
+    format_1d_export_summary,
     format_processing_summary,
     format_qmap_summary,
     load_workflow_qmap,
@@ -158,3 +160,50 @@ def test_nanmean_no_warning_keeps_all_nan_pixels():
 
     np.testing.assert_allclose(out[:, 0], np.array([2.0, np.nan], dtype=np.float32), equal_nan=True)
     np.testing.assert_allclose(out[:, 1], np.array([np.nan, 5.0], dtype=np.float32), equal_nan=True)
+
+
+def test_export_workflow_1d_writes_csv(tmp_path):
+    standard_file = tmp_path / "standard.json"
+    save_standard_calibration_json(
+        standard_file,
+        StandardCalibration(
+            beam_center=np.array([3.0, 3.0]),
+            wavelength=1.3051,
+            pixel_size=0.075,
+            sdd=300.0,
+            detector="Eiger4M",
+        ),
+    )
+    args_q = argparse.Namespace(standard=str(standard_file), detector="Eiger4M")
+    qmap = load_workflow_qmap(args_q, image_shape=(5, 5), mode="trxs")
+    stack_result = H5SeriesLoadResult(
+        stack=np.ones((1, 5, 5), dtype=np.float32),
+        records=[H5FrameRecord(Path("sample.h5"), 1, True, H5RetryReport(True, 1))],
+        counts=np.ones((1, 2), dtype=np.float32),
+        timestamps=np.array([0.0], dtype=np.float64),
+        temperatures=np.full((1, 3), np.nan, dtype=np.float32),
+        retry_failed_frames=np.array([], dtype=np.int32),
+        metadata_failed_frames=np.array([], dtype=np.int32),
+    )
+    args = argparse.Namespace(
+        export_1d=True,
+        out=str(tmp_path),
+        export_format="csv",
+        q_bins=8,
+        q_min=None,
+        q_max=None,
+        q_scale="linear",
+        export_std=True,
+        export_diagnostics=True,
+        export_figure=False,
+    )
+
+    assert qmap is not None
+    result = export_workflow_1d(args, "TrXS", stack_result, qmap)
+
+    assert result.data_path is not None
+    assert result.data_path.exists()
+    assert "1D export: saved" in format_1d_export_summary(result)
+    assert result.data_path.read_text(encoding="utf-8").splitlines()[0] == (
+        "q,intensity,standard_deviation,valid_count,coverage"
+    )
