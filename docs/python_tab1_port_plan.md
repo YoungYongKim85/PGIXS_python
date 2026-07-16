@@ -227,6 +227,8 @@ Tasks:
 - Added angular/sector radius average with coverage drop diagnostics.
 - Added GIXS-style cake average with relative-angle sector masking and coverage
   diagnostics.
+- Expanded normalization/background subtraction helpers with IC/BC handling,
+  counter fallbacks, failure reports, and negative clamp behavior.
 
 ## Next Step
 
