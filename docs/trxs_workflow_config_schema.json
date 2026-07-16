@@ -189,6 +189,13 @@
       "description": "Save a JSON report with workflow options and diagnostics.",
       "type": "boolean",
       "default": false
+    },
+    "manifest": {
+      "description": "Append a compact workflow summary to a JSONL manifest file.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   }
 }

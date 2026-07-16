@@ -14,14 +14,17 @@ from pgixs_python.workflows.common import (
     format_processing_summary,
     format_qmap_summary,
     format_report_summary,
+    format_manifest_summary,
     load_workflow_config,
     load_workflow_qmap,
     parser_config_keys,
     parse_workflow_args,
     process_workflow_stack,
+    save_workflow_manifest,
     save_workflow_report,
     validate_workflow_config_values,
     WorkflowExportResult,
+    WorkflowReportResult,
     _nanmean_no_warning,
 )
 from pgixs_python.workflows.trxs_process import build_parser as build_trxs_parser
@@ -284,6 +287,55 @@ def test_save_workflow_report_writes_json(tmp_path):
     assert report.report_path is not None
     assert report.report_path.exists()
     assert "report: saved" in format_report_summary(report)
+
+
+def test_save_workflow_manifest_appends_jsonl(tmp_path):
+    stack_result = H5SeriesLoadResult(
+        stack=np.ones((1, 2, 2), dtype=np.float32),
+        records=[H5FrameRecord(Path("sample.h5"), 1, True, H5RetryReport(True, 1))],
+        counts=np.ones((1, 2), dtype=np.float32),
+        timestamps=np.array([0.0], dtype=np.float64),
+        temperatures=np.full((1, 3), np.nan, dtype=np.float32),
+        retry_failed_frames=np.array([], dtype=np.int32),
+        metadata_failed_frames=np.array([1], dtype=np.int32),
+    )
+    processed = process_workflow_stack(
+        argparse.Namespace(
+            normalization="None",
+            background=None,
+            no_clamp_negative=False,
+            grid_remove=False,
+            detector_correction=False,
+            detector="Eiger4M",
+        ),
+        stack_result,
+        qmap_result=None,
+    )
+    args = argparse.Namespace(manifest=str(tmp_path / "manifest.jsonl"))
+    export = WorkflowExportResult(
+        data_path=tmp_path / "sample_1D.csv",
+        diagnostics={"one_d_bin_count": 4, "one_d_coverage_min": 0.75},
+    )
+
+    result = save_workflow_manifest(
+        args,
+        "TrXS",
+        stack_result,
+        processed.stack_result,
+        None,
+        processed,
+        tmp_path / "sample_2Dinfo.h5",
+        export,
+        WorkflowReportResult(report_path=tmp_path / "sample_report.json"),
+    )
+
+    assert result.manifest_path is not None
+    assert "manifest: appended" in format_manifest_summary(result)
+    row = json.loads(result.manifest_path.read_text(encoding="utf-8").strip())
+    assert row["measurement_mode"] == "TrXS"
+    assert row["metadata_failed_count"] == 1
+    assert row["one_d_bin_count"] == 4
+    assert row["one_d_coverage_min"] == 0.75
 
 
 def test_load_workflow_config_normalizes_keys(tmp_path):

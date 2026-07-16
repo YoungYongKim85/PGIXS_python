@@ -272,6 +272,8 @@ Tasks:
   detector-gap affected q-bins can be flagged by the future UI.
 - Added generated JSON Schema files for TrXS, GIXS, and 1D export configs so
   future desktop/web UI controls can share the CLI config contract.
+- Added optional JSONL workflow manifest output for batch/UI result tracking
+  across repeated TrXS/GIXS runs.
 
 ## Next Step
 

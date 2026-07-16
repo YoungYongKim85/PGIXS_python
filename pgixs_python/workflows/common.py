@@ -60,6 +60,12 @@ class WorkflowReportResult:
     message: str = ""
 
 
+@dataclass
+class WorkflowManifestResult:
+    manifest_path: Path | None = None
+    message: str = ""
+
+
 def add_h5_input_arguments(parser) -> None:
     parser.add_argument("--config", required=False, help="Optional JSON workflow configuration file.")
     parser.add_argument("--input", required=False, help="Input H5 detector file or folder.")
@@ -89,6 +95,7 @@ def add_output_arguments(parser) -> None:
     parser.add_argument("--export-diagnostics", action="store_true", help="Include valid-count and coverage columns.")
     parser.add_argument("--export-figure", action="store_true", help="Also save a PNG 1D figure when matplotlib is installed.")
     parser.add_argument("--report-json", action="store_true", help="Save a JSON report with workflow options and diagnostics.")
+    parser.add_argument("--manifest", required=False, help="Append a compact workflow summary to a JSONL manifest file.")
 
 
 def add_processing_arguments(parser) -> None:
@@ -191,6 +198,7 @@ def validate_workflow_config_values(config: dict[str, object]) -> None:
         "detector",
         "out",
         "background",
+        "manifest",
     }
 
     for key, value in config.items():
@@ -603,6 +611,51 @@ def format_report_summary(result: WorkflowReportResult) -> str:
     return result.message
 
 
+def save_workflow_manifest(
+    args,
+    measurement_mode: str,
+    raw_stack: H5SeriesLoadResult,
+    processed_stack: H5SeriesLoadResult,
+    qmap_result: WorkflowQMap | None,
+    processing_result: WorkflowProcessingResult,
+    output_path: Path | None,
+    export_result: WorkflowExportResult,
+    report_result: WorkflowReportResult,
+) -> WorkflowManifestResult:
+    """Append a compact JSONL row for batch/UI result tracking."""
+
+    manifest_arg = getattr(args, "manifest", None)
+    if not manifest_arg:
+        return WorkflowManifestResult(message="  manifest: skipped\n")
+
+    manifest_path = Path(manifest_arg)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "measurement_mode": measurement_mode,
+        "input_files": [str(record.file_path) for record in raw_stack.records],
+        "frame_count": int(processed_stack.stack.shape[0]),
+        "image_shape": [int(processed_stack.stack.shape[1]), int(processed_stack.stack.shape[2])],
+        "output_two_d_info": str(output_path) if output_path is not None else None,
+        "output_one_d_data": str(export_result.data_path) if export_result.data_path is not None else None,
+        "output_one_d_figure": str(export_result.figure_path) if export_result.figure_path is not None else None,
+        "output_report": str(report_result.report_path) if report_result.report_path is not None else None,
+        "qmap_built": qmap_result is not None,
+        "retry_failed_count": int(raw_stack.retry_failed_frames.size),
+        "metadata_failed_count": int(raw_stack.metadata_failed_frames.size),
+        "processing_normalization": processing_result.diagnostics.get("processing_normalization"),
+        "processing_background_used": bool(processing_result.diagnostics.get("processing_background_used", False)),
+        "one_d_bin_count": _optional_manifest_int(export_result.diagnostics, "one_d_bin_count"),
+        "one_d_coverage_min": _optional_manifest_float(export_result.diagnostics, "one_d_coverage_min"),
+    }
+    with manifest_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(_json_safe(row), ensure_ascii=False) + "\n")
+    return WorkflowManifestResult(manifest_path=manifest_path, message=f"  manifest: appended {manifest_path}\n")
+
+
+def format_manifest_summary(result: WorkflowManifestResult) -> str:
+    return result.message
+
+
 def _axis_from_map(qmap: np.ndarray | None, axis: int) -> np.ndarray | None:
     if qmap is None:
         return None
@@ -708,6 +761,7 @@ def _workflow_options_for_report(args) -> dict[str, object]:
         "export_std",
         "export_diagnostics",
         "export_figure",
+        "manifest",
     ]
     return {name: getattr(args, name) for name in names if hasattr(args, name)}
 
@@ -752,3 +806,37 @@ def _load_background_for_processing(args) -> tuple[np.ndarray | None, np.ndarray
             dtype=np.float32,
         )
     return background, counts
+
+
+def _optional_manifest_int(diagnostics: dict[str, object] | None, key: str) -> int | None:
+    if diagnostics is None or key not in diagnostics:
+        return None
+    value = diagnostics[key]
+    if value is None:
+        return None
+    return int(value)  # type: ignore[arg-type]
+
+
+def _optional_manifest_float(diagnostics: dict[str, object] | None, key: str) -> float | None:
+    if diagnostics is None or key not in diagnostics:
+        return None
+    value = diagnostics[key]
+    if value is None:
+        return None
+    return float(value)  # type: ignore[arg-type]
+
+
+def _json_safe(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
