@@ -1,5 +1,6 @@
 {
   "input": "../test/standard/8.95keVSAXS/20251117_sb_tr_0001.h5",
+  "frame_index": 0,
   "standard": "../test/standard/8.95keVSAXS/20251117_sb_tr_0001_standard.json",
   "detector": "Eiger4M",
   "normalization": "None",

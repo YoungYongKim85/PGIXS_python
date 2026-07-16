@@ -393,3 +393,15 @@ def test_parse_workflow_args_rejects_invalid_config_bool(tmp_path):
         assert exc.code == 2
     else:
         raise AssertionError("invalid bool config value should stop parsing")
+
+
+def test_parse_workflow_args_rejects_invalid_config_frame_index(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"frame_index": -1}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_trxs_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("invalid frame_index should stop parsing")

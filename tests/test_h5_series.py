@@ -36,6 +36,33 @@ def test_load_h5_series_reads_stack_and_metadata(tmp_path):
     assert result.metadata_failed_frames.size == 0
 
 
+def test_load_h5_series_passes_frame_index(tmp_path):
+    if importlib.util.find_spec("h5py") is None:
+        import pytest
+
+        pytest.skip("h5py is not installed")
+
+    import h5py
+
+    from pgixs_python.io.h5_series import load_h5_series
+
+    h5_file = tmp_path / "stack.h5"
+    raw = np.stack(
+        [
+            np.full((4, 5), 1, dtype=np.float32),
+            np.full((4, 5), 5, dtype=np.float32),
+        ],
+        axis=0,
+    )
+    with h5py.File(h5_file, "w") as h5:
+        h5.create_dataset("/entry/data/data", data=raw)
+
+    result = load_h5_series([h5_file], frame_index=1)
+
+    assert result.stack.shape == (1, 5, 4)
+    assert np.all(result.stack[0] == 5)
+
+
 def test_load_h5_series_marks_failed_frame_with_nan_fallback(tmp_path):
     if importlib.util.find_spec("h5py") is None:
         import pytest

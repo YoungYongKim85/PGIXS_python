@@ -266,6 +266,8 @@ Tasks:
   early instead of being silently ignored.
 - Added JSON config value validation for common type/range mistakes such as
   invalid q-bin counts, q-range order, booleans, and option choices.
+- Added explicit H5 `frame_index` selection for multi-frame detector datasets
+  and recorded the selected frame in workflow reports.
 
 ## Next Step
 

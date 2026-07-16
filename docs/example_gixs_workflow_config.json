@@ -1,5 +1,6 @@
 {
   "input": "../test/kink_test/kinktest_0001.h5",
+  "frame_index": 0,
   "standard": "../test/kink_test/standard/20260619_sb2_0001_standard.json",
   "detector": "Eiger4M",
   "incident_angle": 0.1,

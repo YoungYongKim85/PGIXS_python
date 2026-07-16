@@ -63,6 +63,7 @@ def add_h5_input_arguments(parser) -> None:
     parser.add_argument("--config", required=False, help="Optional JSON workflow configuration file.")
     parser.add_argument("--input", required=False, help="Input H5 detector file or folder.")
     parser.add_argument("--dataset", default=DEFAULT_DETECTOR_DATASET, help="H5 detector dataset path.")
+    parser.add_argument("--frame-index", type=int, default=0, help="Frame index to read from each H5 detector dataset.")
     parser.add_argument("--metadata-mode", default="", help="Metadata scan mode: Temperature, LowTemp., Angle, or blank.")
     parser.add_argument("--reference-timestamp", type=float, default=None, help="Optional timestamp zero-point.")
     parser.add_argument("--retry-count", type=int, default=1, help="Frame load retry count before NaN fallback.")
@@ -155,7 +156,7 @@ def parser_config_keys(parser) -> set[str]:
 def validate_workflow_config_values(config: dict[str, object]) -> None:
     """Validate JSON config values that argparse would otherwise accept as defaults."""
 
-    int_keys = {"q_bins": (1, None), "retry_count": (0, None)}
+    int_keys = {"q_bins": (1, None), "retry_count": (0, None), "frame_index": (0, None)}
     float_keys = {
         "q_min",
         "q_max",
@@ -247,6 +248,7 @@ def load_h5_input_stack(args) -> H5SeriesLoadResult:
     return load_h5_series(
         files,
         dataset_path=args.dataset,
+        frame_index=args.frame_index,
         mask=mask,
         retry_count=args.retry_count,
         metadata_mode=args.metadata_mode,
@@ -674,6 +676,7 @@ def _build_q_bins(
 def _workflow_options_for_report(args) -> dict[str, object]:
     names = [
         "dataset",
+        "frame_index",
         "detector",
         "incident_angle",
         "metadata_mode",

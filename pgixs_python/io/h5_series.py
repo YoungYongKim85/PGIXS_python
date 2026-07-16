@@ -41,6 +41,7 @@ class H5SeriesLoadResult:
 def load_h5_series(
     file_paths: Iterable[str | Path],
     dataset_path: str = DEFAULT_DETECTOR_DATASET,
+    frame_index: int = 0,
     mask: np.ndarray | None = None,
     saturated_value: float = np.nan,
     fallback_size: tuple[int, int] | None = None,
@@ -75,6 +76,7 @@ def load_h5_series(
         data, retry_report = load_h5_frame_with_retry(
             path,
             dataset_path=dataset_path,
+            frame_index=frame_index,
             mask=mask,
             saturated_value=saturated_value,
             fallback_size=known_size,
