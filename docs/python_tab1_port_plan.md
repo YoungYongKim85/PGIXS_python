@@ -262,6 +262,8 @@ Tasks:
   future web UI can share the same processing option schema.
 - Added a post-processing CLI for exporting q-binned 1D curves and JSON
   reports directly from existing Python-native `*_2Dinfo.h5` files.
+- Added JSON config key validation so misspelled workflow/UI option names stop
+  early instead of being silently ignored.
 
 ## Next Step
 

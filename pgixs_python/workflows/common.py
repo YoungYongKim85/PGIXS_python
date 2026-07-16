@@ -120,6 +120,9 @@ def parse_workflow_args(parser, argv: list[str] | None = None):
     pre_args, _ = pre_parser.parse_known_args(argv)
     if pre_args.config:
         config_values = load_workflow_config(pre_args.config)
+        unknown = sorted(set(config_values) - parser_config_keys(parser))
+        if unknown:
+            parser.error(f"Unknown config option(s): {', '.join(unknown)}")
         parser.set_defaults(**config_values)
     return parser.parse_args(argv)
 
@@ -132,6 +135,16 @@ def load_workflow_config(file_path: str | Path) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError("Workflow config JSON must contain an object at the top level.")
     return {str(key).replace("-", "_"): value for key, value in data.items()}
+
+
+def parser_config_keys(parser) -> set[str]:
+    """Return argparse destination names that are valid config keys."""
+
+    return {
+        action.dest
+        for action in parser._actions  # noqa: SLF001 - argparse has no public iterator for actions.
+        if action.dest and action.dest != "help"
+    }
 
 
 def collect_h5_inputs(input_path: str | Path) -> list[Path]:

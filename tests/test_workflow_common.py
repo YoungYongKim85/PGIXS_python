@@ -16,6 +16,7 @@ from pgixs_python.workflows.common import (
     format_report_summary,
     load_workflow_config,
     load_workflow_qmap,
+    parser_config_keys,
     parse_workflow_args,
     process_workflow_stack,
     save_workflow_report,
@@ -318,3 +319,23 @@ def test_parse_workflow_args_uses_config_defaults_and_cli_override(tmp_path):
     assert args.export_1d is True
     assert args.normalization == "BC"
     assert args.q_bins == 200
+
+
+def test_parser_config_keys_include_expected_options():
+    keys = parser_config_keys(build_trxs_parser())
+
+    assert "input" in keys
+    assert "standard" in keys
+    assert "q_bins" in keys
+
+
+def test_parse_workflow_args_rejects_unknown_config_key(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"q_bnis": 100}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_trxs_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("unknown config key should stop parsing")

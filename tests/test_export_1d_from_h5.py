@@ -1,14 +1,17 @@
 import argparse
+import json
 
 import numpy as np
 
 from pgixs_python.io.two_d_info import TwoDInfo, load_two_d_info_h5, save_two_d_info_h5
 from pgixs_python.workflows.export_1d_from_h5 import (
     build_q_bins_from_map,
+    build_parser,
     export_1d_from_two_d_info,
     resolve_1d_output_path,
     save_export_report,
 )
+from pgixs_python.workflows.common import parse_workflow_args
 
 
 def test_build_q_bins_from_map_linear():
@@ -68,3 +71,15 @@ def test_export_1d_from_two_d_info_writes_csv_and_report(tmp_path):
     )
     assert report_path is not None
     assert report_path.exists()
+
+
+def test_export_1d_parser_rejects_unknown_config_key(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"q_bnis": 100}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("unknown config key should stop parsing")
