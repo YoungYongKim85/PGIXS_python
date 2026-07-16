@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 
 from pgixs_python.calibration.calibration_io import StandardCalibration, load_standard_calibration
+from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
 from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
 from pgixs_python.io.two_d_info import TwoDInfo, save_two_d_info_h5
+from pgixs_python.processing import (
+    DetectorCorrectionInputs,
+    apply_detector_correction,
+    detector_correction_factor,
+    detector_mask_for_type,
+    grid_remove,
+    process_normalization,
+)
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.trxs import qmap_trxs
 
@@ -25,6 +34,12 @@ class WorkflowQMap:
     qr_map: np.ndarray | None = None
     tth2d: np.ndarray | None = None
     af2d: np.ndarray | None = None
+
+
+@dataclass
+class WorkflowProcessingResult:
+    stack_result: H5SeriesLoadResult
+    diagnostics: dict[str, np.ndarray | str | int | float]
 
 
 def add_h5_input_arguments(parser) -> None:
@@ -46,6 +61,30 @@ def add_output_arguments(parser) -> None:
     parser.add_argument("--out", required=False, help="Output H5 file or directory for Python-native 2D-info.")
 
 
+def add_processing_arguments(parser) -> None:
+    parser.add_argument(
+        "--normalization",
+        default="None",
+        choices=["None", "IC", "BC"],
+        help="Per-frame normalization mode before averaging.",
+    )
+    parser.add_argument("--background", required=False, help="Optional background image file.")
+    parser.add_argument("--background-ic", type=float, default=None, help="Optional background IC counter.")
+    parser.add_argument("--background-bc", type=float, default=None, help="Optional background BC counter.")
+    parser.add_argument(
+        "--no-clamp-negative",
+        action="store_true",
+        help="Keep negative values after background subtraction instead of clamping them to zero.",
+    )
+    parser.add_argument("--mask-detector", action="store_true", help="Apply detector default mask while loading H5 frames.")
+    parser.add_argument("--grid-remove", action="store_true", help="Apply Eiger4M grid-line correction per frame.")
+    parser.add_argument(
+        "--detector-correction",
+        action="store_true",
+        help="Apply solid-angle/polarization detector correction after normalization.",
+    )
+
+
 def collect_h5_inputs(input_path: str | Path) -> list[Path]:
     path = Path(input_path)
     if path.is_file():
@@ -62,9 +101,13 @@ def collect_h5_inputs(input_path: str | Path) -> list[Path]:
 
 def load_h5_input_stack(args) -> H5SeriesLoadResult:
     files = collect_h5_inputs(args.input)
+    mask = None
+    if getattr(args, "mask_detector", False):
+        mask = detector_mask_for_type(getattr(args, "detector", "")).mask
     return load_h5_series(
         files,
         dataset_path=args.dataset,
+        mask=mask,
         retry_count=args.retry_count,
         metadata_mode=args.metadata_mode,
         reference_timestamp=args.reference_timestamp,
@@ -135,10 +178,91 @@ def format_qmap_summary(result: WorkflowQMap | None) -> str:
     )
 
 
+def process_workflow_stack(
+    args,
+    stack_result: H5SeriesLoadResult,
+    qmap_result: WorkflowQMap | None = None,
+) -> WorkflowProcessingResult:
+    """Apply optional Tab1 processing steps to each loaded frame."""
+
+    stack = np.asarray(stack_result.stack, dtype=np.float32).copy()
+    frame_count = stack.shape[0]
+    background, background_counts = _load_background_for_processing(args)
+    norm_success = np.ones(frame_count, dtype=np.int8)
+    grid_applied = np.zeros(frame_count, dtype=np.int8)
+    correction_applied = np.zeros(frame_count, dtype=np.int8)
+
+    correction_factor = None
+    if getattr(args, "detector_correction", False):
+        if qmap_result is None:
+            raise RuntimeError("--detector-correction requires --standard because Q maps are required.")
+        cal = qmap_result.calibration
+        k0 = 2.0 * np.pi / float(cal.wavelength)
+        correction_factor = detector_correction_factor(
+            DetectorCorrectionInputs(
+                data_size=tuple(int(v) for v in stack.shape[1:3]),
+                beam_position=(float(cal.beam_center[0]), float(cal.beam_center[1])),
+                pixel_size_mm=float(cal.pixel_size),
+                sdd_mm=float(cal.sdd),
+                q_map=qmap_result.q_map,
+                energy_kev=float(cal.energy_kev) if cal.energy_kev is not None else float("nan"),
+                detector_type=cal.detector or getattr(args, "detector", ""),
+            ),
+            k0=k0,
+        )
+
+    for idx in range(frame_count):
+        frame, norm_report = process_normalization(
+            stack[idx],
+            background=background,
+            counts=stack_result.counts[idx, :] if stack_result.counts.size else None,
+            background_counts=background_counts,
+            method=getattr(args, "normalization", "None"),
+            clamp_negative=not getattr(args, "no_clamp_negative", False),
+        )
+        norm_success[idx] = 1 if norm_report.success else 0
+
+        if getattr(args, "grid_remove", False):
+            frame, grid_report = grid_remove(frame, detector_type=getattr(args, "detector", ""))
+            grid_applied[idx] = 1 if grid_report.applied else 0
+
+        if correction_factor is not None:
+            frame = apply_detector_correction(frame, correction_factor)
+            correction_applied[idx] = 1
+
+        stack[idx, :, :] = frame
+
+    processed = replace(stack_result, stack=stack)
+    diagnostics: dict[str, np.ndarray | str | int | float] = {
+        "processing_normalization": str(getattr(args, "normalization", "None")),
+        "processing_norm_success": norm_success,
+        "processing_grid_applied": grid_applied,
+        "processing_detector_correction_applied": correction_applied,
+        "processing_background_used": int(background is not None),
+    }
+    return WorkflowProcessingResult(stack_result=processed, diagnostics=diagnostics)
+
+
+def format_processing_summary(result: WorkflowProcessingResult) -> str:
+    diagnostics = result.diagnostics
+    norm_success = np.asarray(diagnostics["processing_norm_success"])
+    grid_applied = np.asarray(diagnostics["processing_grid_applied"])
+    correction_applied = np.asarray(diagnostics["processing_detector_correction_applied"])
+    return (
+        "  processing: applied\n"
+        f"  normalization: {diagnostics['processing_normalization']} "
+        f"({int(np.count_nonzero(norm_success))}/{norm_success.size} successful)\n"
+        f"  background used: {bool(diagnostics['processing_background_used'])}\n"
+        f"  grid-remove frames: {int(np.count_nonzero(grid_applied))}\n"
+        f"  detector-correction frames: {int(np.count_nonzero(correction_applied))}\n"
+    )
+
+
 def build_two_d_info(
     measurement_mode: str,
     stack_result: H5SeriesLoadResult,
     qmap_result: WorkflowQMap,
+    processing_diagnostics: dict[str, np.ndarray | str | int | float] | None = None,
     incident_angle: float | None = None,
 ) -> TwoDInfo:
     """Build Python-native 2D-info from a loaded stack and workflow Q-map."""
@@ -173,6 +297,7 @@ def build_two_d_info(
             "counts": stack_result.counts,
             "timestamps": stack_result.timestamps,
             "temperatures": stack_result.temperatures,
+            **(processing_diagnostics or {}),
         },
     )
 
@@ -182,6 +307,7 @@ def save_workflow_two_d_info(
     measurement_mode: str,
     stack_result: H5SeriesLoadResult,
     qmap_result: WorkflowQMap | None,
+    processing_diagnostics: dict[str, np.ndarray | str | int | float] | None = None,
 ) -> Path | None:
     """Save workflow 2D-info when `--out` and a qmap are available."""
 
@@ -197,6 +323,7 @@ def save_workflow_two_d_info(
         measurement_mode=measurement_mode,
         stack_result=stack_result,
         qmap_result=qmap_result,
+        processing_diagnostics=processing_diagnostics,
         incident_angle=getattr(args, "incident_angle", None),
     )
     save_two_d_info_h5(out_path, info)
@@ -230,3 +357,24 @@ def _resolve_two_d_info_output_path(
     first_file = Path(stack_result.records[0].file_path)
     stem = first_file.stem or measurement_mode.lower()
     return out_path / f"{stem}_{measurement_mode}_2Dinfo.h5"
+
+
+def _load_background_for_processing(args) -> tuple[np.ndarray | None, np.ndarray | None]:
+    background_path = getattr(args, "background", None)
+    if not background_path:
+        return None, None
+
+    image = load_image_file(background_path)
+    background = np.asarray(image.data, dtype=np.float32)
+    counts = image.counts if image.counts.size >= 2 else None
+    bg_ic = getattr(args, "background_ic", None)
+    bg_bc = getattr(args, "background_bc", None)
+    if bg_ic is not None or bg_bc is not None:
+        counts = np.asarray(
+            [
+                np.nan if bg_ic is None else float(bg_ic),
+                np.nan if bg_bc is None else float(bg_bc),
+            ],
+            dtype=np.float32,
+        )
+    return background, counts

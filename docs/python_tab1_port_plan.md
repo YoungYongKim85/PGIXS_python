@@ -231,6 +231,8 @@ Tasks:
   counter fallbacks, failure reports, and negative clamp behavior.
 - Added detector mask helpers, Eiger4M-only grid removal, and MATLAB-style
   detector correction factor functions with NaN-preserving application.
+- Wired optional normalization, background subtraction, detector mask,
+  Eiger4M grid removal, and detector correction into TrXS/GIXS workflow CLIs.
 
 ## Next Step
 
