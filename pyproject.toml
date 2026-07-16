@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pgixs-tab1"
+version = "0.1.0"
+description = "Python port of PGIXS Tab1 raw-data processing"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+  "numpy==1.23.5",
+  "scipy==1.13.1",
+  "matplotlib==3.8.2",
+  "pandas==2.3.3",
+  "requests==2.32.5",
+  "h5py",
+  "tifffile",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pgixs_tab1*"]
+

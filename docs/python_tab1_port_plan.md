@@ -1,0 +1,225 @@
+# PGIXS Tab1 Python Port Plan
+
+This file is the working tracker for the Python Tab1 port. Use it before each
+implementation step so the work stays focused on Tab1 raw-data processing.
+
+Finished items should be removed or moved to the progress log section instead
+of left as stale checklist noise.
+
+## Scope
+
+In scope:
+
+- Tab1 GIXS raw processing.
+- Tab1 TrXS raw processing.
+- SDD calibration read/apply support.
+- Detector image loading for `.h5`, `.tif/.tiff`, `.mat`, and text-like data.
+- Q-map generation.
+- Normalization, background handling, detector mask, and correction helpers.
+- Radial/circular/angular/sector/cake-cut style 1D outputs.
+- Python-native `*_2Dinfo.h5` output with metadata/diagnostics.
+- Optional MATLAB-compatible `*_2Dinfo.mat` export for later Tab3 use.
+- Paper/report figure and table exports.
+
+Out of scope for this folder:
+
+- Tab3 indexing.
+- HKL/Solve/Fine-tune logic.
+- MATLAB GUI work.
+- Web UI implementation.
+
+## Guardrails
+
+- Keep Python runtime on Python 3.10 for the real project environment.
+- Use `pathlib.Path` for Windows/Linux path compatibility.
+- Preserve detector gaps and failed frames as `NaN`, never silent zero.
+- H5 frame loading should retry once, then mark failed frames as `NaN`.
+- Average functions must omit `NaN` and return valid-count/coverage diagnostics
+  where useful.
+- Use H5 as the Python-native internal output. Keep MATLAB compatibility as an
+  explicit export path, not the primary storage contract.
+- Do not start Tab3 or web implementation from this folder.
+
+## Phase 1. Environment
+
+- Create Python 3.10 virtual environment.
+- Install `requirements.txt`.
+- Install `requirements-torch-cu113.txt` only if a later module genuinely needs
+  Torch.
+- Run:
+
+```powershell
+python tests\run_smoke.py
+python -m pytest tests
+```
+
+Current scaffold smoke status:
+
+- Bundled Codex Python 3.12 smoke passed for the minimal scaffold.
+- Real project Python 3.10 environment is still needed.
+
+## Phase 2. IO Implementation
+
+Target files:
+
+- `pgixs_tab1/io/image_loader.py`
+- `pgixs_tab1/io/h5_loader.py`
+- `pgixs_tab1/io/h5_metadata.py`
+- `pgixs_tab1/io/mat_loader.py`
+
+Tasks:
+
+- Port `.h5` frame loading and EIGER orientation behavior.
+- Port H5 counters/metadata reading.
+- Implement retry-once behavior for frame loading.
+- Port `.mat` image selection behavior from `loadPGIXSImageFile.m` as a
+  secondary input path.
+- Port `.tif/.tiff` loading.
+- Add tests for each supported format using existing `test/` fixtures when
+  practical.
+
+## Phase 3. Calibration And Standards
+
+Target files:
+
+- `pgixs_tab1/calibration/sdd.py`
+- `pgixs_tab1/calibration/standards.py`
+- `pgixs_tab1/calibration/calibration_io.py`
+
+Tasks:
+
+- Port standard q/order values.
+- Read MATLAB legacy standard `.mat` files.
+- Read/write Python-friendly JSON calibration.
+- Preserve SDD candidate diagnostics fields.
+- Preserve short-SDD AgBH behavior: do not assume hidden 1st peak is visible.
+
+## Phase 4. Q-Map Generation
+
+Target files:
+
+- `pgixs_tab1/qmap/trxs.py`
+- `pgixs_tab1/qmap/gixs.py`
+
+Tasks:
+
+- Numerically align TrXS Q-map with `Qmaping_tr.m`.
+- Port and test GIXS Q-map from `Qmaping_gi.m`.
+- Confirm output shapes and axis orientation.
+- Add small synthetic tests for beam-center and sign conventions.
+
+## Phase 5. Processing Core
+
+Target files:
+
+- `pgixs_tab1/processing/normalization.py`
+- `pgixs_tab1/processing/corrections.py`
+- `pgixs_tab1/processing/grid_remove.py`
+- `pgixs_tab1/processing/masking.py`
+
+Tasks:
+
+- Port normalization modes.
+- Port background subtraction behavior.
+- Port solid angle, polarization, and efficiency corrections.
+- Keep detector mask/gap as `NaN`.
+- Limit grid remove to Eiger4M-compatible images.
+
+## Phase 6. 1D Averages And Cuts
+
+Target files:
+
+- `pgixs_tab1/averaging/qbin.py`
+- `pgixs_tab1/averaging/radial.py`
+- `pgixs_tab1/averaging/angular.py`
+- `pgixs_tab1/averaging/cake.py`
+
+Tasks:
+
+- Port q-bin average with `NaN` omission.
+- Port pixel-radius radial/circular average.
+- Port TrXS angular/sector average.
+- Port GIXS cake cut, including angle wrap-around.
+- Return count/coverage sidecars where detector gaps affect interpretation.
+- Add detector-gap tests to prevent deep-bump regressions.
+
+## Phase 7. Export And Reports
+
+Target files:
+
+- `pgixs_tab1/io/two_d_info.py`
+- `pgixs_tab1/export/data_export.py`
+- `pgixs_tab1/export/figures.py`
+- `pgixs_tab1/export/report_json.py`
+
+Tasks:
+
+- Save Python-native `*_2Dinfo.h5`.
+- Export MATLAB-readable `*_2Dinfo.mat` only when compatibility is requested.
+- Save `.mat`, `.csv`, `.dat`.
+- Save `.png/.jpg` figures.
+- Save JSON metadata/diagnostics report.
+- Preserve retry/metadata sidecar behavior.
+
+## Phase 8. Workflow CLI
+
+Target files:
+
+- `pgixs_tab1/workflows/trxs_process.py`
+- `pgixs_tab1/workflows/gixs_process.py`
+
+Tasks:
+
+- Implement TrXS command-line workflow.
+- Implement GIXS command-line workflow.
+- Support input file/series, standard file, output directory, and basic options.
+- Emit progress and failure summaries.
+
+Example target commands:
+
+```powershell
+python -m pgixs_tab1.workflows.trxs_process --input sample.h5 --standard standard.mat --out out_trxs
+python -m pgixs_tab1.workflows.gixs_process --input sample.h5 --standard standard.mat --out out_gixs
+```
+
+## Phase 9. Real Data Validation
+
+Tasks:
+
+- Run existing `test/` fixture smoke tests.
+- Compare selected Python outputs against MATLAB outputs when MATLAB becomes
+  available again.
+- Confirm detector-gap average behavior.
+- Confirm saved `*_2Dinfo.h5` round-trips in Python.
+- Confirm optional `*_2Dinfo.mat` export can be opened by MATLAB Tab3 after
+  MATLAB is repaired.
+
+## Progress Log
+
+- Created initial `python_tab1/` package scaffold.
+- Added MATLAB-to-Python Tab1 mapping document.
+- Added minimal SDD ring calculation.
+- Added minimal NaN-omitting q-bin average.
+- Added CLI scaffolds for GIXS and TrXS workflows.
+- Added minimal smoke runner.
+- Switched Python-native 2D-info storage plan from MAT-first to H5-first for
+  metadata extensibility.
+- Added H5-native `TwoDInfo` save/load API scaffold with optional MAT export.
+- Added H5 detector frame loader scaffold with MATLAB-compatible transpose,
+  saturation cleanup, mask application, and retry-to-NaN fallback.
+- Added H5 metadata reader scaffold for IC/BC counters, timestamp, and
+  temperature/angle scan values.
+- Added H5 series loader scaffold that builds a `(frame, row, col)` stack and
+  records retry/metadata failed-frame sidecars.
+- Wired H5 file/folder stack loading into TrXS and GIXS workflow scaffolds.
+
+## Next Step
+
+Continue Phase 2 with H5 IO:
+
+1. Run H5 loader and H5 2D-info tests in a Python 3.10 environment with
+   `h5py` and `pytest`.
+2. Validate frame-axis selection against real EIGER H5 fixtures.
+3. Add workflow output writing for Python-native `*_2Dinfo.h5` once q-map and
+   correction fields are available.
+4. Then add `.tif/.tiff` and `.mat` input loading as secondary paths.

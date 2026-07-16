@@ -1,0 +1,2 @@
+"""1D averaging helpers."""
+
