@@ -283,6 +283,8 @@ Tasks:
   single workflows, H5 1D export, batch execution, and schema regeneration.
 - Added a lightweight no-pytest unit harness for quick validation on fresh
   desktop installs.
+- Added a CLI core stabilization checklist to track UI readiness risks and
+  remaining real-data validation work.
 
 ## Next Step
 

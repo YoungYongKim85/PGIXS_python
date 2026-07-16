@@ -4,6 +4,7 @@ This folder is the Python port workspace for PGIXS Tab1 only.
 
 Use `docs/python_tab1_port_plan.md` as the active work tracker before each
 implementation step.
+Use `docs/cli_core_stabilization_checklist.md` as the UI readiness checklist.
 
 Scope:
 
