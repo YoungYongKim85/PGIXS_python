@@ -246,6 +246,8 @@ Tasks:
   optional figure output.
 - Added workflow JSON report export for input files, output files, processing
   options, calibration summary, and retry/metadata/processing diagnostics.
+- Wired explicit MATLAB-compatible `*_2Dinfo.mat` export into workflows behind
+  `--export-mat` so H5 remains the Python-native default.
 
 ## Next Step
 
