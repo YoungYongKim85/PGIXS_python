@@ -18,7 +18,6 @@ In scope:
 - Normalization, background handling, detector mask, and correction helpers.
 - Radial/circular/angular/sector/cake-cut style 1D outputs.
 - Python-native `*_2Dinfo.h5` output with metadata/diagnostics.
-- Optional MATLAB-compatible `*_2Dinfo.mat` export for later Tab3 use.
 - Paper/report figure and table exports.
 
 Out of scope for this folder:
@@ -155,7 +154,6 @@ Target files:
 Tasks:
 
 - Save Python-native `*_2Dinfo.h5`.
-- Export MATLAB-readable `*_2Dinfo.mat` only when compatibility is requested.
 - Save `.mat`, `.csv`, `.dat`.
 - Save `.png/.jpg` figures.
 - Save JSON metadata/diagnostics report.
@@ -191,8 +189,6 @@ Tasks:
   available again.
 - Confirm detector-gap average behavior.
 - Confirm saved `*_2Dinfo.h5` round-trips in Python.
-- Confirm optional `*_2Dinfo.mat` export can be opened by MATLAB Tab3 after
-  MATLAB is repaired.
 
 ## Progress Log
 
@@ -204,7 +200,7 @@ Tasks:
 - Added minimal smoke runner.
 - Switched Python-native 2D-info storage plan from MAT-first to H5-first for
   metadata extensibility.
-- Added H5-native `TwoDInfo` save/load API scaffold with optional MAT export.
+- Added H5-native `TwoDInfo` save/load API scaffold.
 - Added H5 detector frame loader scaffold with MATLAB-compatible transpose,
   saturation cleanup, mask application, and retry-to-NaN fallback.
 - Added H5 metadata reader scaffold for IC/BC counters, timestamp, and
@@ -246,8 +242,6 @@ Tasks:
   optional figure output.
 - Added workflow JSON report export for input files, output files, processing
   options, calibration summary, and retry/metadata/processing diagnostics.
-- Wired explicit MATLAB-compatible `*_2Dinfo.mat` export into workflows behind
-  `--export-mat` so H5 remains the Python-native default.
 
 ## Next Step
 

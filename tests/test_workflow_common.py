@@ -9,9 +9,7 @@ from pgixs_python.io.h5_series import H5FrameRecord, H5SeriesLoadResult
 from pgixs_python.workflows.common import (
     build_two_d_info,
     export_workflow_1d,
-    export_workflow_mat,
     format_1d_export_summary,
-    format_mat_export_summary,
     format_processing_summary,
     format_qmap_summary,
     format_report_summary,
@@ -19,7 +17,6 @@ from pgixs_python.workflows.common import (
     process_workflow_stack,
     save_workflow_report,
     WorkflowExportResult,
-    WorkflowMatExportResult,
     _nanmean_no_warning,
 )
 
@@ -202,7 +199,6 @@ def test_export_workflow_1d_writes_csv(tmp_path):
         export_std=True,
         export_diagnostics=True,
         export_figure=False,
-        export_mat=False,
     )
 
     assert qmap is not None
@@ -263,7 +259,6 @@ def test_save_workflow_report_writes_json(tmp_path):
         export_std=False,
         export_diagnostics=False,
         export_figure=False,
-        export_mat=False,
     )
 
     report = save_workflow_report(
@@ -274,28 +269,9 @@ def test_save_workflow_report_writes_json(tmp_path):
         None,
         processed,
         None,
-        mat_result=WorkflowMatExportResult(),
         export_result=WorkflowExportResult(),
     )
 
     assert report.report_path is not None
     assert report.report_path.exists()
     assert "report: saved" in format_report_summary(report)
-
-
-def test_export_workflow_mat_skips_when_disabled(tmp_path):
-    stack_result = H5SeriesLoadResult(
-        stack=np.ones((1, 2, 2), dtype=np.float32),
-        records=[H5FrameRecord(Path("sample.h5"), 1, True, H5RetryReport(True, 1))],
-        counts=np.ones((1, 2), dtype=np.float32),
-        timestamps=np.array([0.0], dtype=np.float64),
-        temperatures=np.full((1, 3), np.nan, dtype=np.float32),
-        retry_failed_frames=np.array([], dtype=np.int32),
-        metadata_failed_frames=np.array([], dtype=np.int32),
-    )
-    args = argparse.Namespace(export_mat=False, out=str(tmp_path))
-
-    result = export_workflow_mat(args, "TrXS", stack_result, qmap_result=None)
-
-    assert result.mat_path is None
-    assert "skipped" in format_mat_export_summary(result)

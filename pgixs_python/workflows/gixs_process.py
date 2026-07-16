@@ -10,10 +10,8 @@ from pgixs_python.workflows.common import (
     add_output_arguments,
     add_processing_arguments,
     export_workflow_1d,
-    export_workflow_mat,
     format_1d_export_summary,
     format_h5_series_summary,
-    format_mat_export_summary,
     format_output_summary,
     format_processing_summary,
     format_qmap_summary,
@@ -44,9 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     qmap = load_workflow_qmap(args, result.stack.shape[1:3], mode="gixs")
     processed = process_workflow_stack(args, result, qmap)
     output_path = save_workflow_two_d_info(args, "GIXS", processed.stack_result, qmap, processed.diagnostics)
-    mat_export = export_workflow_mat(args, "GIXS", processed.stack_result, qmap, processed.diagnostics)
     export_1d = export_workflow_1d(args, "GIXS", processed.stack_result, qmap)
-    report = save_workflow_report(args, "GIXS", result, processed.stack_result, qmap, processed, output_path, mat_export, export_1d)
+    report = save_workflow_report(args, "GIXS", result, processed.stack_result, qmap, processed, output_path, export_1d)
     parser.exit(
         status=0,
         message=(
@@ -54,7 +51,6 @@ def main(argv: list[str] | None = None) -> int:
             + format_qmap_summary(qmap)
             + format_processing_summary(processed)
             + format_output_summary(output_path)
-            + format_mat_export_summary(mat_export)
             + format_1d_export_summary(export_1d)
             + format_report_summary(report)
         ),

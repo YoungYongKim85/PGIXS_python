@@ -2,8 +2,6 @@
 
 Python Tab1 uses H5 as its native internal output format because it can store
 large arrays, metadata, diagnostics, and provenance in one extensible file.
-MATLAB `.mat` export should be treated as a compatibility layer, not the
-primary Python storage contract.
 """
 
 from __future__ import annotations
@@ -126,37 +124,6 @@ def load_two_d_info_h5(file_path: str | Path) -> TwoDInfo:
         )
 
 
-def export_two_d_info_mat(file_path: str | Path, info: TwoDInfo) -> None:
-    """Export a MATLAB-readable compatibility MAT file."""
-
-    scipy_io = _import_scipy_io()
-    path = Path(file_path)
-    data = {
-        "data2dPix": info.data2d_pix,
-        "data2dQ": info.data2d_q,
-        "QMap": info.q_map,
-        "QzMap": info.qz_map,
-        "qzaxis": info.qz_axis,
-        "Beampos": info.beam_position,
-        "Wavelength": info.wavelength,
-        "SDD": info.sdd,
-        "pixel": info.pixel,
-        "MeasurementMode": info.measurement_mode,
-        "SchemaVersion": SCHEMA_VERSION,
-    }
-    if info.qx_map is not None:
-        data["QxMap"] = info.qx_map
-    if info.qy_map is not None:
-        data["QyMap"] = info.qy_map
-    if info.qy_axis is not None:
-        data["qyaxis"] = info.qy_axis
-    if info.qr_map is not None:
-        data["QrMap"] = info.qr_map
-    if info.qr_axis is not None:
-        data["qraxis"] = info.qr_axis
-    scipy_io.savemat(path, data, do_compression=True)
-
-
 def _write_dataset(group: Any, name: str, value: Any) -> None:
     group.create_dataset(name, data=np.asarray(value), compression="gzip")
 
@@ -218,12 +185,3 @@ def _import_h5py() -> Any:
     except ImportError as exc:
         raise ImportError("h5py is required for Python-native PGIXS H5 2D-info files.") from exc
     return h5py
-
-
-def _import_scipy_io() -> Any:
-    try:
-        import scipy.io
-    except ImportError as exc:
-        raise ImportError("scipy is required only for MATLAB compatibility MAT export.") from exc
-    return scipy.io
-

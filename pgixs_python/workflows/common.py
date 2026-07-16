@@ -13,7 +13,7 @@ from pgixs_python.export import OneDExport, WorkflowReport, save_1d_data, save_1
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
 from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
-from pgixs_python.io.two_d_info import TwoDInfo, export_two_d_info_mat, save_two_d_info_h5
+from pgixs_python.io.two_d_info import TwoDInfo, save_two_d_info_h5
 from pgixs_python.processing import (
     DetectorCorrectionInputs,
     apply_detector_correction,
@@ -52,12 +52,6 @@ class WorkflowExportResult:
 
 
 @dataclass
-class WorkflowMatExportResult:
-    mat_path: Path | None = None
-    message: str = ""
-
-
-@dataclass
 class WorkflowReportResult:
     report_path: Path | None = None
     message: str = ""
@@ -90,11 +84,6 @@ def add_output_arguments(parser) -> None:
     parser.add_argument("--export-diagnostics", action="store_true", help="Include valid-count and coverage columns.")
     parser.add_argument("--export-figure", action="store_true", help="Also save a PNG 1D figure when matplotlib is installed.")
     parser.add_argument("--report-json", action="store_true", help="Save a JSON report with workflow options and diagnostics.")
-    parser.add_argument(
-        "--export-mat",
-        action="store_true",
-        help="Also export MATLAB-compatible *_2Dinfo.mat next to the Python-native H5 output.",
-    )
 
 
 def add_processing_arguments(parser) -> None:
@@ -366,42 +355,10 @@ def save_workflow_two_d_info(
     return out_path
 
 
-def export_workflow_mat(
-    args,
-    measurement_mode: str,
-    stack_result: H5SeriesLoadResult,
-    qmap_result: WorkflowQMap | None,
-    processing_diagnostics: dict[str, np.ndarray | str | int | float] | None = None,
-) -> WorkflowMatExportResult:
-    """Export optional MATLAB-compatible 2D-info MAT output."""
-
-    if not getattr(args, "export_mat", False):
-        return WorkflowMatExportResult(message="  MAT export: skipped\n")
-    if qmap_result is None:
-        raise RuntimeError("Cannot export MAT 2D-info without --standard because Q maps are required.")
-
-    out_arg = getattr(args, "out", None) or "outputs"
-    mat_path = _resolve_mat_output_path(out_arg, measurement_mode, stack_result)
-    mat_path.parent.mkdir(parents=True, exist_ok=True)
-    info = build_two_d_info(
-        measurement_mode=measurement_mode,
-        stack_result=stack_result,
-        qmap_result=qmap_result,
-        processing_diagnostics=processing_diagnostics,
-        incident_angle=getattr(args, "incident_angle", None),
-    )
-    export_two_d_info_mat(mat_path, info)
-    return WorkflowMatExportResult(mat_path=mat_path, message=f"  MAT export: saved {mat_path}\n")
-
-
 def format_output_summary(path: Path | None) -> str:
     if path is None:
         return "  output: skipped; pass --out with --standard to save *_2Dinfo.h5\n"
     return f"  output: saved {path}\n"
-
-
-def format_mat_export_summary(result: WorkflowMatExportResult) -> str:
-    return result.message
 
 
 def export_workflow_1d(
@@ -478,7 +435,6 @@ def save_workflow_report(
     qmap_result: WorkflowQMap | None,
     processing_result: WorkflowProcessingResult,
     output_path: Path | None,
-    mat_result: WorkflowMatExportResult,
     export_result: WorkflowExportResult,
 ) -> WorkflowReportResult:
     """Save optional JSON provenance/diagnostics report."""
@@ -497,7 +453,6 @@ def save_workflow_report(
         input_files=[str(record.file_path) for record in raw_stack.records],
         output_files={
             "two_d_info": str(output_path) if output_path is not None else None,
-            "mat_two_d_info": str(mat_result.mat_path) if mat_result.mat_path is not None else None,
             "one_d_data": str(export_result.data_path) if export_result.data_path is not None else None,
             "one_d_figure": str(export_result.figure_path) if export_result.figure_path is not None else None,
         },
@@ -543,21 +498,6 @@ def _resolve_two_d_info_output_path(
     first_file = Path(stack_result.records[0].file_path)
     stem = first_file.stem or measurement_mode.lower()
     return out_path / f"{stem}_{measurement_mode}_2Dinfo.h5"
-
-
-def _resolve_mat_output_path(
-    out_arg: str | Path,
-    measurement_mode: str,
-    stack_result: H5SeriesLoadResult,
-) -> Path:
-    out_path = Path(out_arg)
-    if out_path.suffix.lower() == ".mat":
-        return out_path
-    if out_path.suffix.lower() in {".h5", ".hdf5"}:
-        return out_path.with_suffix(".mat")
-    first_file = Path(stack_result.records[0].file_path)
-    stem = first_file.stem or measurement_mode.lower()
-    return out_path / f"{stem}_{measurement_mode}_2Dinfo.mat"
 
 
 def _resolve_export_output_dir(out_arg: str | Path) -> Path:
@@ -641,7 +581,6 @@ def _workflow_options_for_report(args) -> dict[str, object]:
         "export_std",
         "export_diagnostics",
         "export_figure",
-        "export_mat",
     ]
     return {name: getattr(args, name) for name in names if hasattr(args, name)}
 

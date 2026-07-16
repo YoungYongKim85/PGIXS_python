@@ -47,5 +47,6 @@ This map intentionally excludes Tab3 indexing.
 - Retry once for H5 frame load; failed frames become NaN.
 - Detector gap and masked pixels remain NaN and are omitted from averages.
 - Python-native 2D-info output should be H5 for metadata extensibility.
-- MATLAB-readable 2D-info MAT export should remain available during transition.
+- Python-native 2D-info output is H5-only so metadata and diagnostics remain
+  extensible and consistent.
 - Windows and Linux paths must be handled through `pathlib.Path`.
