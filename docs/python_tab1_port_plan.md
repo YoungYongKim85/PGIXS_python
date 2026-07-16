@@ -225,6 +225,8 @@ Tasks:
 - Added pixel-radius bin map and radius average with Q-axis and coverage
   diagnostics.
 - Added angular/sector radius average with coverage drop diagnostics.
+- Added GIXS-style cake average with relative-angle sector masking and coverage
+  diagnostics.
 
 ## Next Step
 
