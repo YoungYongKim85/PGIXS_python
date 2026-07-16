@@ -268,6 +268,8 @@ Tasks:
   invalid q-bin counts, q-range order, booleans, and option choices.
 - Added explicit H5 `frame_index` selection for multi-frame detector datasets
   and recorded the selected frame in workflow reports.
+- Added compact 1D coverage diagnostics to workflow/export JSON reports so
+  detector-gap affected q-bins can be flagged by the future UI.
 
 ## Next Step
 

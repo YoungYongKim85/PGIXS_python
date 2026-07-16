@@ -71,6 +71,9 @@ def test_export_1d_from_two_d_info_writes_csv_and_report(tmp_path):
     )
     assert report_path is not None
     assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["diagnostics"]["one_d_bin_count"] == 4
+    assert "one_d_coverage_min" in report["diagnostics"]
 
 
 def test_export_1d_parser_rejects_unknown_config_key(tmp_path):

@@ -9,7 +9,7 @@ from pgixs_python.averaging.cake import (
     pixel_angle_map,
 )
 from pgixs_python.averaging.radial import RadiusAverageResult, RadiusBinMap, build_radius_bin_map, radius_average
-from pgixs_python.averaging.qbin import QBinAverageResult, mean_by_bin, qbin_average
+from pgixs_python.averaging.qbin import QBinAverageResult, mean_by_bin, qbin_average, summarize_coverage
 
 __all__ = [
     "CakeAverageResult",
@@ -28,4 +28,5 @@ __all__ = [
     "qbin_average",
     "radius_average",
     "sector_average",
+    "summarize_coverage",
 ]

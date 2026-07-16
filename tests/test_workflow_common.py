@@ -212,6 +212,9 @@ def test_export_workflow_1d_writes_csv(tmp_path):
 
     assert result.data_path is not None
     assert result.data_path.exists()
+    assert result.diagnostics is not None
+    assert result.diagnostics["one_d_bin_count"] == 8
+    assert "one_d_coverage_min" in result.diagnostics
     assert "1D export: saved" in format_1d_export_summary(result)
     assert result.data_path.read_text(encoding="utf-8").splitlines()[0] == (
         "q,intensity,standard_deviation,valid_count,coverage"

@@ -1,6 +1,6 @@
 import numpy as np
 
-from pgixs_python.averaging.qbin import mean_by_bin, qbin_average
+from pgixs_python.averaging.qbin import mean_by_bin, qbin_average, summarize_coverage
 
 
 def test_mean_by_bin_omits_nan():
@@ -43,3 +43,13 @@ def test_qbin_average_median_mode():
 
     assert result.intensity[0] == 2.0
     assert result.std[0] > 0
+
+
+def test_summarize_coverage_reports_low_and_drop_bins():
+    coverage = np.array([1.0, 1.0, 1.0, 1.0, 0.05, 0.04, 0.04, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    summary = summarize_coverage(coverage, low_threshold=0.15)
+
+    assert summary["coverage_min"] < 0.1
+    np.testing.assert_array_equal(summary["coverage_low_bins"], np.array([4, 5, 6], dtype=np.int64))
+    assert np.asarray(summary["coverage_drop_bins"]).size >= 1

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from pgixs_python.calibration.calibration_io import StandardCalibration, load_standard_calibration
-from pgixs_python.averaging import qbin_average
+from pgixs_python.averaging import qbin_average, summarize_coverage
 from pgixs_python.export import OneDExport, WorkflowReport, save_1d_data, save_1d_figure, save_workflow_report_json
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
@@ -50,6 +50,7 @@ class WorkflowProcessingResult:
 class WorkflowExportResult:
     data_path: Path | None = None
     figure_path: Path | None = None
+    diagnostics: dict[str, object] | None = None
     message: str = ""
 
 
@@ -512,6 +513,13 @@ def export_workflow_1d(
         calc_std=bool(getattr(args, "export_std", False)),
         geom_mask=geom_mask,
     )
+    diagnostics = {
+        "one_d_q_min": float(np.nanmin(centers)) if centers.size else float("nan"),
+        "one_d_q_max": float(np.nanmax(centers)) if centers.size else float("nan"),
+        "one_d_bin_count": int(centers.size),
+        "one_d_valid_bins": int(np.count_nonzero(average.counts > 0)),
+        **{f"one_d_{key}": value for key, value in summarize_coverage(average.coverage).items()},
+    }
 
     std = average.std if getattr(args, "export_std", False) else None
     export = OneDExport(
@@ -537,7 +545,7 @@ def export_workflow_1d(
     msg = f"  1D export: saved {data_path}"
     if figure_path is not None:
         msg += f"\n  1D figure: saved {figure_path}"
-    return WorkflowExportResult(data_path=data_path, figure_path=figure_path, message=msg + "\n")
+    return WorkflowExportResult(data_path=data_path, figure_path=figure_path, diagnostics=diagnostics, message=msg + "\n")
 
 
 def format_1d_export_summary(result: WorkflowExportResult) -> str:
@@ -583,6 +591,7 @@ def save_workflow_report(
             "counts": raw_stack.counts,
             "timestamps": raw_stack.timestamps,
             "temperatures": raw_stack.temperatures,
+            **(export_result.diagnostics or {}),
             **processing_result.diagnostics,
         },
     )

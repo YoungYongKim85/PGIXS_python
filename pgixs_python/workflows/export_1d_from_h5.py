@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pgixs_python.averaging import qbin_average
+from pgixs_python.averaging import qbin_average, summarize_coverage
 from pgixs_python.export import OneDExport, WorkflowReport, save_1d_data, save_1d_figure, save_workflow_report_json
 from pgixs_python.io.two_d_info import TwoDInfo, load_two_d_info_h5
 from pgixs_python.workflows.common import load_workflow_config, parse_workflow_args
@@ -88,6 +88,7 @@ def save_export_report(info: TwoDInfo, source_path: str | Path, args, data_path:
 
     report_path = data_path.with_name(f"{data_path.stem}_report.json")
     q = info.q_map[np.isfinite(info.q_map)]
+    one_d_diagnostics = build_export_coverage_diagnostics(info, args)
     report = WorkflowReport(
         measurement_mode=info.measurement_mode,
         input_files=[str(source_path)],
@@ -119,9 +120,28 @@ def save_export_report(info: TwoDInfo, source_path: str | Path, args, data_path:
             "source_files": info.source_files,
             "retry_failed_frames": info.retry_failed_frames,
             "metadata_failed_frames": info.metadata_failed_frames,
+            **one_d_diagnostics,
         },
     )
     return save_workflow_report_json(report_path, report)
+
+
+def build_export_coverage_diagnostics(info: TwoDInfo, args) -> dict[str, object]:
+    centers, bin_index, geom_mask = build_q_bins_from_map(
+        info.q_map,
+        n_bins=int(getattr(args, "q_bins", 600)),
+        q_min=getattr(args, "q_min", None),
+        q_max=getattr(args, "q_max", None),
+        q_scale=getattr(args, "q_scale", "linear"),
+    )
+    average = qbin_average(info.data2d_q, bin_index, centers.size, geom_mask=geom_mask)
+    return {
+        "one_d_q_min": float(np.nanmin(centers)) if centers.size else float("nan"),
+        "one_d_q_max": float(np.nanmax(centers)) if centers.size else float("nan"),
+        "one_d_bin_count": int(centers.size),
+        "one_d_valid_bins": int(np.count_nonzero(average.counts > 0)),
+        **{f"one_d_{key}": value for key, value in summarize_coverage(average.coverage).items()},
+    }
 
 
 def build_q_bins_from_map(
@@ -174,6 +194,7 @@ def resolve_1d_output_path(out_arg: str | Path | None, source_path: str | Path, 
 
 __all__ = [
     "build_parser",
+    "build_export_coverage_diagnostics",
     "build_q_bins_from_map",
     "export_1d_from_two_d_info",
     "load_workflow_config",

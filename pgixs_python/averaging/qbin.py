@@ -16,6 +16,27 @@ class QBinAverageResult:
     coverage: np.ndarray
 
 
+def summarize_coverage(coverage: np.ndarray, low_threshold: float = 0.15) -> dict[str, object]:
+    """Return compact detector-gap diagnostics for a binned 1D curve."""
+
+    cov = np.asarray(coverage, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(cov)
+    if not np.any(finite):
+        return {
+            "coverage_min": float("nan"),
+            "coverage_median": float("nan"),
+            "coverage_low_bins": np.array([], dtype=np.int64),
+            "coverage_drop_bins": np.array([], dtype=np.int64),
+        }
+
+    return {
+        "coverage_min": float(np.nanmin(cov)),
+        "coverage_median": float(np.nanmedian(cov)),
+        "coverage_low_bins": np.flatnonzero(finite & (cov < float(low_threshold))).astype(np.int64),
+        "coverage_drop_bins": _coverage_drop_bins(cov),
+    }
+
+
 def mean_by_bin(data: np.ndarray, bin_index: np.ndarray, n_bins: int) -> tuple[np.ndarray, np.ndarray]:
     """Return NaN-omitting mean and valid counts for integer bin indices."""
 
@@ -29,6 +50,19 @@ def mean_by_bin(data: np.ndarray, bin_index: np.ndarray, n_bins: int) -> tuple[n
         if counts[idx] > 0:
             out[idx] = float(np.mean(values[mask]))
     return out.astype(np.float32), counts
+
+
+def _coverage_drop_bins(coverage: np.ndarray) -> np.ndarray:
+    cov = np.asarray(coverage, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(cov)
+    if np.count_nonzero(finite) < 5:
+        return np.array([], dtype=np.int64)
+    delta = np.r_[np.nan, np.abs(np.diff(cov))]
+    finite_delta = delta[np.isfinite(delta)]
+    med_drop = float(np.median(finite_delta)) if finite_delta.size else 0.05
+    if not np.isfinite(med_drop) or med_drop <= 0:
+        med_drop = 0.05
+    return np.flatnonzero(delta > max(0.10, 5.0 * med_drop)).astype(np.int64)
 
 
 def qbin_average(
