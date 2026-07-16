@@ -276,6 +276,8 @@ Tasks:
   across repeated TrXS/GIXS runs.
 - Added a JSON-driven batch workflow runner that can execute TrXS/GIXS/1D
   export jobs sequentially and share a manifest path across jobs.
+- Added quiet batch execution with per-job log files and structured batch
+  summary JSON for future UI/automation use.
 
 ## Next Step
 

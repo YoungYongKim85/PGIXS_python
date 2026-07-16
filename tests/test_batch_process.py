@@ -6,6 +6,8 @@ from pgixs_python.workflows.batch_process import (
     format_batch_summary,
     load_batch_jobs,
     run_batch,
+    save_batch_summary_json,
+    write_job_log,
 )
 
 
@@ -81,3 +83,45 @@ def test_run_batch_handles_system_exit_message_as_failure():
 
     assert results[0].exit_code == 1
     assert results[0].message == "usage error"
+
+
+def test_run_batch_quiet_captures_output_and_writes_log(tmp_path):
+    jobs = [BatchJob(workflow="trxs", config="ok.json", label="quiet job")]
+
+    def noisy_runner(argv):
+        print("workflow stdout")
+        return 0
+
+    results = run_batch(
+        jobs,
+        quiet=True,
+        log_dir=tmp_path / "logs",
+        runners={"trxs": noisy_runner, "gixs": noisy_runner, "export-1d": noisy_runner},
+    )
+
+    assert results[0].ok
+    assert results[0].stdout.strip() == "workflow stdout"
+    assert results[0].log_path is not None
+    assert results[0].log_path.exists()
+    assert "workflow stdout" in results[0].log_path.read_text(encoding="utf-8")
+
+
+def test_write_job_log_uses_safe_label(tmp_path):
+    job = BatchJob(workflow="trxs", label="bad label:/")
+    result = run_batch([job], runners={"trxs": lambda argv: 0, "gixs": lambda argv: 0, "export-1d": lambda argv: 0})[0]
+
+    log_path = write_job_log(tmp_path, 1, result)
+
+    assert log_path.name == "001_bad_label__.log"
+
+
+def test_save_batch_summary_json(tmp_path):
+    job = BatchJob(workflow="trxs", config="ok.json", label="ok")
+    result = run_batch([job], runners={"trxs": lambda argv: 0, "gixs": lambda argv: 0, "export-1d": lambda argv: 0})[0]
+
+    out = save_batch_summary_json(tmp_path / "summary.json", [result])
+    payload = json.loads(out.read_text(encoding="utf-8"))
+
+    assert payload["job_count"] == 1
+    assert payload["failed_count"] == 0
+    assert payload["jobs"][0]["label"] == "ok"
