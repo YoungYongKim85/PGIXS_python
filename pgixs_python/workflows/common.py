@@ -10,6 +10,7 @@ import numpy as np
 from pgixs_python.calibration.calibration_io import StandardCalibration, load_standard_calibration
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
 from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
+from pgixs_python.io.two_d_info import TwoDInfo, save_two_d_info_h5
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.trxs import qmap_trxs
 
@@ -39,6 +40,10 @@ def add_calibration_arguments(parser, include_incident_angle: bool = False) -> N
     parser.add_argument("--detector", default="", help="Expected detector name for calibration validation.")
     if include_incident_angle:
         parser.add_argument("--incident-angle", type=float, default=0.0, help="GIXS incident angle in degrees.")
+
+
+def add_output_arguments(parser) -> None:
+    parser.add_argument("--out", required=False, help="Output H5 file or directory for Python-native 2D-info.")
 
 
 def collect_h5_inputs(input_path: str | Path) -> list[Path]:
@@ -128,3 +133,100 @@ def format_qmap_summary(result: WorkflowQMap | None) -> str:
         f"  q range: {q_min:g} to {q_max:g}\n"
         f"  qz range: {qz_min:g} to {qz_max:g}\n"
     )
+
+
+def build_two_d_info(
+    measurement_mode: str,
+    stack_result: H5SeriesLoadResult,
+    qmap_result: WorkflowQMap,
+    incident_angle: float | None = None,
+) -> TwoDInfo:
+    """Build Python-native 2D-info from a loaded stack and workflow Q-map."""
+
+    data2d = np.nanmean(stack_result.stack, axis=0).astype(np.float32)
+    cal = qmap_result.calibration
+    return TwoDInfo(
+        measurement_mode=measurement_mode,
+        data2d_pix=data2d,
+        data2d_q=data2d.copy(),
+        q_map=qmap_result.q_map,
+        qz_map=qmap_result.qz_map,
+        qz_axis=_axis_from_map(qmap_result.qz_map, axis=0),
+        beam_position=cal.beam_center.astype(np.float32, copy=False),
+        wavelength=float(cal.wavelength),
+        sdd=float(cal.sdd),
+        pixel=float(cal.pixel_size),
+        qx_map=qmap_result.qx_map,
+        qy_map=qmap_result.qy_map,
+        qy_axis=_axis_from_map(qmap_result.qy_map, axis=1),
+        qr_map=qmap_result.qr_map,
+        qr_axis=_axis_from_map(qmap_result.qr_map, axis=1),
+        energy_kev=cal.energy_kev,
+        detector=cal.detector,
+        incident_angle=incident_angle,
+        source_files=[str(record.file_path) for record in stack_result.records],
+        retry_failed_frames=stack_result.retry_failed_frames,
+        metadata_failed_frames=stack_result.metadata_failed_frames,
+        diagnostics={
+            "frame_count": int(stack_result.stack.shape[0]),
+            "input_stack_shape": np.asarray(stack_result.stack.shape, dtype=np.int32),
+            "counts": stack_result.counts,
+            "timestamps": stack_result.timestamps,
+            "temperatures": stack_result.temperatures,
+        },
+    )
+
+
+def save_workflow_two_d_info(
+    args,
+    measurement_mode: str,
+    stack_result: H5SeriesLoadResult,
+    qmap_result: WorkflowQMap | None,
+) -> Path | None:
+    """Save workflow 2D-info when `--out` and a qmap are available."""
+
+    out_arg = getattr(args, "out", None)
+    if not out_arg:
+        return None
+    if qmap_result is None:
+        raise RuntimeError("Cannot save 2D-info without --standard because Q maps are required.")
+
+    out_path = _resolve_two_d_info_output_path(out_arg, measurement_mode, stack_result)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    info = build_two_d_info(
+        measurement_mode=measurement_mode,
+        stack_result=stack_result,
+        qmap_result=qmap_result,
+        incident_angle=getattr(args, "incident_angle", None),
+    )
+    save_two_d_info_h5(out_path, info)
+    return out_path
+
+
+def format_output_summary(path: Path | None) -> str:
+    if path is None:
+        return "  output: skipped; pass --out with --standard to save *_2Dinfo.h5\n"
+    return f"  output: saved {path}\n"
+
+
+def _axis_from_map(qmap: np.ndarray | None, axis: int) -> np.ndarray | None:
+    if qmap is None:
+        return None
+    if axis == 0:
+        column = qmap[:, qmap.shape[1] // 2]
+        return np.asarray(column, dtype=np.float32)
+    row = qmap[qmap.shape[0] // 2, :]
+    return np.asarray(row, dtype=np.float32)
+
+
+def _resolve_two_d_info_output_path(
+    out_arg: str | Path,
+    measurement_mode: str,
+    stack_result: H5SeriesLoadResult,
+) -> Path:
+    out_path = Path(out_arg)
+    if out_path.suffix.lower() in {".h5", ".hdf5"}:
+        return out_path
+    first_file = Path(stack_result.records[0].file_path)
+    stem = first_file.stem or measurement_mode.lower()
+    return out_path / f"{stem}_{measurement_mode}_2Dinfo.h5"

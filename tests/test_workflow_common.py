@@ -1,9 +1,12 @@
 import argparse
+from pathlib import Path
 
 import numpy as np
 
 from pgixs_python.calibration.calibration_io import StandardCalibration, save_standard_calibration_json
-from pgixs_python.workflows.common import format_qmap_summary, load_workflow_qmap
+from pgixs_python.io.h5_loader import H5RetryReport
+from pgixs_python.io.h5_series import H5FrameRecord, H5SeriesLoadResult
+from pgixs_python.workflows.common import build_two_d_info, format_qmap_summary, load_workflow_qmap
 
 
 def test_load_workflow_qmap_trxs_from_json_standard(tmp_path):
@@ -51,3 +54,49 @@ def test_load_workflow_qmap_gixs_from_json_standard(tmp_path):
     assert result.qr_map is not None
     assert result.tth2d is not None
     assert result.af2d is not None
+
+
+def test_build_two_d_info_from_stack_and_qmap(tmp_path):
+    standard_file = tmp_path / "standard.json"
+    save_standard_calibration_json(
+        standard_file,
+        StandardCalibration(
+            beam_center=np.array([3.0, 3.0]),
+            wavelength=1.3051,
+            pixel_size=0.075,
+            sdd=300.0,
+            detector="Eiger4M",
+        ),
+    )
+    args = argparse.Namespace(standard=str(standard_file), detector="Eiger4M")
+    qmap = load_workflow_qmap(args, image_shape=(5, 5), mode="trxs")
+    stack = np.stack(
+        [
+            np.ones((5, 5), dtype=np.float32),
+            np.ones((5, 5), dtype=np.float32) * 3,
+        ],
+        axis=0,
+    )
+    stack_result = H5SeriesLoadResult(
+        stack=stack,
+        records=[
+            H5FrameRecord(Path("a.h5"), 1, True, H5RetryReport(True, 1)),
+            H5FrameRecord(Path("b.h5"), 2, True, H5RetryReport(True, 1)),
+        ],
+        counts=np.ones((2, 2), dtype=np.float32),
+        timestamps=np.array([0.0, 1.0], dtype=np.float64),
+        temperatures=np.full((2, 3), np.nan, dtype=np.float32),
+        retry_failed_frames=np.array([], dtype=np.int32),
+        metadata_failed_frames=np.array([2], dtype=np.int32),
+    )
+
+    assert qmap is not None
+    info = build_two_d_info("TrXS", stack_result, qmap)
+
+    assert info.measurement_mode == "TrXS"
+    assert info.detector == "Eiger4M"
+    assert info.data2d_pix.shape == (5, 5)
+    assert np.all(info.data2d_pix == 2)
+    assert info.q_map.shape == (5, 5)
+    assert info.source_files == ["a.h5", "b.h5"]
+    np.testing.assert_array_equal(info.metadata_failed_frames, np.array([2], dtype=np.int32))
