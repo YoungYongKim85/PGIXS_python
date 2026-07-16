@@ -20,6 +20,7 @@ from pgixs_python.workflows.common import (
     parse_workflow_args,
     process_workflow_stack,
     save_workflow_report,
+    validate_workflow_config_values,
     WorkflowExportResult,
     _nanmean_no_warning,
 )
@@ -339,3 +340,56 @@ def test_parse_workflow_args_rejects_unknown_config_key(tmp_path):
         assert exc.code == 2
     else:
         raise AssertionError("unknown config key should stop parsing")
+
+
+def test_validate_workflow_config_values_accepts_valid_values():
+    validate_workflow_config_values(
+        {
+            "input": "sample.h5",
+            "standard": "standard.json",
+            "export_1d": True,
+            "export_format": "dat",
+            "q_bins": 100,
+            "q_min": 0.01,
+            "q_max": 0.3,
+            "q_scale": "log",
+            "normalization": "IC",
+            "retry_count": 1,
+        }
+    )
+
+
+def test_parse_workflow_args_rejects_invalid_config_q_bins(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"q_bins": 0}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_trxs_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("invalid q_bins should stop parsing")
+
+
+def test_parse_workflow_args_rejects_invalid_config_q_range(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"q_min": 0.3, "q_max": 0.1}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_trxs_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("invalid q range should stop parsing")
+
+
+def test_parse_workflow_args_rejects_invalid_config_bool(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"export_1d": "yes"}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_trxs_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("invalid bool config value should stop parsing")

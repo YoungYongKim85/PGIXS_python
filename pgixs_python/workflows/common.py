@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from numbers import Real
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -123,6 +124,10 @@ def parse_workflow_args(parser, argv: list[str] | None = None):
         unknown = sorted(set(config_values) - parser_config_keys(parser))
         if unknown:
             parser.error(f"Unknown config option(s): {', '.join(unknown)}")
+        try:
+            validate_workflow_config_values(config_values)
+        except ValueError as exc:
+            parser.error(str(exc))
         parser.set_defaults(**config_values)
     return parser.parse_args(argv)
 
@@ -145,6 +150,79 @@ def parser_config_keys(parser) -> set[str]:
         for action in parser._actions  # noqa: SLF001 - argparse has no public iterator for actions.
         if action.dest and action.dest != "help"
     }
+
+
+def validate_workflow_config_values(config: dict[str, object]) -> None:
+    """Validate JSON config values that argparse would otherwise accept as defaults."""
+
+    int_keys = {"q_bins": (1, None), "retry_count": (0, None)}
+    float_keys = {
+        "q_min",
+        "q_max",
+        "incident_angle",
+        "reference_timestamp",
+        "background_ic",
+        "background_bc",
+    }
+    bool_keys = {
+        "export_1d",
+        "export_std",
+        "export_diagnostics",
+        "export_figure",
+        "report_json",
+        "no_clamp_negative",
+        "mask_detector",
+        "grid_remove",
+        "detector_correction",
+    }
+    choice_keys = {
+        "export_format": {"csv", "dat"},
+        "q_scale": {"linear", "log"},
+        "normalization": {"None", "IC", "BC"},
+    }
+    string_keys = {
+        "config",
+        "input",
+        "dataset",
+        "metadata_mode",
+        "standard",
+        "detector",
+        "out",
+        "background",
+    }
+
+    for key, value in config.items():
+        if key in int_keys and not _is_int_like(value):
+            raise ValueError(f"Config option '{key}' must be an integer.")
+        if key in int_keys:
+            min_value, max_value = int_keys[key]
+            numeric_value = int(value)
+            if min_value is not None and numeric_value < min_value:
+                raise ValueError(f"Config option '{key}' must be >= {min_value}.")
+            if max_value is not None and numeric_value > max_value:
+                raise ValueError(f"Config option '{key}' must be <= {max_value}.")
+        if key in float_keys and value is not None and not _is_real_number(value):
+            raise ValueError(f"Config option '{key}' must be a number or null.")
+        if key in bool_keys and not isinstance(value, bool):
+            raise ValueError(f"Config option '{key}' must be true or false.")
+        if key in choice_keys and value not in choice_keys[key]:
+            choices = ", ".join(sorted(choice_keys[key]))
+            raise ValueError(f"Config option '{key}' must be one of: {choices}.")
+        if key in string_keys and value is not None and not isinstance(value, str):
+            raise ValueError(f"Config option '{key}' must be a string or null.")
+
+    q_min = config.get("q_min")
+    q_max = config.get("q_max")
+    if q_min is not None and q_max is not None and float(q_max) <= float(q_min):
+        raise ValueError("Config option 'q_max' must be greater than 'q_min'.")
+
+
+def _is_int_like(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_real_number(value: object) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool)
 
 
 def collect_h5_inputs(input_path: str | Path) -> list[Path]:

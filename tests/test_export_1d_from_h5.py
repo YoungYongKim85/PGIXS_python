@@ -83,3 +83,15 @@ def test_export_1d_parser_rejects_unknown_config_key(tmp_path):
         assert exc.code == 2
     else:
         raise AssertionError("unknown config key should stop parsing")
+
+
+def test_export_1d_parser_rejects_invalid_config_choice(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"q_scale": "ln"}), encoding="utf-8")
+
+    try:
+        parse_workflow_args(build_parser(), ["--config", str(config_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("invalid config choice should stop parsing")

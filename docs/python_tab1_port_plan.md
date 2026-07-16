@@ -264,6 +264,8 @@ Tasks:
   reports directly from existing Python-native `*_2Dinfo.h5` files.
 - Added JSON config key validation so misspelled workflow/UI option names stop
   early instead of being silently ignored.
+- Added JSON config value validation for common type/range mistakes such as
+  invalid q-bin counts, q-range order, booleans, and option choices.
 
 ## Next Step
 
