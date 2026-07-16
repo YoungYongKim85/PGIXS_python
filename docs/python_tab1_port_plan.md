@@ -279,6 +279,8 @@ Tasks:
 - Added quiet batch execution with per-job log files and structured batch
   summary JSON for future UI/automation use.
 - Added a generated JSON Schema for batch workflow files.
+- Updated Python 3.10 dependency pins and added a CLI quickstart covering
+  single workflows, H5 1D export, batch execution, and schema regeneration.
 
 ## Next Step
 

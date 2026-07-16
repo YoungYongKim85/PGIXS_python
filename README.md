@@ -14,7 +14,7 @@ Scope:
 - Detector corrections and NaN-preserving masking.
 - 1D radial, angular, sector, line, and cake-cut style averaging.
 - Python-native H5 2D-info output with metadata/diagnostics.
-- Optional MATLAB-compatible 2D-info export for later Tab3 use.
+- H5-only 2D-info export for metadata extensibility.
 
 Out of scope for this folder:
 
@@ -41,6 +41,31 @@ diagnostics:
 ```powershell
 python -m pgixs_python.workflows.trxs_process --input path\to\h5_folder
 python -m pgixs_python.workflows.gixs_process --input path\to\frame.h5
+```
+
+Current config-driven examples:
+
+```powershell
+python -m pgixs_python.workflows.gixs_process --config docs\example_gixs_workflow_config.json
+python -m pgixs_python.workflows.trxs_process --config docs\example_trxs_workflow_config.json
+python -m pgixs_python.workflows.export_1d_from_h5 --input validation_outputs\sample_GIXS_2Dinfo.h5 --out validation_outputs
+```
+
+Batch execution:
+
+```powershell
+python -m pgixs_python.workflows.batch_process `
+  --batch docs\example_batch_workflow.json `
+  --manifest validation_outputs\batch_manifest.jsonl `
+  --quiet `
+  --log-dir validation_outputs\batch_logs `
+  --summary-json validation_outputs\batch_summary.json
+```
+
+Regenerate JSON config schemas:
+
+```powershell
+python -m pgixs_python.workflows.config_schema --workflow all --out docs
 ```
 
 ## Environment
