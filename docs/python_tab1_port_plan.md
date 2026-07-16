@@ -222,6 +222,8 @@ Tasks:
 - Added workflow `*_2Dinfo.h5` assembly and save path for calibrated H5 inputs.
 - Expanded q-bin averaging with median/Huber robust intensity, std proxy,
   valid-count, geometry-count, and coverage diagnostics.
+- Added pixel-radius bin map and radius average with Q-axis and coverage
+  diagnostics.
 
 ## Next Step
 
