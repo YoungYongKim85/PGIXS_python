@@ -217,6 +217,8 @@ Tasks:
 - Added standard q-value lookup and SDD standard calibration JSON/MAT loading.
 - Added vectorized TrXS and GIXS Q-map calculations with MATLAB sign/shape
   conventions.
+- Wired standard calibration loading and Q-map summary generation into TrXS
+  and GIXS workflow commands.
 
 ## Next Step
 
@@ -225,7 +227,7 @@ Continue Phase 2 with H5 IO:
 1. Run H5 loader and H5 2D-info tests in a Python 3.10 environment with
    `h5py` and `pytest`.
 2. Validate frame-axis selection against real EIGER H5 fixtures.
-3. Add workflow output writing for Python-native `*_2Dinfo.h5` once q-map and
-   correction fields are available.
+3. Add workflow output writing for Python-native `*_2Dinfo.h5` using raw stack,
+   calibration, and Q-map fields.
 4. Validate Q-map output against MATLAB on real detector dimensions once
    MATLAB is available; then continue processing corrections and averaging.
