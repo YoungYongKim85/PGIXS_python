@@ -214,6 +214,7 @@ Tasks:
 - Wired H5 file/folder stack loading into TrXS and GIXS workflow scaffolds.
 - Added secondary `.mat`, `.tif/.tiff`, and numeric text image loaders to the
   image loading dispatcher.
+- Added standard q-value lookup and SDD standard calibration JSON/MAT loading.
 
 ## Next Step
 
@@ -224,5 +225,5 @@ Continue Phase 2 with H5 IO:
 2. Validate frame-axis selection against real EIGER H5 fixtures.
 3. Add workflow output writing for Python-native `*_2Dinfo.h5` once q-map and
    correction fields are available.
-4. Begin Phase 3 standard calibration IO, then Phase 4 Q-map numerical
-   alignment.
+4. Continue Phase 3 with candidate SDD diagnostics and standard calibration
+   validation against real files, then Phase 4 Q-map numerical alignment.

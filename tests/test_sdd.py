@@ -1,4 +1,5 @@
 from pgixs_python.calibration.sdd import compute_sdd_from_ring
+from pgixs_python.calibration.standards import standard_q_value
 
 
 def test_compute_sdd_from_ring_positive():
@@ -7,3 +8,6 @@ def test_compute_sdd_from_ring_positive():
     assert result.wavelength > 0
     assert result.two_theta_deg > 0
 
+
+def test_standard_q_value_scales_order():
+    assert standard_q_value("Silver behenate", order=2) == 0.2104
