@@ -270,15 +270,16 @@ Tasks:
   and recorded the selected frame in workflow reports.
 - Added compact 1D coverage diagnostics to workflow/export JSON reports so
   detector-gap affected q-bins can be flagged by the future UI.
+- Added generated JSON Schema files for TrXS, GIXS, and 1D export configs so
+  future desktop/web UI controls can share the CLI config contract.
 
 ## Next Step
 
-Continue Phase 2 with H5 IO:
+Continue Phase 8/9 workflow hardening and real-data validation:
 
-1. Run H5 loader and H5 2D-info tests in a Python 3.10 environment with
-   `h5py` and `pytest`.
-2. Validate frame-axis selection against real EIGER H5 fixtures.
-3. Validate workflow `*_2Dinfo.h5` round-trips in a Python 3.10 environment
-   with `h5py`, then compare against MATLAB 2D-info once MATLAB is available.
-4. Continue detector corrections and sector/cake averaging with coverage
-   diagnostics to prevent detector-gap artifacts.
+1. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
+2. Add remaining batch-processing conveniences needed before UI work.
+3. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
+   once MATLAB is available.
+4. Use the generated config schemas as the UI-control contract during the UI
+   design review.

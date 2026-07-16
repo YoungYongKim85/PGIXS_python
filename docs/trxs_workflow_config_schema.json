@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PGIXS TrXS Workflow Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "config": {
+      "description": "Optional JSON workflow configuration file.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "readOnly": true
+    },
+    "input": {
+      "description": "Input H5 detector file or folder.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataset": {
+      "description": "H5 detector dataset path.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": "/entry/data/data"
+    },
+    "frame_index": {
+      "description": "Frame index to read from each H5 detector dataset.",
+      "type": "integer",
+      "default": 0,
+      "minimum": 0
+    },
+    "metadata_mode": {
+      "description": "Metadata scan mode: Temperature, LowTemp., Angle, or blank.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": ""
+    },
+    "reference_timestamp": {
+      "description": "Optional timestamp zero-point.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "retry_count": {
+      "description": "Frame load retry count before NaN fallback.",
+      "type": "integer",
+      "default": 1,
+      "minimum": 0
+    },
+    "standard": {
+      "description": "Standard/calibration MAT/JSON file.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detector": {
+      "description": "Expected detector name for calibration validation.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": ""
+    },
+    "normalization": {
+      "description": "Per-frame normalization mode before averaging.",
+      "enum": [
+        "None",
+        "IC",
+        "BC"
+      ],
+      "type": "string",
+      "default": "None"
+    },
+    "background": {
+      "description": "Optional background image file.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "background_ic": {
+      "description": "Optional background IC counter.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "background_bc": {
+      "description": "Optional background BC counter.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "no_clamp_negative": {
+      "description": "Keep negative values after background subtraction instead of clamping them to zero.",
+      "type": "boolean",
+      "default": false
+    },
+    "mask_detector": {
+      "description": "Apply detector default mask while loading H5 frames.",
+      "type": "boolean",
+      "default": false
+    },
+    "grid_remove": {
+      "description": "Apply Eiger4M grid-line correction per frame.",
+      "type": "boolean",
+      "default": false
+    },
+    "detector_correction": {
+      "description": "Apply solid-angle/polarization detector correction after normalization.",
+      "type": "boolean",
+      "default": false
+    },
+    "out": {
+      "description": "Output H5 file or directory for Python-native 2D-info.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "export_1d": {
+      "description": "Export q-binned 1D data from the processed 2D image.",
+      "type": "boolean",
+      "default": false
+    },
+    "export_format": {
+      "description": "1D export file format.",
+      "enum": [
+        "csv",
+        "dat"
+      ],
+      "type": "string",
+      "default": "csv"
+    },
+    "q_bins": {
+      "description": "Number of q bins for 1D export.",
+      "type": "integer",
+      "default": 600,
+      "minimum": 1
+    },
+    "q_min": {
+      "description": "Optional minimum q for 1D export.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "q_max": {
+      "description": "Optional maximum q for 1D export.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "q_scale": {
+      "description": "1D q-bin spacing.",
+      "enum": [
+        "linear",
+        "log"
+      ],
+      "type": "string",
+      "default": "linear"
+    },
+    "export_std": {
+      "description": "Include standard deviation in 1D export.",
+      "type": "boolean",
+      "default": false
+    },
+    "export_diagnostics": {
+      "description": "Include valid-count and coverage columns.",
+      "type": "boolean",
+      "default": false
+    },
+    "export_figure": {
+      "description": "Also save a PNG 1D figure when matplotlib is installed.",
+      "type": "boolean",
+      "default": false
+    },
+    "report_json": {
+      "description": "Save a JSON report with workflow options and diagnostics.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PGIXS 1D H5 Export Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "config": {
+      "description": "Optional JSON export configuration file.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "readOnly": true
+    },
+    "input": {
+      "description": "Input Python-native *_2Dinfo.h5 file.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "out": {
+      "description": "Output file or directory for 1D export.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "export_format": {
+      "description": "1D export file format.",
+      "enum": [
+        "csv",
+        "dat"
+      ],
+      "type": "string",
+      "default": "csv"
+    },
+    "q_bins": {
+      "description": "Number of q bins for 1D export.",
+      "type": "integer",
+      "default": 600,
+      "minimum": 1
+    },
+    "q_min": {
+      "description": "Optional minimum q for 1D export.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "q_max": {
+      "description": "Optional maximum q for 1D export.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "q_scale": {
+      "description": "1D q-bin spacing.",
+      "enum": [
+        "linear",
+        "log"
+      ],
+      "type": "string",
+      "default": "linear"
+    },
+    "export_std": {
+      "description": "Include standard deviation in 1D export.",
+      "type": "boolean",
+      "default": false
+    },
+    "export_diagnostics": {
+      "description": "Include valid-count and coverage columns.",
+      "type": "boolean",
+      "default": false
+    },
+    "export_figure": {
+      "description": "Also save a PNG 1D figure when matplotlib is installed.",
+      "type": "boolean",
+      "default": false
+    },
+    "report_json": {
+      "description": "Save a JSON export report.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
