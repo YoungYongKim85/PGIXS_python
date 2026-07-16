@@ -274,6 +274,8 @@ Tasks:
   future desktop/web UI controls can share the CLI config contract.
 - Added optional JSONL workflow manifest output for batch/UI result tracking
   across repeated TrXS/GIXS runs.
+- Added a JSON-driven batch workflow runner that can execute TrXS/GIXS/1D
+  export jobs sequentially and share a manifest path across jobs.
 
 ## Next Step
 

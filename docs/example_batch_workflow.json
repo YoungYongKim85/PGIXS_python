@@ -1,0 +1,16 @@
+{
+  "jobs": [
+    {
+      "label": "example-gixs",
+      "workflow": "gixs",
+      "config": "docs/example_gixs_workflow_config.json",
+      "args": ["--q-bins", "64"]
+    },
+    {
+      "label": "example-trxs",
+      "workflow": "trxs",
+      "config": "docs/example_trxs_workflow_config.json",
+      "args": ["--q-bins", "64"]
+    }
+  ]
+}
