@@ -1,6 +1,6 @@
 import numpy as np
 
-from pgixs_tab1.averaging.qbin import mean_by_bin
+from pgixs_python.averaging.qbin import mean_by_bin
 
 
 def test_mean_by_bin_omits_nan():

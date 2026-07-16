@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pgixs_tab1.io.h5_loader import DEFAULT_DETECTOR_DATASET
-from pgixs_tab1.io.h5_series import H5SeriesLoadResult, load_h5_series
+from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
+from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
 
 
 def add_h5_input_arguments(parser) -> None:

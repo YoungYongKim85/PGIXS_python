@@ -8,8 +8,8 @@ from typing import Iterable
 
 import numpy as np
 
-from pgixs_tab1.io.h5_loader import DEFAULT_DETECTOR_DATASET, H5RetryReport, load_h5_frame_with_retry
-from pgixs_tab1.io.h5_metadata import H5Metadata, read_h5_metadata
+from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET, H5RetryReport, load_h5_frame_with_retry
+from pgixs_python.io.h5_metadata import H5Metadata, read_h5_metadata
 
 
 @dataclass

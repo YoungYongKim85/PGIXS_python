@@ -11,7 +11,7 @@ def test_load_h5_series_reads_stack_and_metadata(tmp_path):
 
     import h5py
 
-    from pgixs_tab1.io.h5_series import load_h5_series
+    from pgixs_python.io.h5_series import load_h5_series
 
     files = []
     for idx in range(2):
@@ -44,7 +44,7 @@ def test_load_h5_series_marks_failed_frame_with_nan_fallback(tmp_path):
 
     import h5py
 
-    from pgixs_tab1.io.h5_series import load_h5_series
+    from pgixs_python.io.h5_series import load_h5_series
 
     ok_file = tmp_path / "ok.h5"
     missing_file = tmp_path / "missing.h5"

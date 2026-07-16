@@ -1,4 +1,4 @@
-# PGIXS Tab1 Python Port Plan
+# PGIXS Python Port Plan
 
 This file is the working tracker for the Python Tab1 port. Use it before each
 implementation step so the work stays focused on Tab1 raw-data processing.
@@ -62,10 +62,10 @@ Current scaffold smoke status:
 
 Target files:
 
-- `pgixs_tab1/io/image_loader.py`
-- `pgixs_tab1/io/h5_loader.py`
-- `pgixs_tab1/io/h5_metadata.py`
-- `pgixs_tab1/io/mat_loader.py`
+- `pgixs_python/io/image_loader.py`
+- `pgixs_python/io/h5_loader.py`
+- `pgixs_python/io/h5_metadata.py`
+- `pgixs_python/io/mat_loader.py`
 
 Tasks:
 
@@ -82,9 +82,9 @@ Tasks:
 
 Target files:
 
-- `pgixs_tab1/calibration/sdd.py`
-- `pgixs_tab1/calibration/standards.py`
-- `pgixs_tab1/calibration/calibration_io.py`
+- `pgixs_python/calibration/sdd.py`
+- `pgixs_python/calibration/standards.py`
+- `pgixs_python/calibration/calibration_io.py`
 
 Tasks:
 
@@ -98,8 +98,8 @@ Tasks:
 
 Target files:
 
-- `pgixs_tab1/qmap/trxs.py`
-- `pgixs_tab1/qmap/gixs.py`
+- `pgixs_python/qmap/trxs.py`
+- `pgixs_python/qmap/gixs.py`
 
 Tasks:
 
@@ -112,10 +112,10 @@ Tasks:
 
 Target files:
 
-- `pgixs_tab1/processing/normalization.py`
-- `pgixs_tab1/processing/corrections.py`
-- `pgixs_tab1/processing/grid_remove.py`
-- `pgixs_tab1/processing/masking.py`
+- `pgixs_python/processing/normalization.py`
+- `pgixs_python/processing/corrections.py`
+- `pgixs_python/processing/grid_remove.py`
+- `pgixs_python/processing/masking.py`
 
 Tasks:
 
@@ -129,10 +129,10 @@ Tasks:
 
 Target files:
 
-- `pgixs_tab1/averaging/qbin.py`
-- `pgixs_tab1/averaging/radial.py`
-- `pgixs_tab1/averaging/angular.py`
-- `pgixs_tab1/averaging/cake.py`
+- `pgixs_python/averaging/qbin.py`
+- `pgixs_python/averaging/radial.py`
+- `pgixs_python/averaging/angular.py`
+- `pgixs_python/averaging/cake.py`
 
 Tasks:
 
@@ -147,10 +147,10 @@ Tasks:
 
 Target files:
 
-- `pgixs_tab1/io/two_d_info.py`
-- `pgixs_tab1/export/data_export.py`
-- `pgixs_tab1/export/figures.py`
-- `pgixs_tab1/export/report_json.py`
+- `pgixs_python/io/two_d_info.py`
+- `pgixs_python/export/data_export.py`
+- `pgixs_python/export/figures.py`
+- `pgixs_python/export/report_json.py`
 
 Tasks:
 
@@ -165,8 +165,8 @@ Tasks:
 
 Target files:
 
-- `pgixs_tab1/workflows/trxs_process.py`
-- `pgixs_tab1/workflows/gixs_process.py`
+- `pgixs_python/workflows/trxs_process.py`
+- `pgixs_python/workflows/gixs_process.py`
 
 Tasks:
 
@@ -178,8 +178,8 @@ Tasks:
 Example target commands:
 
 ```powershell
-python -m pgixs_tab1.workflows.trxs_process --input sample.h5 --standard standard.mat --out out_trxs
-python -m pgixs_tab1.workflows.gixs_process --input sample.h5 --standard standard.mat --out out_gixs
+python -m pgixs_python.workflows.trxs_process --input sample.h5 --standard standard.mat --out out_trxs
+python -m pgixs_python.workflows.gixs_process --input sample.h5 --standard standard.mat --out out_gixs
 ```
 
 ## Phase 9. Real Data Validation

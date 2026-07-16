@@ -11,8 +11,8 @@ from typing import Any
 
 import numpy as np
 
-from pgixs_tab1.io.h5_loader import load_h5_frame
-from pgixs_tab1.io.h5_metadata import read_h5_metadata
+from pgixs_python.io.h5_loader import load_h5_frame
+from pgixs_python.io.h5_metadata import read_h5_metadata
 
 
 @dataclass

@@ -2,7 +2,7 @@ import importlib.util
 
 import numpy as np
 
-from pgixs_tab1.io.two_d_info import TwoDInfo
+from pgixs_python.io.two_d_info import TwoDInfo
 
 
 def test_two_d_info_h5_roundtrip(tmp_path):
@@ -11,7 +11,7 @@ def test_two_d_info_h5_roundtrip(tmp_path):
 
         pytest.skip("h5py is not installed")
 
-    from pgixs_tab1.io.two_d_info import load_two_d_info_h5, save_two_d_info_h5
+    from pgixs_python.io.two_d_info import load_two_d_info_h5, save_two_d_info_h5
 
     q = np.ones((3, 4), dtype=np.float32)
     info = TwoDInfo(

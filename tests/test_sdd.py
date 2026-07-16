@@ -1,4 +1,4 @@
-from pgixs_tab1.calibration.sdd import compute_sdd_from_ring
+from pgixs_python.calibration.sdd import compute_sdd_from_ring
 
 
 def test_compute_sdd_from_ring_positive():

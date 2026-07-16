@@ -11,7 +11,7 @@ def test_load_h5_frame_transposes_and_masks(tmp_path):
 
     import h5py
 
-    from pgixs_tab1.io.h5_loader import load_h5_frame
+    from pgixs_python.io.h5_loader import load_h5_frame
 
     h5_file = tmp_path / "frame.h5"
     raw = np.array([[1, 2, 3], [4, 5, 10_000_000_001]], dtype=np.float32)
@@ -28,7 +28,7 @@ def test_load_h5_frame_transposes_and_masks(tmp_path):
 
 
 def test_load_h5_frame_with_retry_returns_nan_fallback(tmp_path):
-    from pgixs_tab1.io.h5_loader import load_h5_frame_with_retry
+    from pgixs_python.io.h5_loader import load_h5_frame_with_retry
 
     data, report = load_h5_frame_with_retry(tmp_path / "missing.h5", fallback_size=(2, 3), retry_count=1)
     assert not report.ok
@@ -45,7 +45,7 @@ def test_read_h5_metadata_counter_fallback(tmp_path):
 
     import h5py
 
-    from pgixs_tab1.io.h5_metadata import read_h5_metadata
+    from pgixs_python.io.h5_metadata import read_h5_metadata
 
     h5_file = tmp_path / "meta.h5"
     with h5py.File(h5_file, "w") as h5:

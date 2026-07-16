@@ -1,4 +1,4 @@
-# PGIXS Tab1 Python Port
+# PGIXS Python Port
 
 This folder is the Python port workspace for PGIXS Tab1 only.
 
@@ -27,8 +27,8 @@ Out of scope for this folder:
 Build a tested core library that can run from the command line:
 
 ```powershell
-python -m pgixs_tab1.workflows.trxs_process --help
-python -m pgixs_tab1.workflows.gixs_process --help
+python -m pgixs_python.workflows.trxs_process --help
+python -m pgixs_python.workflows.gixs_process --help
 ```
 
 The first implementation target is IO and contract-compatible data structures;
@@ -39,8 +39,8 @@ Current workflow scaffold can load H5 file/folder inputs and report stack
 diagnostics:
 
 ```powershell
-python -m pgixs_tab1.workflows.trxs_process --input path\to\h5_folder
-python -m pgixs_tab1.workflows.gixs_process --input path\to\frame.h5
+python -m pgixs_python.workflows.trxs_process --input path\to\h5_folder
+python -m pgixs_python.workflows.gixs_process --input path\to\frame.h5
 ```
 
 ## Environment

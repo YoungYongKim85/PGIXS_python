@@ -7,8 +7,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pgixs_tab1.averaging.qbin import mean_by_bin
-from pgixs_tab1.calibration.sdd import compute_sdd_from_ring
+from pgixs_python.averaging.qbin import mean_by_bin
+from pgixs_python.calibration.sdd import compute_sdd_from_ring
 
 
 def main() -> int:
@@ -26,7 +26,7 @@ def main() -> int:
     if not np.array_equal(counts, [1, 2]):
         raise AssertionError("Q-bin smoke count mismatch.")
 
-    print("PGIXS Tab1 Python smoke test passed")
+    print("PGIXS Python smoke test passed")
     return 0
 
 
