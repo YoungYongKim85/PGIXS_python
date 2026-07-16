@@ -242,6 +242,8 @@ Tasks:
   optional figure output.
 - Added workflow JSON report export for input files, output files, processing
   options, calibration summary, and retry/metadata/processing diagnostics.
+- Added optional JSON workflow config support so CLI, future desktop UI, and
+  future web UI can share the same processing option schema.
 
 ## Next Step
 

@@ -1,0 +1,16 @@
+{
+  "input": "../test/kink_test/kinktest_0001.h5",
+  "standard": "../test/kink_test/standard/20260619_sb2_0001_standard.json",
+  "detector": "Eiger4M",
+  "incident_angle": 0.1,
+  "normalization": "None",
+  "grid_remove": true,
+  "out": "validation_outputs",
+  "export_1d": true,
+  "export_format": "csv",
+  "q_bins": 300,
+  "q_scale": "log",
+  "export_std": true,
+  "export_diagnostics": true,
+  "report_json": true
+}

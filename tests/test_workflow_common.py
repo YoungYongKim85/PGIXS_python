@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -13,12 +14,15 @@ from pgixs_python.workflows.common import (
     format_processing_summary,
     format_qmap_summary,
     format_report_summary,
+    load_workflow_config,
     load_workflow_qmap,
+    parse_workflow_args,
     process_workflow_stack,
     save_workflow_report,
     WorkflowExportResult,
     _nanmean_no_warning,
 )
+from pgixs_python.workflows.trxs_process import build_parser as build_trxs_parser
 
 
 def test_load_workflow_qmap_trxs_from_json_standard(tmp_path):
@@ -275,3 +279,42 @@ def test_save_workflow_report_writes_json(tmp_path):
     assert report.report_path is not None
     assert report.report_path.exists()
     assert "report: saved" in format_report_summary(report)
+
+
+def test_load_workflow_config_normalizes_keys(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"q-bins": 100, "export_1d": True}), encoding="utf-8")
+
+    config = load_workflow_config(config_file)
+
+    assert config["q_bins"] == 100
+    assert config["export_1d"] is True
+
+
+def test_parse_workflow_args_uses_config_defaults_and_cli_override(tmp_path):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "input": "from_config.h5",
+                "standard": "standard.json",
+                "detector": "Eiger4M",
+                "normalization": "IC",
+                "q_bins": 100,
+                "export_1d": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    args = parse_workflow_args(
+        build_trxs_parser(),
+        ["--config", str(config_file), "--normalization", "BC", "--q-bins", "200"],
+    )
+
+    assert args.input == "from_config.h5"
+    assert args.standard == "standard.json"
+    assert args.detector == "Eiger4M"
+    assert args.export_1d is True
+    assert args.normalization == "BC"
+    assert args.q_bins == 200

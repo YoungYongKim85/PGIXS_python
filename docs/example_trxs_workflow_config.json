@@ -1,0 +1,15 @@
+{
+  "input": "../test/standard/8.95keVSAXS/20251117_sb_tr_0001.h5",
+  "standard": "../test/standard/8.95keVSAXS/20251117_sb_tr_0001_standard.json",
+  "detector": "Eiger4M",
+  "normalization": "None",
+  "grid_remove": true,
+  "out": "validation_outputs",
+  "export_1d": true,
+  "export_format": "dat",
+  "q_bins": 300,
+  "q_scale": "log",
+  "export_std": true,
+  "export_diagnostics": true,
+  "report_json": true
+}

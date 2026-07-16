@@ -18,6 +18,7 @@ from pgixs_python.workflows.common import (
     format_report_summary,
     load_h5_input_stack,
     load_workflow_qmap,
+    parse_workflow_args,
     process_workflow_stack,
     save_workflow_report,
     save_workflow_two_d_info,
@@ -35,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_workflow_args(parser, argv)
     if not args.input:
         parser.exit(status=0, message="TrXS workflow scaffold is ready; pass --input to load an H5 stack.\n")
     result = load_h5_input_stack(args)

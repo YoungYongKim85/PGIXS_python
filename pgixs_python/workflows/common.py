@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -58,6 +59,7 @@ class WorkflowReportResult:
 
 
 def add_h5_input_arguments(parser) -> None:
+    parser.add_argument("--config", required=False, help="Optional JSON workflow configuration file.")
     parser.add_argument("--input", required=False, help="Input H5 detector file or folder.")
     parser.add_argument("--dataset", default=DEFAULT_DETECTOR_DATASET, help="H5 detector dataset path.")
     parser.add_argument("--metadata-mode", default="", help="Metadata scan mode: Temperature, LowTemp., Angle, or blank.")
@@ -108,6 +110,28 @@ def add_processing_arguments(parser) -> None:
         action="store_true",
         help="Apply solid-angle/polarization detector correction after normalization.",
     )
+
+
+def parse_workflow_args(parser, argv: list[str] | None = None):
+    """Parse workflow args, using optional JSON config values as defaults."""
+
+    pre_parser = parser.__class__(add_help=False)
+    pre_parser.add_argument("--config", required=False)
+    pre_args, _ = pre_parser.parse_known_args(argv)
+    if pre_args.config:
+        config_values = load_workflow_config(pre_args.config)
+        parser.set_defaults(**config_values)
+    return parser.parse_args(argv)
+
+
+def load_workflow_config(file_path: str | Path) -> dict[str, object]:
+    """Load workflow JSON config using argparse destination names."""
+
+    path = Path(file_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Workflow config JSON must contain an object at the top level.")
+    return {str(key).replace("-", "_"): value for key, value in data.items()}
 
 
 def collect_h5_inputs(input_path: str | Path) -> list[Path]:
