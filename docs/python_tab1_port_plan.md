@@ -322,17 +322,18 @@ Tasks:
   intensity/q ranges, NaN fraction, and calibration.
 - Rendered the compact 2D-info preview as a browser heatmap with NaN/gap
   pixels kept visually distinct.
+- Added a 1D export CSV/DAT preview API and SVG curve rendering, including
+  std/coverage column detection.
 
 ## Next Step
 
 Continue the local web UI bridge while keeping Phase 8/9 validation active:
 
-1. Add 1D export preview panels.
-2. Add coverage diagnostics and detector-gap warning panels.
-3. Add full-resolution 2D image interaction after the compact preview flow is
+1. Add coverage diagnostics and detector-gap warning panels.
+2. Add full-resolution 2D image interaction after the compact preview flow is
    stable.
-4. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
-5. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
+3. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
+4. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
    once MATLAB is available.
-6. Use the generated config schemas as the UI-control contract during the UI
+5. Use the generated config schemas as the UI-control contract during the UI
    design review.

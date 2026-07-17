@@ -64,8 +64,11 @@ python -m pgixs_python.ui_backend.local_server --port 8766
 9. `2D-info H5 preview`에 `*_2Dinfo.h5` 경로를 넣고 `Load 2D Preview`로
    작은 heatmap, shape, intensity range, q range, NaN fraction, calibration
    요약을 확인한다. Detector gap 또는 NaN 영역은 heatmap에서 어둡게 표시된다.
-10. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
-11. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
+10. `1D export preview`에 `*_1D.csv` 또는 `*_1D.dat` 경로를 넣고
+    `Load 1D Preview`로 q-intensity curve, q/intensity range, std/coverage
+    column 여부를 확인한다.
+11. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
+12. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
 
 ## 5. MATLAB 용어와 Python UI 용어
 
@@ -175,12 +178,13 @@ python tools\check_environment.py --run-tests
 - Batch summary JSON 기반 결과 table
 - 2D-info H5 compact preview API와 요약 table
 - 2D-info H5 compact heatmap rendering
+- 1D export CSV/DAT preview API와 SVG curve rendering
 
 아직 구현 전인 기능:
 
 - 실제 file picker
 - full-resolution 2D image interaction
-- 1D curve preview
+- interactive 1D curve tools
 - coverage plot
 - preset save/load
 - batch result table

@@ -148,7 +148,7 @@ meaning, and troubleshooting steps.
 8. Batch summary JSON is rendered as a Run Summary result table.
 9. 2D-info H5 compact preview is wired to `/api/preview/2d`.
 10. 2D-info compact preview is rendered as a browser heatmap.
-11. Add 1D export preview.
+11. 1D export CSV/DAT preview is wired to `/api/preview/1d` and rendered as an SVG curve.
 12. Add coverage diagnostics and detector-gap warnings.
 13. Add preset/config save-load.
 14. Add MATLAB-vs-Python comparison page.

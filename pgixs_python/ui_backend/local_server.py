@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pgixs_python.ui_backend.api import startup_payload, status_payload, workflows_payload
-from pgixs_python.ui_backend.preview import preview_error_payload, two_d_info_preview_payload
+from pgixs_python.ui_backend.preview import one_d_export_preview_payload, preview_error_payload, two_d_info_preview_payload
 from pgixs_python.ui_backend.service import UIWorkflowRequest, run_workflow, validate_workflow
 
 
@@ -138,6 +138,24 @@ INDEX_HTML = """<!doctype html>
       background: #0f172a;
       image-rendering: pixelated;
     }
+    .curve-preview {
+      width: 100%;
+      min-height: 260px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+    }
+    .curve-path {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+    .coverage-path {
+      fill: none;
+      stroke: var(--warning);
+      stroke-width: 1.5;
+      stroke-dasharray: 4 4;
+    }
     .muted { color: var(--muted); }
     .warn { color: var(--warning); font-weight: 650; }
     @media (max-width: 1100px) {
@@ -184,6 +202,10 @@ INDEX_HTML = """<!doctype html>
           <label for="two-d-info-path">2D-info H5 preview</label>
           <input id="two-d-info-path" placeholder="validation_outputs/sample_2Dinfo.h5">
         </div>
+        <div class="field">
+          <label for="one-d-export-path">1D export preview</label>
+          <input id="one-d-export-path" placeholder="validation_outputs/sample_1D.csv">
+        </div>
       </section>
       <section class="section">
         <h2>Single Job Defaults</h2>
@@ -206,6 +228,7 @@ INDEX_HTML = """<!doctype html>
         <button id="validate-batch">Validate Batch</button>
         <button id="run-batch" class="primary">Run Batch</button>
         <button id="load-2d-preview">Load 2D Preview</button>
+        <button id="load-1d-preview">Load 1D Preview</button>
         <button>Add Job</button>
         <button>Save Batch Config</button>
       </div>
@@ -369,6 +392,64 @@ INDEX_HTML = """<!doctype html>
       return stops[index].map((start, channel) => Math.round(start + (stops[index + 1][channel] - start) * local));
     }
 
+    function renderOneDPreview(payload) {
+      if (!payload.ok) {
+        return `<p class="warn">${escapeHtml(payload.message || "1D preview failed")}</p>`;
+      }
+      const q = payload.q || {};
+      const intensity = payload.intensity || {};
+      const coverage = payload.coverage || {};
+      const rows = [
+        ["File", payload.path],
+        ["Points", `${payload.finite_count} finite / ${payload.point_count} total`],
+        ["Q min/median/max", `${q.min} / ${q.median} / ${q.max}`],
+        ["Intensity min/median/max", `${intensity.min} / ${intensity.median} / ${intensity.max}`],
+        ["Std column", payload.has_standard_deviation ? "yes" : "no"],
+        ["Coverage column", payload.has_coverage ? `yes, min ${coverage.min}` : "no"],
+      ].map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
+      return `<div class="preview-layout">
+        <svg id="one-d-preview-svg" class="curve-preview" viewBox="0 0 640 300" role="img" aria-label="1D curve preview"></svg>
+        <table><tbody>${rows}</tbody></table>
+      </div>`;
+    }
+
+    function drawOneDCurve(preview) {
+      const svg = document.getElementById("one-d-preview-svg");
+      if (!svg || !preview) return;
+      const q = preview.q || [];
+      const intensity = preview.intensity || [];
+      const points = q.map((x, index) => [x, intensity[index]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      svg.innerHTML = "";
+      const width = 640;
+      const height = 300;
+      const pad = 34;
+      if (!points.length) return;
+      const qValues = points.map(([x]) => x);
+      const iValues = points.map(([, y]) => y);
+      const qMin = Math.min(...qValues);
+      const qMax = Math.max(...qValues);
+      const iMin = Math.min(...iValues);
+      const iMax = Math.max(...iValues);
+      const xScale = (value) => pad + ((value - qMin) / Math.max(qMax - qMin, 1e-12)) * (width - pad * 2);
+      const yScale = (value) => height - pad - ((value - iMin) / Math.max(iMax - iMin, 1e-12)) * (height - pad * 2);
+      const path = points.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${xScale(x).toFixed(2)} ${yScale(y).toFixed(2)}`).join(" ");
+      svg.insertAdjacentHTML("beforeend", `<path class="curve-path" d="${path}"></path>`);
+      svg.insertAdjacentHTML("beforeend", `<line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="#98a2b3"></line>`);
+      svg.insertAdjacentHTML("beforeend", `<line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" stroke="#98a2b3"></line>`);
+      svg.insertAdjacentHTML("beforeend", `<text x="${pad}" y="22" fill="#66788a" font-size="12">I(q)</text>`);
+      svg.insertAdjacentHTML("beforeend", `<text x="${width - pad - 24}" y="${height - 8}" fill="#66788a" font-size="12">q</text>`);
+      if (preview.coverage) drawCoverageCurve(svg, preview.coverage, width, height, pad);
+    }
+
+    function drawCoverageCurve(svg, coverage, width, height, pad) {
+      const finite = coverage.map((value, index) => [index, value]).filter(([, value]) => Number.isFinite(value));
+      if (!finite.length) return;
+      const xScale = (index) => pad + (index / Math.max(coverage.length - 1, 1)) * (width - pad * 2);
+      const yScale = (value) => height - pad - Math.max(0, Math.min(1, value)) * (height - pad * 2);
+      const path = finite.map(([index, value], pointIndex) => `${pointIndex === 0 ? "M" : "L"} ${xScale(index).toFixed(2)} ${yScale(value).toFixed(2)}`).join(" ");
+      svg.insertAdjacentHTML("beforeend", `<path class="coverage-path" d="${path}"></path>`);
+    }
+
     function validateBatch() {
       const args = buildBatchArgs();
       if (!args.includes("--batch")) {
@@ -447,6 +528,31 @@ INDEX_HTML = """<!doctype html>
         });
     }
 
+    function loadOneDPreview() {
+      const path = document.getElementById("one-d-export-path").value.trim();
+      if (!path) {
+        setSummary("1D Preview", "1D export path is required.", false);
+        log("1D preview skipped: missing curve path.");
+        return;
+      }
+      log(`Loading 1D preview: ${path}`);
+      fetch("/api/preview/1d", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path})
+      })
+        .then((response) => response.json())
+        .then((payload) => {
+          setSummary("1D Preview", payload.ok ? "Loaded 1D export preview." : "Preview failed.", payload.ok, renderOneDPreview(payload));
+          if (payload.ok) requestAnimationFrame(() => drawOneDCurve(payload.preview));
+          log(`1D preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
+        })
+        .catch((error) => {
+          setSummary("1D Preview", String(error), false);
+          log(String(error));
+        });
+    }
+
     function renderWorkflowOptions(workflows) {
       const mode = document.getElementById("mode");
       mode.innerHTML = "";
@@ -492,6 +598,7 @@ INDEX_HTML = """<!doctype html>
     document.getElementById("validate-batch").addEventListener("click", validateBatch);
     document.getElementById("run-batch").addEventListener("click", runBatch);
     document.getElementById("load-2d-preview").addEventListener("click", loadTwoDPreview);
+    document.getElementById("load-1d-preview").addEventListener("click", loadOneDPreview);
   </script>
 </body>
 </html>
@@ -546,6 +653,9 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/preview/2d":
             self._send_json(two_d_preview_payload(self._read_json()))
+            return
+        if self.path == "/api/preview/1d":
+            self._send_json(one_d_preview_payload(self._read_json()))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -651,6 +761,16 @@ def two_d_preview_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return preview_error_payload(file_path, "path is required.")
     try:
         return two_d_info_preview_payload(file_path)
+    except Exception as exc:  # noqa: BLE001 - UI endpoint should return visible failure details.
+        return preview_error_payload(file_path, str(exc))
+
+
+def one_d_preview_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    file_path = str(payload.get("path", "")).strip()
+    if not file_path:
+        return preview_error_payload(file_path, "path is required.")
+    try:
+        return one_d_export_preview_payload(file_path)
     except Exception as exc:  # noqa: BLE001 - UI endpoint should return visible failure details.
         return preview_error_payload(file_path, str(exc))
 

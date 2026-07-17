@@ -4,6 +4,7 @@ import json
 from pgixs_python.ui_backend.local_server import (
     INDEX_HTML,
     PGIXSRequestHandler,
+    one_d_preview_payload,
     run_payload,
     two_d_preview_payload,
     validate_payload,
@@ -28,6 +29,10 @@ def test_index_html_contains_workbench_regions():
     assert "Load 2D Preview" in INDEX_HTML
     assert "two-d-preview-canvas" in INDEX_HTML
     assert "drawTwoDHeatmap" in INDEX_HTML
+    assert "/api/preview/1d" in INDEX_HTML
+    assert "Load 1D Preview" in INDEX_HTML
+    assert "one-d-preview-svg" in INDEX_HTML
+    assert "drawOneDCurve" in INDEX_HTML
     assert "Coverage" in INDEX_HTML
 
 
@@ -86,6 +91,13 @@ def test_run_payload_attaches_existing_batch_summary_json(tmp_path):
 
 def test_two_d_preview_payload_requires_path():
     payload = two_d_preview_payload({})
+
+    assert not payload["ok"]
+    assert "path is required" in payload["message"]
+
+
+def test_one_d_preview_payload_requires_path():
+    payload = one_d_preview_payload({})
 
     assert not payload["ok"]
     assert "path is required" in payload["message"]

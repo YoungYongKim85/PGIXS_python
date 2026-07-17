@@ -44,3 +44,40 @@ def test_two_d_info_preview_payload_reports_stats_and_nan_preview(tmp_path):
     assert payload["calibration"]["beam_position"] == [2.0, 3.0]
     assert payload["retry_failed_frames"] == [2]
     assert payload["preview"]["data2d_q"][1][1] is None
+
+
+def test_one_d_export_preview_payload_reads_csv_with_coverage(tmp_path):
+    from pgixs_python.ui_backend.preview import one_d_export_preview_payload
+
+    csv_file = tmp_path / "curve_1D.csv"
+    csv_file.write_text(
+        "q,intensity,standard_deviation,valid_count,coverage\n"
+        "0.01,10,1,100,1\n"
+        "0.02,20,2,80,0.8\n"
+        "0.03,nan,3,0,0\n",
+        encoding="utf-8",
+    )
+
+    payload = one_d_export_preview_payload(csv_file)
+
+    assert payload["ok"]
+    assert payload["point_count"] == 3
+    assert payload["finite_count"] == 2
+    assert payload["has_standard_deviation"]
+    assert payload["has_coverage"]
+    assert round(payload["q"]["min"], 4) == 0.01
+    assert payload["intensity"]["max"] == 20.0
+    assert [round(value, 4) for value in payload["preview"]["q"]] == [0.01, 0.02]
+
+
+def test_one_d_export_preview_payload_reads_dat_without_header(tmp_path):
+    from pgixs_python.ui_backend.preview import one_d_export_preview_payload
+
+    dat_file = tmp_path / "curve_1D.dat"
+    dat_file.write_text("0.01 10\n0.02 20\n", encoding="utf-8")
+
+    payload = one_d_export_preview_payload(dat_file)
+
+    assert payload["ok"]
+    assert payload["point_count"] == 2
+    assert not payload["has_standard_deviation"]
