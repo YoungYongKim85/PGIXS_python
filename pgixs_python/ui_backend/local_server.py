@@ -399,6 +399,10 @@ INDEX_HTML = """<!doctype html>
       const q = payload.q || {};
       const intensity = payload.intensity || {};
       const coverage = payload.coverage || {};
+      const coverageDiagnostics = payload.coverage_diagnostics || {};
+      const coverageWarning = coverageDiagnostics.warning_count > 0
+        ? `<p class="warn">${escapeHtml(coverageDiagnostics.message)}</p>`
+        : (payload.has_coverage ? `<p class="muted">${escapeHtml(coverageDiagnostics.message || "Coverage looks stable.")}</p>` : "");
       const rows = [
         ["File", payload.path],
         ["Points", `${payload.finite_count} finite / ${payload.point_count} total`],
@@ -406,8 +410,10 @@ INDEX_HTML = """<!doctype html>
         ["Intensity min/median/max", `${intensity.min} / ${intensity.median} / ${intensity.max}`],
         ["Std column", payload.has_standard_deviation ? "yes" : "no"],
         ["Coverage column", payload.has_coverage ? `yes, min ${coverage.min}` : "no"],
+        ["Low coverage bins", coverageDiagnostics.coverage_low_bins?.length ?? "n/a"],
+        ["Coverage drop bins", coverageDiagnostics.coverage_drop_bins?.length ?? "n/a"],
       ].map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
-      return `<div class="preview-layout">
+      return `${coverageWarning}<div class="preview-layout">
         <svg id="one-d-preview-svg" class="curve-preview" viewBox="0 0 640 300" role="img" aria-label="1D curve preview"></svg>
         <table><tbody>${rows}</tbody></table>
       </div>`;

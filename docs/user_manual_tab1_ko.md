@@ -66,7 +66,8 @@ python -m pgixs_python.ui_backend.local_server --port 8766
    요약을 확인한다. Detector gap 또는 NaN 영역은 heatmap에서 어둡게 표시된다.
 10. `1D export preview`에 `*_1D.csv` 또는 `*_1D.dat` 경로를 넣고
     `Load 1D Preview`로 q-intensity curve, q/intensity range, std/coverage
-    column 여부를 확인한다.
+    column 여부를 확인한다. Coverage column이 있으면 low-coverage bin과
+    abrupt coverage drop warning도 함께 표시된다.
 11. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
 12. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
 
@@ -179,12 +180,13 @@ python tools\check_environment.py --run-tests
 - 2D-info H5 compact preview API와 요약 table
 - 2D-info H5 compact heatmap rendering
 - 1D export CSV/DAT preview API와 SVG curve rendering
+- 1D coverage diagnostics warning 표시
 
 아직 구현 전인 기능:
 
 - 실제 file picker
 - full-resolution 2D image interaction
 - interactive 1D curve tools
-- coverage plot
+- dedicated coverage plot tab
 - preset save/load
 - batch result table

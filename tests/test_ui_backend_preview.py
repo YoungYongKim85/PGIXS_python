@@ -54,20 +54,23 @@ def test_one_d_export_preview_payload_reads_csv_with_coverage(tmp_path):
         "q,intensity,standard_deviation,valid_count,coverage\n"
         "0.01,10,1,100,1\n"
         "0.02,20,2,80,0.8\n"
-        "0.03,nan,3,0,0\n",
+        "0.03,12,3,4,0.05\n"
+        "0.04,11,4,3,0.04\n",
         encoding="utf-8",
     )
 
     payload = one_d_export_preview_payload(csv_file)
 
     assert payload["ok"]
-    assert payload["point_count"] == 3
-    assert payload["finite_count"] == 2
+    assert payload["point_count"] == 4
+    assert payload["finite_count"] == 4
     assert payload["has_standard_deviation"]
     assert payload["has_coverage"]
+    assert payload["coverage_diagnostics"]["warning_count"] >= 1
+    assert "Coverage warning" in payload["coverage_diagnostics"]["message"]
     assert round(payload["q"]["min"], 4) == 0.01
     assert payload["intensity"]["max"] == 20.0
-    assert [round(value, 4) for value in payload["preview"]["q"]] == [0.01, 0.02]
+    assert [round(value, 4) for value in payload["preview"]["q"]] == [0.01, 0.02, 0.03, 0.04]
 
 
 def test_one_d_export_preview_payload_reads_dat_without_header(tmp_path):

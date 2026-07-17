@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from pgixs_python.averaging import summarize_coverage
 from pgixs_python.io.two_d_info import load_two_d_info_h5
 
 
@@ -81,6 +82,7 @@ def one_d_export_preview_payload(file_path: str | Path, max_points: int = 600) -
     if coverage is not None:
         coverage_valid = coverage[finite]
         payload["coverage"] = _array_stats(coverage_valid, np.isfinite(coverage_valid))
+        payload["coverage_diagnostics"] = _coverage_diagnostics(coverage_valid)
         payload["preview"]["coverage"] = _downsample_1d_for_json(coverage_valid, max_points=max_points)
     return payload
 
@@ -182,6 +184,30 @@ def _optional_column_by_alias(table: np.ndarray, aliases: tuple[str, ...]) -> np
 
 def _normalize_column_name(name: str) -> str:
     return "".join(ch.lower() for ch in str(name) if ch.isalnum())
+
+
+def _coverage_diagnostics(coverage: np.ndarray) -> dict[str, Any]:
+    summary = summarize_coverage(np.asarray(coverage, dtype=np.float32), low_threshold=0.15)
+    low_bins = [int(value) for value in np.asarray(summary["coverage_low_bins"], dtype=np.int64).reshape(-1)]
+    drop_bins = [int(value) for value in np.asarray(summary["coverage_drop_bins"], dtype=np.int64).reshape(-1)]
+    warning_count = len(low_bins) + len(drop_bins)
+    if warning_count:
+        message = f"Coverage warning: {len(low_bins)} low bins, {len(drop_bins)} abrupt drops."
+    else:
+        message = "Coverage looks stable."
+    return {
+        "coverage_min": _json_float(summary["coverage_min"]),
+        "coverage_median": _json_float(summary["coverage_median"]),
+        "coverage_low_bins": low_bins,
+        "coverage_drop_bins": drop_bins,
+        "warning_count": int(warning_count),
+        "message": message,
+    }
+
+
+def _json_float(value: object) -> float | None:
+    number = float(value)
+    return None if not np.isfinite(number) else number
 
 
 def _array_to_list(values: np.ndarray | None) -> list[float | int] | None:

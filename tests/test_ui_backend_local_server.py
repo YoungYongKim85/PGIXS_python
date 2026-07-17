@@ -33,6 +33,8 @@ def test_index_html_contains_workbench_regions():
     assert "Load 1D Preview" in INDEX_HTML
     assert "one-d-preview-svg" in INDEX_HTML
     assert "drawOneDCurve" in INDEX_HTML
+    assert "Low coverage bins" in INDEX_HTML
+    assert "Coverage drop bins" in INDEX_HTML
     assert "Coverage" in INDEX_HTML
 
 

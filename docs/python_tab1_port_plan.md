@@ -324,14 +324,16 @@ Tasks:
   pixels kept visually distinct.
 - Added a 1D export CSV/DAT preview API and SVG curve rendering, including
   std/coverage column detection.
+- Added 1D coverage diagnostics warnings for low-coverage bins and abrupt
+  coverage drops in the local web preview.
 
 ## Next Step
 
 Continue the local web UI bridge while keeping Phase 8/9 validation active:
 
-1. Add coverage diagnostics and detector-gap warning panels.
-2. Add full-resolution 2D image interaction after the compact preview flow is
+1. Add full-resolution 2D image interaction after the compact preview flow is
    stable.
+2. Add dedicated Coverage tab rendering for coverage arrays/reports.
 3. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
 4. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
    once MATLAB is available.
