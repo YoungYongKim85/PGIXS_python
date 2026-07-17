@@ -75,7 +75,7 @@ CLI core into desktop/web UI design.
 
 - `[x]` Runtime paths use `pathlib` internally where practical.
 - `[x]` CLI examples are documented for Windows PowerShell.
-- `[~]` Linux examples should be added before distributing to Linux users.
+- `[x]` Linux shell examples are documented for core CLI workflows.
 - `[~]` Python 3.10 environment should be tested on a clean Windows machine.
 - `[~]` Python 3.10 environment should be tested on a clean Linux machine.
 
@@ -103,10 +103,9 @@ Move into UI design after these items are acceptable:
 
 ## Recommended Next Stabilization Tasks
 
-1. Add Linux shell examples to `docs/quickstart_cli.md`.
-2. Add a small documented MATLAB-vs-Python comparison template.
-3. Add optional batch dry-run validation that checks config files before
+1. Add a small documented MATLAB-vs-Python comparison template.
+2. Add optional batch dry-run validation that checks config files before
    processing large data.
-4. Run the current CLI on a clean Python 3.10 environment with all pinned
+3. Run the current CLI on a clean Python 3.10 environment with all pinned
    dependencies installed.
-5. Start UI workflow interview once the user accepts the CLI contract.
+4. Start UI workflow interview once the user accepts the CLI contract.

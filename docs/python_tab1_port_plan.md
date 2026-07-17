@@ -285,6 +285,8 @@ Tasks:
   desktop installs.
 - Added a CLI core stabilization checklist to track UI readiness risks and
   remaining real-data validation work.
+- Added Linux shell examples to the CLI quickstart and marked the Linux CLI
+  documentation item complete in the stabilization checklist.
 
 ## Next Step
 
