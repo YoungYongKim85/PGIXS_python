@@ -86,8 +86,10 @@ CLI core into desktop/web UI design.
 - `[x]` Compile check is documented: `python -m compileall pgixs_python tests`.
 - `[~]` Full pytest suite should be run in the real Python 3.10 environment.
 - `[~]` Real H5 fixture regression set should be expanded.
-- `[~]` MATLAB-vs-Python numeric comparison should be captured in documented
-  validation cases.
+- `[x]` MATLAB-vs-Python numeric comparison template exists:
+  `docs/matlab_python_validation_template.md`.
+- `[~]` Filled MATLAB-vs-Python validation cases still need to be captured for
+  representative real datasets.
 
 ## UI Gate
 
@@ -103,9 +105,8 @@ Move into UI design after these items are acceptable:
 
 ## Recommended Next Stabilization Tasks
 
-1. Add a small documented MATLAB-vs-Python comparison template.
-2. Add optional batch dry-run validation that checks config files before
+1. Add optional batch dry-run validation that checks config files before
    processing large data.
-3. Run the current CLI on a clean Python 3.10 environment with all pinned
+2. Run the current CLI on a clean Python 3.10 environment with all pinned
    dependencies installed.
-4. Start UI workflow interview once the user accepts the CLI contract.
+3. Start UI workflow interview once the user accepts the CLI contract.

@@ -287,6 +287,8 @@ Tasks:
   remaining real-data validation work.
 - Added Linux shell examples to the CLI quickstart and marked the Linux CLI
   documentation item complete in the stabilization checklist.
+- Added a MATLAB-vs-Python validation template and comparison-log CSV scaffold
+  for recording real-data numeric parity checks.
 
 ## Next Step
 
