@@ -60,7 +60,7 @@ python -m pgixs_python.ui_backend.local_server --port 8766
 7. `Run Batch`로 processing을 실행한다.
    이 단계는 batch JSON에 들어 있는 job들을 순서대로 실행하고, log/summary path가
    지정되어 있으면 실행 로그와 요약 파일을 저장한다.
-8. `Run Summary`에서 저장된 파일, warning, coverage diagnostics를 확인한다.
+8. `Run Summary`에서 job별 성공/실패, exit code, message, log path를 확인한다.
 9. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
 10. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
 
@@ -169,6 +169,7 @@ python tools\check_environment.py --run-tests
 - Batch-first screen layout
 - Validate Batch API 연결
 - Run Batch API 연결
+- Batch summary JSON 기반 결과 table
 
 아직 구현 전인 기능:
 

@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 from pgixs_python.ui_backend.api import startup_payload, status_payload, workflows_payload
@@ -109,6 +110,19 @@ INDEX_HTML = """<!doctype html>
       background: #fbfdff;
     }
     .schema-item strong { display: block; margin-bottom: 4px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 650; }
     .muted { color: var(--muted); }
     .warn { color: var(--warning); font-weight: 650; }
     @media (max-width: 1100px) {
@@ -145,6 +159,10 @@ INDEX_HTML = """<!doctype html>
         <div class="field">
           <label for="log-path">Log / summary folder</label>
           <input id="log-path" placeholder="validation_outputs/batch_logs">
+        </div>
+        <div class="field">
+          <label for="summary-json-path">Batch summary JSON</label>
+          <input id="summary-json-path" placeholder="validation_outputs/batch_summary.json">
         </div>
       </section>
       <section class="section">
@@ -207,16 +225,51 @@ INDEX_HTML = """<!doctype html>
       const batchPath = document.getElementById("batch-path").value.trim();
       const manifestPath = document.getElementById("manifest-path").value.trim();
       const logPath = document.getElementById("log-path").value.trim();
+      const summaryJsonPath = document.getElementById("summary-json-path").value.trim();
       if (batchPath) args.push("--batch", batchPath);
       if (manifestPath) args.push("--manifest", manifestPath);
       if (logPath) args.push("--log-dir", logPath);
+      if (summaryJsonPath) args.push("--summary-json", summaryJsonPath);
       return args;
     }
 
-    function setSummary(title, body, ok) {
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function setSummary(title, body, ok, extraHtml = "") {
       const summary = document.getElementById("summary");
       const cls = ok ? "muted" : "warn";
-      summary.innerHTML = `<h2>${title}</h2><p class="${cls}">${body}</p>`;
+      summary.innerHTML = `<h2>${title}</h2><p class="${cls}">${body}</p>${extraHtml}`;
+    }
+
+    function renderBatchSummaryTable(batchSummary) {
+      const jobs = batchSummary?.jobs || [];
+      if (!jobs.length) return "";
+      const rows = jobs.map((job) => {
+        const status = job.ok ? "OK" : `FAIL(${job.exit_code})`;
+        const statusClass = job.ok ? "muted" : "warn";
+        const logPath = job.log_path ? escapeHtml(job.log_path) : "";
+        return `<tr>
+          <td>${escapeHtml(job.index)}</td>
+          <td>${escapeHtml(job.label)}</td>
+          <td>${escapeHtml(job.workflow)}</td>
+          <td class="${statusClass}">${escapeHtml(status)}</td>
+          <td>${escapeHtml(job.message)}</td>
+          <td>${logPath}</td>
+        </tr>`;
+      }).join("");
+      return `<table>
+        <thead>
+          <tr><th>#</th><th>Label</th><th>Workflow</th><th>Status</th><th>Message</th><th>Log</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
     }
 
     function validateBatch() {
@@ -261,7 +314,7 @@ INDEX_HTML = """<!doctype html>
         .then((response) => response.json())
         .then((payload) => {
           const message = payload.message || (payload.ok ? "run completed" : "run failed");
-          setSummary("Batch Run", message.replaceAll("\\n", "<br>"), payload.ok);
+          setSummary("Batch Run", escapeHtml(message).replaceAll("\\n", "<br>"), payload.ok, renderBatchSummaryTable(payload.batch_summary));
           log(`Run ${payload.ok ? "OK" : "FAILED"}: ${message}`);
           if (payload.stdout) log(`[stdout]\\n${payload.stdout}`);
           if (payload.stderr) log(`[stderr]\\n${payload.stderr}`);
@@ -445,7 +498,25 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         args=list(args),
         label=str(payload.get("label", "")),
     )
-    return asdict(run_workflow(request))
+    result = asdict(run_workflow(request))
+    summary = _read_summary_json_arg(args)
+    if summary is not None:
+        result["batch_summary"] = summary
+    return result
+
+
+def _read_summary_json_arg(args: list[str]) -> dict[str, Any] | None:
+    try:
+        index = args.index("--summary-json")
+    except ValueError:
+        return None
+    if index + 1 >= len(args):
+        return None
+    path = Path(args[index + 1])
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
 
 
 if __name__ == "__main__":

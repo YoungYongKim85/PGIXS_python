@@ -317,13 +317,14 @@ Tasks:
   dry-run validation without running processing.
 - Wired the local web `Run Batch` button to `/api/run` for real batch
   processing through the UI backend service.
+- Added a Run Summary result table fed by the batch `--summary-json` output.
 
 ## Next Step
 
 Continue the local web UI bridge while keeping Phase 8/9 validation active:
 
-1. Add a batch result table fed by summary JSON/manifest outputs.
-2. Add 2D H5 preview and 1D export preview panels.
+1. Add 2D H5 preview and 1D export preview panels.
+2. Add coverage diagnostics and detector-gap warning panels.
 3. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
 4. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
    once MATLAB is available.

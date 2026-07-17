@@ -1,4 +1,5 @@
 from http import HTTPStatus
+import json
 
 from pgixs_python.ui_backend.local_server import INDEX_HTML, PGIXSRequestHandler, run_payload, validate_payload
 
@@ -16,6 +17,7 @@ def test_index_html_contains_workbench_regions():
     assert "/api/startup" in INDEX_HTML
     assert "/api/validate" in INDEX_HTML
     assert "/api/run" in INDEX_HTML
+    assert "Batch summary JSON" in INDEX_HTML
     assert "Coverage" in INDEX_HTML
 
 
@@ -51,3 +53,22 @@ def test_run_payload_supports_batch_runner_ready_message():
 
     assert payload["ok"]
     assert "Batch workflow runner is ready" in payload["message"]
+
+
+def test_run_payload_attaches_existing_batch_summary_json(tmp_path):
+    summary = tmp_path / "summary.json"
+    summary.write_text(
+        json.dumps(
+            {
+                "job_count": 1,
+                "failed_count": 0,
+                "jobs": [{"index": 1, "label": "ok", "workflow": "gixs", "ok": True, "exit_code": 0}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = run_payload({"workflow": "batch", "args": ["--summary-json", str(summary)]})
+
+    assert payload["batch_summary"]["job_count"] == 1
+    assert payload["batch_summary"]["jobs"][0]["label"] == "ok"

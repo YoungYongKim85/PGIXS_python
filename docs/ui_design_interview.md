@@ -145,10 +145,10 @@ meaning, and troubleshooting steps.
 6. Validate Batch button is wired to `/api/validate` with batch dry-run
    validation.
 7. Run Batch button is wired to `/api/run` for real batch processing.
-8. Add 2D H5 preview and 1D export preview.
-9. Add coverage diagnostics and detector-gap warnings.
-10. Add preset/config save-load.
-11. Add batch/results table.
+8. Batch summary JSON is rendered as a Run Summary result table.
+9. Add 2D H5 preview and 1D export preview.
+10. Add coverage diagnostics and detector-gap warnings.
+11. Add preset/config save-load.
 12. Add MATLAB-vs-Python comparison page.
 13. Package local launcher for Windows and Linux.
 
