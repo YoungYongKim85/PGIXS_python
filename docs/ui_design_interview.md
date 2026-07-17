@@ -100,6 +100,7 @@ visible in the run summary until the next run starts.
 | Form fields | `docs/*_workflow_config_schema.json` |
 | UI backend service | `pgixs_python.ui_backend.service` |
 | UI discovery/status | `pgixs_python.ui_backend.discovery` |
+| Local web scaffold | `pgixs_python.ui_backend.local_server` |
 | Dry-run validation | `pgixs_python.workflows.batch_process --dry-run` |
 | Run processing | `trxs_process`, `gixs_process` |
 | 2D-info output | `*_2Dinfo.h5` |
@@ -125,14 +126,16 @@ visible in the run summary until the next run starts.
    `pgixs_python.ui_backend.service`.
 2. Backend discovery/status helpers exist for schema-driven UI startup:
    `pgixs_python.ui_backend.discovery`.
-3. Build a minimal browser workbench with input/config/output controls and a
+3. Local web scaffold exists with startup/status/workflow API endpoints:
+   `python -m pgixs_python.ui_backend.local_server`.
+4. Build a minimal browser workbench with input/config/output controls and a
    run summary.
-4. Add 2D H5 preview and 1D export preview.
-5. Add coverage diagnostics and detector-gap warnings.
-6. Add preset/config save-load.
-7. Add batch/results table.
-8. Add MATLAB-vs-Python comparison page.
-9. Package local launcher for Windows and Linux.
+5. Add 2D H5 preview and 1D export preview.
+6. Add coverage diagnostics and detector-gap warnings.
+7. Add preset/config save-load.
+8. Add batch/results table.
+9. Add MATLAB-vs-Python comparison page.
+10. Package local launcher for Windows and Linux.
 
 ## Open Notes
 

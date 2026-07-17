@@ -303,6 +303,8 @@ Tasks:
   for validating and running GIXS/TrXS/export workflow requests.
 - Added `pgixs_python.ui_backend.discovery` for workflow schema discovery and
   backend runtime status needed by the future local web UI startup screen.
+- Added a stdlib local web UI scaffold with `/api/status`, `/api/workflows`,
+  and `/api/startup` endpoints.
 
 ## Next Step
 

@@ -101,6 +101,14 @@ Environment check plus quick validation:
 python tools\check_environment.py --run-tests
 ```
 
+Run the local web UI scaffold:
+
+```powershell
+python -m pgixs_python.ui_backend.local_server
+```
+
+Then open `http://127.0.0.1:8765/`.
+
 Pytest test suite:
 
 ```powershell
