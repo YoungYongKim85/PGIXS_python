@@ -313,6 +313,8 @@ Tasks:
   local web UI users.
 - Confirmed the second UI design decision: Batch processing should be the first
   screen, with single GIXS/TrXS runs represented as one-job batch entries.
+- Wired the local web `Validate Batch` button to `/api/validate`, using batch
+  dry-run validation without running processing.
 
 ## Next Step
 

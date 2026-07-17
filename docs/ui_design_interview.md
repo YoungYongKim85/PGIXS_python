@@ -142,13 +142,15 @@ meaning, and troubleshooting steps.
    preview, run summary, inspector, and log regions.
 5. Batch-first workbench shell exists with batch config controls and Batch
    Queue as the first tab.
-6. Wire Validate Batch/Run Batch buttons to backend service endpoints.
-7. Add 2D H5 preview and 1D export preview.
-8. Add coverage diagnostics and detector-gap warnings.
-9. Add preset/config save-load.
-10. Add batch/results table.
-11. Add MATLAB-vs-Python comparison page.
-12. Package local launcher for Windows and Linux.
+6. Validate Batch button is wired to `/api/validate` with batch dry-run
+   validation.
+7. Wire Run Batch button to backend service endpoint.
+8. Add 2D H5 preview and 1D export preview.
+9. Add coverage diagnostics and detector-gap warnings.
+10. Add preset/config save-load.
+11. Add batch/results table.
+12. Add MATLAB-vs-Python comparison page.
+13. Package local launcher for Windows and Linux.
 
 ## Open Notes
 

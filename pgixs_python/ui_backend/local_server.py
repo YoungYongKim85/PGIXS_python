@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from pgixs_python.ui_backend.api import startup_payload, status_payload, workflows_payload
+from pgixs_python.ui_backend.service import UIWorkflowRequest, run_workflow, validate_workflow
 
 
 INDEX_HTML = """<!doctype html>
@@ -163,7 +165,7 @@ INDEX_HTML = """<!doctype html>
     </aside>
     <main>
       <div class="toolbar">
-        <button>Validate Batch</button>
+        <button id="validate-batch">Validate Batch</button>
         <button class="primary">Run Batch</button>
         <button>Add Job</button>
         <button>Save Batch Config</button>
@@ -198,6 +200,48 @@ INDEX_HTML = """<!doctype html>
     function log(message) {
       const node = document.getElementById("log");
       node.textContent += "\\n" + message;
+    }
+
+    function buildBatchArgs() {
+      const args = [];
+      const batchPath = document.getElementById("batch-path").value.trim();
+      const manifestPath = document.getElementById("manifest-path").value.trim();
+      const logPath = document.getElementById("log-path").value.trim();
+      if (batchPath) args.push("--batch", batchPath);
+      if (manifestPath) args.push("--manifest", manifestPath);
+      if (logPath) args.push("--log-dir", logPath);
+      return args;
+    }
+
+    function setSummary(title, body, ok) {
+      const summary = document.getElementById("summary");
+      const cls = ok ? "muted" : "warn";
+      summary.innerHTML = `<h2>${title}</h2><p class="${cls}">${body}</p>`;
+    }
+
+    function validateBatch() {
+      const args = buildBatchArgs();
+      if (!args.includes("--batch")) {
+        setSummary("Batch Validation", "Batch config JSON path is required.", false);
+        log("Validation skipped: missing batch config JSON path.");
+        return;
+      }
+      log(`Validating batch: ${args.join(" ")}`);
+      fetch("/api/validate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({workflow: "batch", args})
+      })
+        .then((response) => response.json())
+        .then((payload) => {
+          const message = payload.message || (payload.ok ? "validation ok" : "validation failed");
+          setSummary("Batch Validation", message.replaceAll("\\n", "<br>"), payload.ok);
+          log(`Validation ${payload.ok ? "OK" : "FAILED"}: ${message}`);
+        })
+        .catch((error) => {
+          setSummary("Batch Validation", String(error), false);
+          log(String(error));
+        });
     }
 
     function renderWorkflowOptions(workflows) {
@@ -241,6 +285,8 @@ INDEX_HTML = """<!doctype html>
       .catch((error) => {
         log(String(error));
       });
+
+    document.getElementById("validate-batch").addEventListener("click", validateBatch);
   </script>
 </body>
 </html>
@@ -286,6 +332,12 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler API.
+        if self.path == "/api/validate":
+            self._send_json(validate_payload(self._read_json()))
+            return
+        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
     def log_message(self, format: str, *args: Any) -> None:
         return
 
@@ -304,6 +356,43 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length).decode("utf-8")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("JSON payload must be an object.")
+        return payload
+
+
+def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    workflow = str(payload.get("workflow", ""))
+    args = payload.get("args", [])
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        return {
+            "workflow": workflow,
+            "ok": False,
+            "exit_code": 1,
+            "message": "args must be a list of strings.",
+            "stdout": "",
+            "stderr": "",
+        }
+    request = UIWorkflowRequest(
+        workflow=workflow,
+        config=payload.get("config"),
+        args=list(args),
+        label=str(payload.get("label", "")),
+    )
+    if workflow.strip().lower().replace("_", "-") == "batch":
+        dry_run_args = list(request.args)
+        if "--dry-run" not in dry_run_args:
+            dry_run_args.append("--dry-run")
+        request = UIWorkflowRequest(workflow=request.workflow, config=request.config, args=dry_run_args, label=request.label)
+        return asdict(run_workflow(request))
+    return asdict(validate_workflow(request))
 
 
 if __name__ == "__main__":

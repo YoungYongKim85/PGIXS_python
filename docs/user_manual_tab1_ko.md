@@ -56,6 +56,7 @@ python -m pgixs_python.ui_backend.local_server --port 8766
 4. 각 job에 raw H5 file/folder, standard/calibration file, output folder를 지정한다.
 5. 필요한 경우 normalization, background, q export option을 설정한다.
 6. `Validate Batch`로 전체 batch config와 입력 옵션을 먼저 확인한다.
+   이 단계는 실제 processing을 실행하지 않고 batch dry-run validation을 수행한다.
 7. `Run Batch`로 processing을 실행한다.
 8. `Run Summary`에서 저장된 파일, warning, coverage diagnostics를 확인한다.
 9. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
@@ -164,11 +165,11 @@ python tools\check_environment.py --run-tests
 - workflow schema preview
 - 기본 workbench shell
 - Batch-first screen layout
+- Validate Batch API 연결
 
 아직 구현 전인 기능:
 
 - 실제 file picker
-- Validate Batch button backend 연결
 - Run Batch button backend 연결
 - 2D image preview
 - 1D curve preview
