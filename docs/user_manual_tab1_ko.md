@@ -42,24 +42,24 @@ python -m pgixs_python.ui_backend.local_server --port 8766
 
 | 영역 | 목적 |
 | --- | --- |
-| Left sidebar | GIXS/TrXS mode, input file/folder, standard file, output folder 설정 |
-| Main toolbar | Validate, Run, Export 1D, Save Config 실행 |
-| Main tabs | Run Summary, 2D Image, 1D Curve, Coverage, Report 확인 |
+| Left sidebar | Batch config, shared manifest/log path, single job default 설정 |
+| Main toolbar | Validate Batch, Run Batch, Add Job, Save Batch Config 실행 |
+| Main tabs | Batch Queue, Run Summary, 2D Image, 1D Curve, Coverage, Report 확인 |
 | Inspector | 선택한 workflow와 config field, metadata, warning 정보 확인 |
 | Log drawer | 검증 메시지, 실행 로그, 오류 원인 확인 |
 
 ## 4. 기본 Workflow
 
-1. `Mode`에서 `GIXS` 또는 `TrXS`를 선택한다.
-2. raw H5 file 또는 folder를 선택한다.
-3. standard/calibration file을 선택한다.
-4. output folder를 지정한다.
+1. 첫 화면은 `Batch Queue`로 시작한다.
+2. Batch config JSON을 불러오거나 새 batch를 만든다.
+3. `Add Job`으로 GIXS, TrXS, Export 1D job을 추가한다.
+4. 각 job에 raw H5 file/folder, standard/calibration file, output folder를 지정한다.
 5. 필요한 경우 normalization, background, q export option을 설정한다.
-6. `Validate`로 config와 입력 옵션을 먼저 확인한다.
-7. `Run`으로 processing을 실행한다.
+6. `Validate Batch`로 전체 batch config와 입력 옵션을 먼저 확인한다.
+7. `Run Batch`로 processing을 실행한다.
 8. `Run Summary`에서 저장된 파일, warning, coverage diagnostics를 확인한다.
-9. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 결과를 확인한다.
-10. 반복 사용이 필요한 설정은 config/preset으로 저장한다.
+9. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
+10. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
 
 ## 5. MATLAB 용어와 Python UI 용어
 
@@ -163,15 +163,15 @@ python tools\check_environment.py --run-tests
 - `/api/startup`
 - workflow schema preview
 - 기본 workbench shell
+- Batch-first screen layout
 
 아직 구현 전인 기능:
 
 - 실제 file picker
-- Validate button backend 연결
-- Run button backend 연결
+- Validate Batch button backend 연결
+- Run Batch button backend 연결
 - 2D image preview
 - 1D curve preview
 - coverage plot
 - preset save/load
 - batch result table
-

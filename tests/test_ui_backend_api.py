@@ -12,8 +12,9 @@ def test_workflows_payload_includes_schema_properties():
     payload = workflows_payload()
 
     workflows = payload["workflows"]
-    assert workflows[0]["workflow"] == "gixs"
-    assert "properties" in workflows[0]["schema"]
+    assert workflows[0]["workflow"] == "batch"
+    assert "$defs" in workflows[0]["schema"]
+    assert "properties" in workflows[1]["schema"]
 
 
 def test_startup_payload_combines_status_and_workflows():
@@ -22,4 +23,3 @@ def test_startup_payload_combines_status_and_workflows():
     assert "status" in payload
     assert "workflows" in payload
     assert payload["workflows"]
-

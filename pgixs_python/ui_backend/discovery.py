@@ -12,7 +12,7 @@ from pgixs_python.workflows.config_schema import build_workflow_schema
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SUPPORTED_WORKFLOWS = ("gixs", "trxs", "export-1d")
+SUPPORTED_WORKFLOWS = ("batch", "gixs", "trxs", "export-1d")
 
 
 @dataclass(frozen=True)
@@ -68,4 +68,3 @@ def normalize_workflow(workflow: str) -> str:
     if normalized not in SUPPORTED_WORKFLOWS:
         raise ValueError(f"Unsupported workflow: {workflow}")
     return normalized
-

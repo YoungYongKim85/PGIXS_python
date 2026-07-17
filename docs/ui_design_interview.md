@@ -21,7 +21,7 @@ program.
 | Topic | Options | Current Decision | Notes |
 | --- | --- | --- | --- |
 | First UI type | Desktop app / local web app / both staged | local web first | Best match for future hosted web; can still be packaged locally. |
-| Main workflow | Wizard / single-page control panel / batch-first | single-page workbench | Keeps repeated beamline/lab processing fast. |
+| Main workflow | Wizard / single-page control panel / batch-first | batch-first workbench | User prefers Batch processing as the first screen. |
 | Dataset loading | File picker / folder picker / recent-project list | file/folder picker plus recent projects | Needs Windows and Linux paths. |
 | Config handling | Save/load JSON / project profiles / presets | JSON configs plus presets | Reuse generated JSON schemas. |
 | Result browsing | Per-run report list / manifest table / project tree | run-history table | Batch summary JSON already exists. |
@@ -53,7 +53,7 @@ Suggested stack for the first prototype:
 | Question | Recommended starting answer |
 | --- | --- |
 | Should the first UI feel closer to MATLAB or be redesigned? | Decided: redesign around a cleaner workflow, but keep familiar terms from MATLAB. |
-| Single-file/folder or batch from the beginning? | Single-file/folder first, with batch visible as a secondary tab. |
+| Single-file/folder or batch from the beginning? | Decided: Batch processing should be the first screen. Single GIXS/TrXS runs become one-job batch entries. |
 | Which controls must always be visible? | Mode, input, standard, output folder, normalization, q/export options, run button, status. |
 | Which controls can be advanced? | Detector correction, masking, grid removal details, frame index, metadata mode, retry count. |
 | GIXS/TrXS tabs or mode selector? | Mode selector at the top; shared layout underneath. |
@@ -68,9 +68,9 @@ Suggested stack for the first prototype:
 ## Proposed First UI Workflow
 
 1. Start local UI service and open the browser workbench.
-2. Select mode: GIXS or TrXS.
-3. Select input H5 file/folder and output folder.
-4. Select standard/calibration file.
+2. Start from the Batch Queue screen.
+3. Add one or more jobs: GIXS, TrXS, or Export 1D.
+4. For each job, select input H5 file/folder, output folder, and standard/calibration file as needed.
 5. Set routine processing options: normalization, background, q export.
 6. Expand advanced panel only when needed: masks, grid removal, detector
    correction, frame index, retry count, metadata mode.
@@ -83,10 +83,10 @@ Suggested stack for the first prototype:
 
 ## Suggested Screen Layout
 
-- Left sidebar: mode, input, calibration, output, preset/config controls.
-- Main top toolbar: validate, run, export 1D, save config, open output folder.
-- Main content tabs: 2D image, 1D curve, coverage diagnostics, run report,
-  batch/results.
+- Left sidebar: batch config, shared manifest/log paths, job defaults, preset/config controls.
+- Main top toolbar: validate batch, run batch, add job, save batch config, open output folder.
+- Main content tabs: batch queue, run summary, 2D image, 1D curve, coverage
+  diagnostics, run report.
 - Right inspector: selected q/intensity values, warnings, metadata, file paths.
 - Bottom log drawer: warnings, errors, dry-run messages, backend traceback links.
 
@@ -140,13 +140,15 @@ meaning, and troubleshooting steps.
    `python -m pgixs_python.ui_backend.local_server`.
 4. Minimal browser workbench shell exists with workflow controls, schema field
    preview, run summary, inspector, and log regions.
-5. Wire Validate/Run buttons to backend service endpoints.
-6. Add 2D H5 preview and 1D export preview.
-7. Add coverage diagnostics and detector-gap warnings.
-8. Add preset/config save-load.
-9. Add batch/results table.
-10. Add MATLAB-vs-Python comparison page.
-11. Package local launcher for Windows and Linux.
+5. Batch-first workbench shell exists with batch config controls and Batch
+   Queue as the first tab.
+6. Wire Validate Batch/Run Batch buttons to backend service endpoints.
+7. Add 2D H5 preview and 1D export preview.
+8. Add coverage diagnostics and detector-gap warnings.
+9. Add preset/config save-load.
+10. Add batch/results table.
+11. Add MATLAB-vs-Python comparison page.
+12. Package local launcher for Windows and Linux.
 
 ## Open Notes
 

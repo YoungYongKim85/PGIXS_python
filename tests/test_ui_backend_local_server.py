@@ -10,7 +10,8 @@ def test_local_server_has_expected_routes():
 
 
 def test_index_html_contains_workbench_regions():
-    assert "Workflow" in INDEX_HTML
+    assert "Batch Workflow" in INDEX_HTML
+    assert "Batch Queue" in INDEX_HTML
     assert "Run Summary" in INDEX_HTML
     assert "/api/startup" in INDEX_HTML
     assert "Coverage" in INDEX_HTML

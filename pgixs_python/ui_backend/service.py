@@ -124,17 +124,19 @@ def build_workflow_argv(request: UIWorkflowRequest) -> list[str]:
 
 def normalize_workflow(workflow: str) -> str:
     normalized = workflow.strip().lower().replace("_", "-")
-    if normalized not in {"gixs", "trxs", "export-1d"}:
+    if normalized not in {"batch", "gixs", "trxs", "export-1d"}:
         raise ValueError(f"Unsupported workflow: {workflow}")
     return normalized
 
 
 def default_parsers() -> dict[str, ParserBuilder]:
+    from pgixs_python.workflows.batch_process import build_parser as build_batch_parser
     from pgixs_python.workflows.export_1d_from_h5 import build_parser as build_export_parser
     from pgixs_python.workflows.gixs_process import build_parser as build_gixs_parser
     from pgixs_python.workflows.trxs_process import build_parser as build_trxs_parser
 
     return {
+        "batch": build_batch_parser,
         "gixs": build_gixs_parser,
         "trxs": build_trxs_parser,
         "export-1d": build_export_parser,
@@ -142,11 +144,13 @@ def default_parsers() -> dict[str, ParserBuilder]:
 
 
 def default_runners() -> dict[str, WorkflowRunner]:
+    from pgixs_python.workflows.batch_process import main as batch_main
     from pgixs_python.workflows.export_1d_from_h5 import main as export_main
     from pgixs_python.workflows.gixs_process import main as gixs_main
     from pgixs_python.workflows.trxs_process import main as trxs_main
 
     return {
+        "batch": batch_main,
         "gixs": gixs_main,
         "trxs": trxs_main,
         "export-1d": export_main,

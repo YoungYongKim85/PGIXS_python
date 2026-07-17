@@ -4,9 +4,10 @@ from pgixs_python.ui_backend import get_backend_status, get_workflow_info, list_
 def test_list_workflows_returns_schema_metadata():
     workflows = list_workflows()
 
-    assert [item.workflow for item in workflows] == ["gixs", "trxs", "export-1d"]
-    assert all(item.schema["type"] == "object" for item in workflows)
-    assert "q_bins" in workflows[0].schema["properties"]
+    assert [item.workflow for item in workflows] == ["batch", "gixs", "trxs", "export-1d"]
+    assert workflows[0].schema["title"] == "PGIXS Batch Workflow Config"
+    assert "job" in workflows[0].schema["$defs"]
+    assert all(item.schema.get("type") == "object" for item in workflows[1:])
 
 
 def test_get_workflow_info_normalizes_name():
@@ -21,6 +22,5 @@ def test_get_backend_status_contains_runtime_contract():
 
     assert status.version
     assert status.python_version
-    assert "gixs" in status.workflows
+    assert "batch" in status.workflows
     assert status.root
-

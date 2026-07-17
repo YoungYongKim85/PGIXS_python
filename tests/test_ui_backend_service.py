@@ -39,7 +39,7 @@ def test_run_workflow_captures_runner_output():
 
     result = run_workflow(
         UIWorkflowRequest(workflow="trxs", args=["--q-bins", "64"]),
-        runners={"trxs": runner, "gixs": runner, "export-1d": runner},
+        runners={"batch": runner, "trxs": runner, "gixs": runner, "export-1d": runner},
     )
 
     assert result.ok
@@ -56,7 +56,7 @@ def test_validate_workflow_supports_injected_parser():
 
     result = validate_workflow(
         UIWorkflowRequest(workflow="export-1d", args=["--value", "4"]),
-        parsers={"trxs": build_parser, "gixs": build_parser, "export-1d": build_parser},
+        parsers={"batch": build_parser, "trxs": build_parser, "gixs": build_parser, "export-1d": build_parser},
     )
 
     assert result.ok

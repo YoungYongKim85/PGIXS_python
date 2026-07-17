@@ -127,22 +127,33 @@ INDEX_HTML = """<!doctype html>
   <div class="app">
     <aside>
       <section class="section">
-        <h2>Workflow</h2>
+        <h2>Batch Workflow</h2>
         <div class="field">
-          <label for="mode">Mode</label>
+          <label for="mode">Primary workflow</label>
           <select id="mode"></select>
         </div>
         <div class="field">
-          <label for="input-path">Input H5 file or folder</label>
-          <input id="input-path" placeholder="Select in future file picker">
+          <label for="batch-path">Batch config JSON</label>
+          <input id="batch-path" placeholder="docs/example_batch_workflow.json">
         </div>
         <div class="field">
-          <label for="standard-path">Standard/calibration file</label>
-          <input id="standard-path" placeholder="JSON or MAT standard">
+          <label for="manifest-path">Shared manifest path</label>
+          <input id="manifest-path" placeholder="validation_outputs/batch_manifest.jsonl">
         </div>
         <div class="field">
-          <label for="output-path">Output folder</label>
-          <input id="output-path" placeholder="Output folder">
+          <label for="log-path">Log / summary folder</label>
+          <input id="log-path" placeholder="validation_outputs/batch_logs">
+        </div>
+      </section>
+      <section class="section">
+        <h2>Single Job Defaults</h2>
+        <div class="field">
+          <label for="job-type">New job type</label>
+          <select id="job-type">
+            <option>GIXS</option>
+            <option>TrXS</option>
+            <option>Export 1D</option>
+          </select>
         </div>
       </section>
       <section class="section">
@@ -152,27 +163,29 @@ INDEX_HTML = """<!doctype html>
     </aside>
     <main>
       <div class="toolbar">
-        <button>Validate</button>
-        <button class="primary">Run</button>
-        <button>Export 1D</button>
-        <button>Save Config</button>
+        <button>Validate Batch</button>
+        <button class="primary">Run Batch</button>
+        <button>Add Job</button>
+        <button>Save Batch Config</button>
       </div>
       <div class="tabs">
-        <button class="tab active">Run Summary</button>
+        <button class="tab active">Batch Queue</button>
+        <button class="tab">Run Summary</button>
         <button class="tab">2D Image</button>
         <button class="tab">1D Curve</button>
         <button class="tab">Coverage</button>
         <button class="tab">Report</button>
       </div>
       <section class="panel" id="summary">
-        <h2>Run Summary</h2>
-        <p class="muted">No run has started. The next step is wiring Validate and Run to the backend service.</p>
+        <h2>Batch Queue</h2>
+        <p class="muted">No batch has started. The next step is wiring Validate Batch and Run Batch to the backend service.</p>
+        <p class="muted">Single GIXS/TrXS runs will be represented as one-job batch entries.</p>
       </section>
     </main>
     <aside class="inspector">
       <section class="section">
         <h2>Inspector</h2>
-        <p id="inspector-text" class="muted">Select a workflow to inspect available config fields.</p>
+        <p id="inspector-text" class="muted">Batch is the primary screen. Select a workflow to inspect config fields.</p>
       </section>
       <section class="section">
         <h2>Warnings</h2>
@@ -202,7 +215,7 @@ INDEX_HTML = """<!doctype html>
 
     function renderSchema(workflow) {
       if (!workflow) return;
-      const properties = workflow.schema.properties || {};
+      const properties = workflow.schema.properties || workflow.schema.$defs?.job?.properties || {};
       const entries = Object.entries(properties).filter(([name]) => !["config"].includes(name)).slice(0, 10);
       const list = document.getElementById("schema-list");
       list.innerHTML = "";

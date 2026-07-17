@@ -311,6 +311,8 @@ Tasks:
   keeping familiar MATLAB terminology.
 - Added `docs/user_manual_tab1_ko.md` as the Korean user manual scaffold for
   local web UI users.
+- Confirmed the second UI design decision: Batch processing should be the first
+  screen, with single GIXS/TrXS runs represented as one-job batch entries.
 
 ## Next Step
 
