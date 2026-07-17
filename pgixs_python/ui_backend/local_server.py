@@ -166,7 +166,7 @@ INDEX_HTML = """<!doctype html>
     <main>
       <div class="toolbar">
         <button id="validate-batch">Validate Batch</button>
-        <button class="primary">Run Batch</button>
+        <button id="run-batch" class="primary">Run Batch</button>
         <button>Add Job</button>
         <button>Save Batch Config</button>
       </div>
@@ -180,7 +180,7 @@ INDEX_HTML = """<!doctype html>
       </div>
       <section class="panel" id="summary">
         <h2>Batch Queue</h2>
-        <p class="muted">No batch has started. The next step is wiring Validate Batch and Run Batch to the backend service.</p>
+        <p class="muted">No batch has started. Validate Batch checks the job file first; Run Batch starts processing.</p>
         <p class="muted">Single GIXS/TrXS runs will be represented as one-job batch entries.</p>
       </section>
     </main>
@@ -244,6 +244,34 @@ INDEX_HTML = """<!doctype html>
         });
     }
 
+    function runBatch() {
+      const args = buildBatchArgs();
+      if (!args.includes("--batch")) {
+        setSummary("Batch Run", "Batch config JSON path is required.", false);
+        log("Run skipped: missing batch config JSON path.");
+        return;
+      }
+      log(`Running batch: ${args.join(" ")}`);
+      setSummary("Batch Run", "Batch processing is running. Check the log panel for progress.", true);
+      fetch("/api/run", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({workflow: "batch", args})
+      })
+        .then((response) => response.json())
+        .then((payload) => {
+          const message = payload.message || (payload.ok ? "run completed" : "run failed");
+          setSummary("Batch Run", message.replaceAll("\\n", "<br>"), payload.ok);
+          log(`Run ${payload.ok ? "OK" : "FAILED"}: ${message}`);
+          if (payload.stdout) log(`[stdout]\\n${payload.stdout}`);
+          if (payload.stderr) log(`[stderr]\\n${payload.stderr}`);
+        })
+        .catch((error) => {
+          setSummary("Batch Run", String(error), false);
+          log(String(error));
+        });
+    }
+
     function renderWorkflowOptions(workflows) {
       const mode = document.getElementById("mode");
       mode.innerHTML = "";
@@ -287,6 +315,7 @@ INDEX_HTML = """<!doctype html>
       });
 
     document.getElementById("validate-batch").addEventListener("click", validateBatch);
+    document.getElementById("run-batch").addEventListener("click", runBatch);
   </script>
 </body>
 </html>
@@ -335,6 +364,9 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API.
         if self.path == "/api/validate":
             self._send_json(validate_payload(self._read_json()))
+            return
+        if self.path == "/api/run":
+            self._send_json(run_payload(self._read_json()))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -393,6 +425,27 @@ def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         request = UIWorkflowRequest(workflow=request.workflow, config=request.config, args=dry_run_args, label=request.label)
         return asdict(run_workflow(request))
     return asdict(validate_workflow(request))
+
+
+def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    workflow = str(payload.get("workflow", ""))
+    args = payload.get("args", [])
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        return {
+            "workflow": workflow,
+            "ok": False,
+            "exit_code": 1,
+            "message": "args must be a list of strings.",
+            "stdout": "",
+            "stderr": "",
+        }
+    request = UIWorkflowRequest(
+        workflow=workflow,
+        config=payload.get("config"),
+        args=list(args),
+        label=str(payload.get("label", "")),
+    )
+    return asdict(run_workflow(request))
 
 
 if __name__ == "__main__":

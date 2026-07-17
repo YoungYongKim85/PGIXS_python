@@ -144,7 +144,7 @@ meaning, and troubleshooting steps.
    Queue as the first tab.
 6. Validate Batch button is wired to `/api/validate` with batch dry-run
    validation.
-7. Wire Run Batch button to backend service endpoint.
+7. Run Batch button is wired to `/api/run` for real batch processing.
 8. Add 2D H5 preview and 1D export preview.
 9. Add coverage diagnostics and detector-gap warnings.
 10. Add preset/config save-load.

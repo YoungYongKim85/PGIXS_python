@@ -315,14 +315,17 @@ Tasks:
   screen, with single GIXS/TrXS runs represented as one-job batch entries.
 - Wired the local web `Validate Batch` button to `/api/validate`, using batch
   dry-run validation without running processing.
+- Wired the local web `Run Batch` button to `/api/run` for real batch
+  processing through the UI backend service.
 
 ## Next Step
 
-Continue Phase 8/9 workflow hardening and real-data validation:
+Continue the local web UI bridge while keeping Phase 8/9 validation active:
 
-1. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
-2. Add remaining batch-processing conveniences needed before UI work.
-3. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
+1. Add a batch result table fed by summary JSON/manifest outputs.
+2. Add 2D H5 preview and 1D export preview panels.
+3. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
+4. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
    once MATLAB is available.
-4. Use the generated config schemas as the UI-control contract during the UI
+5. Use the generated config schemas as the UI-control contract during the UI
    design review.
