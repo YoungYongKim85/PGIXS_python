@@ -107,7 +107,8 @@ Move into UI design after these items are acceptable:
 - `[ ]` At least one GIXS and one TrXS real dataset have been compared against
   MATLAB outputs.
 - `[ ]` Batch result manifest/summary format is acceptable for UI result lists.
-- `[ ]` Initial desktop/local-web UI direction is chosen.
+- `[~]` Initial desktop/local-web UI direction is being discussed in
+  `docs/ui_design_interview.md`.
 
 ## Recommended Next Stabilization Tasks
 
@@ -115,4 +116,4 @@ Move into UI design after these items are acceptable:
    Python 3.10 environment.
 2. Run `python tools/check_environment.py --run-tests` in a clean Linux
    Python 3.10 environment.
-3. Start UI workflow interview once the user accepts the CLI contract.
+3. Answer the UI design interview questions in `docs/ui_design_interview.md`.

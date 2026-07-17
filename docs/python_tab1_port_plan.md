@@ -295,6 +295,8 @@ Tasks:
   optional smoke/unit/compile checks in clean Windows/Linux environments.
 - Added `tools/compare_1d_exports.py` to compute pointwise and summary
   differences between MATLAB and Python 1D exported curves.
+- Added `docs/ui_design_interview.md` to keep the first Tab1 Python UI design
+  discussion tied to the existing CLI/config/output contract.
 
 ## Next Step
 
