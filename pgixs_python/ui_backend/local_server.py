@@ -124,6 +124,20 @@ INDEX_HTML = """<!doctype html>
       vertical-align: top;
     }
     th { color: var(--muted); font-weight: 650; }
+    .preview-layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .image-preview {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0f172a;
+      image-rendering: pixelated;
+    }
     .muted { color: var(--muted); }
     .warn { color: var(--warning); font-weight: 650; }
     @media (max-width: 1100px) {
@@ -133,6 +147,7 @@ INDEX_HTML = """<!doctype html>
     @media (max-width: 760px) {
       .app { display: block; }
       aside, main, .log { border-right: 0; border-bottom: 1px solid var(--line); }
+      .preview-layout { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -297,7 +312,61 @@ INDEX_HTML = """<!doctype html>
         ["Beam position", (calibration.beam_position || []).join(", ")],
         ["Wavelength / SDD / Pixel", `${calibration.wavelength} / ${calibration.sdd} / ${calibration.pixel}`],
       ].map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
-      return `<table><tbody>${rows}</tbody></table>`;
+      return `<div class="preview-layout">
+        <canvas id="two-d-preview-canvas" class="image-preview" width="512" height="512"></canvas>
+        <table><tbody>${rows}</tbody></table>
+      </div>`;
+    }
+
+    function drawTwoDHeatmap(values) {
+      const canvas = document.getElementById("two-d-preview-canvas");
+      if (!canvas || !values || !values.length || !values[0].length) return;
+      const rows = values.length;
+      const cols = values[0].length;
+      canvas.width = cols;
+      canvas.height = rows;
+      const ctx = canvas.getContext("2d");
+      const image = ctx.createImageData(cols, rows);
+      const finite = [];
+      values.forEach((row) => row.forEach((value) => {
+        if (Number.isFinite(value)) finite.push(value);
+      }));
+      const min = finite.length ? Math.min(...finite) : 0;
+      const max = finite.length ? Math.max(...finite) : 1;
+      const span = max > min ? max - min : 1;
+      for (let y = 0; y < rows; y += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          const offset = (y * cols + x) * 4;
+          const value = values[y][x];
+          if (!Number.isFinite(value)) {
+            image.data[offset] = 6;
+            image.data[offset + 1] = 12;
+            image.data[offset + 2] = 24;
+            image.data[offset + 3] = 255;
+            continue;
+          }
+          const t = Math.max(0, Math.min(1, (value - min) / span));
+          const rgb = heatColor(t);
+          image.data[offset] = rgb[0];
+          image.data[offset + 1] = rgb[1];
+          image.data[offset + 2] = rgb[2];
+          image.data[offset + 3] = 255;
+        }
+      }
+      ctx.putImageData(image, 0, 0);
+    }
+
+    function heatColor(t) {
+      const stops = [
+        [24, 36, 96],
+        [29, 125, 132],
+        [93, 201, 99],
+        [252, 231, 77],
+      ];
+      const scaled = t * (stops.length - 1);
+      const index = Math.min(stops.length - 2, Math.floor(scaled));
+      const local = scaled - index;
+      return stops[index].map((start, channel) => Math.round(start + (stops[index + 1][channel] - start) * local));
     }
 
     function validateBatch() {
@@ -369,6 +438,7 @@ INDEX_HTML = """<!doctype html>
         .then((response) => response.json())
         .then((payload) => {
           setSummary("2D Preview", payload.ok ? "Loaded compact 2D-info H5 preview." : "Preview failed.", payload.ok, renderTwoDPreview(payload));
+          if (payload.ok) requestAnimationFrame(() => drawTwoDHeatmap(payload.preview?.data2d_q));
           log(`2D preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
         })
         .catch((error) => {

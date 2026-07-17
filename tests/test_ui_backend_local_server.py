@@ -26,6 +26,8 @@ def test_index_html_contains_workbench_regions():
     assert "Batch summary JSON" in INDEX_HTML
     assert "/api/preview/2d" in INDEX_HTML
     assert "Load 2D Preview" in INDEX_HTML
+    assert "two-d-preview-canvas" in INDEX_HTML
+    assert "drawTwoDHeatmap" in INDEX_HTML
     assert "Coverage" in INDEX_HTML
 
 
