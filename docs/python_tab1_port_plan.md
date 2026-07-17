@@ -297,6 +297,8 @@ Tasks:
   differences between MATLAB and Python 1D exported curves.
 - Added `docs/ui_design_interview.md` to keep the first Tab1 Python UI design
   discussion tied to the existing CLI/config/output contract.
+- Updated the UI design interview with a local-web-first recommendation,
+  initial answers, workbench layout, and prototype milestones.
 
 ## Next Step
 

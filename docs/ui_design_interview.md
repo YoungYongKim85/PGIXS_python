@@ -20,49 +20,78 @@ program.
 
 | Topic | Options | Current Decision | Notes |
 | --- | --- | --- | --- |
-| First UI type | Desktop app / local web app / both staged | undecided | Local web may transfer well to future hosted web. |
-| Main workflow | Wizard / single-page control panel / batch-first | undecided | Must stay efficient for repeated analysis. |
-| Dataset loading | File picker / folder picker / recent-project list | undecided | Needs Windows and Linux paths. |
-| Config handling | Save/load JSON / project profiles / presets | undecided | Should reuse generated JSON schemas. |
-| Result browsing | Per-run report list / manifest table / project tree | undecided | Batch summary JSON already exists. |
-| Plotting | Static matplotlib / interactive browser plots | undecided | Depends on UI type. |
-| Error reporting | Inline panel / popup / log drawer / report file | undecided | Should expose callback/log details clearly. |
+| First UI type | Desktop app / local web app / both staged | local web first | Best match for future hosted web; can still be packaged locally. |
+| Main workflow | Wizard / single-page control panel / batch-first | single-page workbench | Keeps repeated beamline/lab processing fast. |
+| Dataset loading | File picker / folder picker / recent-project list | file/folder picker plus recent projects | Needs Windows and Linux paths. |
+| Config handling | Save/load JSON / project profiles / presets | JSON configs plus presets | Reuse generated JSON schemas. |
+| Result browsing | Per-run report list / manifest table / project tree | run-history table | Batch summary JSON already exists. |
+| Plotting | Static matplotlib / interactive browser plots | interactive browser plots first | Better for q/coverage inspection and later web deployment. |
+| Error reporting | Inline panel / popup / log drawer / report file | inline status plus log drawer | Should expose callback/log details clearly. |
+
+## Recommended UI Direction
+
+Build the first Python UI as a local web application that runs on the user's
+computer and opens in a browser. The backend should call the existing Python
+workflow functions directly, not shell out to MATLAB or duplicate processing
+logic. This keeps the UI portable across Windows and Linux and leaves a clean
+path to a future hosted web version when a domain/server exists.
+
+Suggested stack for the first prototype:
+
+- Backend: Python service wrapping existing `pgixs_python.workflows` modules.
+- UI: browser-based workbench with GIXS/TrXS mode selector.
+- Config contract: generated JSON schemas in `docs/*_workflow_config_schema.json`.
+- Result contract: `*_2Dinfo.h5`, JSON reports, JSONL manifests, and 1D
+  exports.
+- Plotting: browser-side interactive plots for 2D image, 1D q curve, and
+  coverage diagnostics.
+- Packaging later: desktop launcher can start the local service and open the
+  browser automatically.
 
 ## Interview Questions
 
-1. Should the first UI feel closer to the MATLAB GUI, or should it be redesigned
-   around a cleaner workflow even if the layout changes?
-2. Is the first Python UI mainly for single-file/folder processing, or should
-   batch processing be visible from the beginning?
-3. Which controls must always be visible on the main screen?
-4. Which controls can live in an advanced panel?
-5. Should GIXS and TrXS be separate tabs, separate pages, or one mode selector?
-6. Should the user see q-map/2D image/1D curve in one screen, or switch between
-   views?
-7. How should detector-gap coverage warnings appear so they are noticeable but
-   not annoying?
-8. What should happen after processing finishes: auto-open 2D view, auto-open
-   1D view, or show a run summary first?
-9. Which output files should be shown as clickable results?
-10. Which settings should be saved as reusable presets?
-11. Should the UI prevent processing when clean-environment checks fail, or only
-    warn the user?
-12. Should MATLAB-vs-Python comparison be a separate validation tool page?
+| Question | Recommended starting answer |
+| --- | --- |
+| Should the first UI feel closer to MATLAB or be redesigned? | Redesign around a cleaner workflow, but keep familiar terms from MATLAB. |
+| Single-file/folder or batch from the beginning? | Single-file/folder first, with batch visible as a secondary tab. |
+| Which controls must always be visible? | Mode, input, standard, output folder, normalization, q/export options, run button, status. |
+| Which controls can be advanced? | Detector correction, masking, grid removal details, frame index, metadata mode, retry count. |
+| GIXS/TrXS tabs or mode selector? | Mode selector at the top; shared layout underneath. |
+| One screen or separate views? | One workbench with tabs for 2D image, 1D curve, coverage, report/log. |
+| How should detector-gap warnings appear? | Non-blocking warning badge plus coverage tab and report details. |
+| What happens after processing finishes? | Show run summary first, then make 2D/1D views immediately available. |
+| Which outputs should be clickable? | H5 2D-info, 1D export, figure, JSON report, logs, manifest/summary. |
+| Which settings become presets? | Detector/calibration defaults, q export settings, normalization/background conventions. |
+| Environment check behavior? | Warn but do not block, unless a required package is missing. |
+| MATLAB-vs-Python comparison page? | Yes, but as a validation/admin tool rather than the default workflow. |
 
 ## Proposed First UI Workflow
 
-1. Select mode: GIXS or TrXS.
-2. Select input H5 file/folder.
-3. Select standard/calibration file.
-4. Optional: background, normalization, detector mask, grid removal, detector
-   correction.
-5. Set q/1D export options.
-6. Run dry-run/config validation.
-7. Run processing.
-8. Show result summary with output paths, warnings, q coverage diagnostics, and
+1. Start local UI service and open the browser workbench.
+2. Select mode: GIXS or TrXS.
+3. Select input H5 file/folder and output folder.
+4. Select standard/calibration file.
+5. Set routine processing options: normalization, background, q export.
+6. Expand advanced panel only when needed: masks, grid removal, detector
+   correction, frame index, retry count, metadata mode.
+7. Run config validation/dry-run.
+8. Run processing.
+9. Show run summary with output paths, warnings, q coverage diagnostics, and
    log/report links.
-9. Open 2D image and 1D curve views.
-10. Save/reuse workflow config.
+10. Open 2D image, 1D curve, coverage, and report/log tabs.
+11. Save or reload workflow config/preset.
+
+## Suggested Screen Layout
+
+- Left sidebar: mode, input, calibration, output, preset/config controls.
+- Main top toolbar: validate, run, export 1D, save config, open output folder.
+- Main content tabs: 2D image, 1D curve, coverage diagnostics, run report,
+  batch/results.
+- Right inspector: selected q/intensity values, warnings, metadata, file paths.
+- Bottom log drawer: warnings, errors, dry-run messages, backend traceback links.
+
+The UI should avoid hiding scientific warnings in popups. Warnings should stay
+visible in the run summary until the next run starts.
 
 ## UI Readiness Mapping
 
@@ -88,6 +117,19 @@ program.
 - User can save and reload the workflow config.
 - UI paths work naturally on Windows and Linux.
 
+## Prototype Milestones
+
+1. Create a backend service wrapper that can validate configs and run one GIXS
+   or TrXS job.
+2. Build a minimal browser workbench with input/config/output controls and a
+   run summary.
+3. Add 2D H5 preview and 1D export preview.
+4. Add coverage diagnostics and detector-gap warnings.
+5. Add preset/config save-load.
+6. Add batch/results table.
+7. Add MATLAB-vs-Python comparison page.
+8. Package local launcher for Windows and Linux.
+
 ## Open Notes
 
 - Final UI framework is not chosen yet.
@@ -95,4 +137,3 @@ program.
   declaring the scientific backend ready for routine use.
 - Clean Windows/Linux Python 3.10 environment checks still need to be run by the
   user or on target machines.
-
