@@ -7,6 +7,7 @@ from pgixs_python.workflows.batch_process import (
     load_batch_jobs,
     run_batch,
     save_batch_summary_json,
+    validate_batch_jobs,
     write_job_log,
 )
 
@@ -83,6 +84,28 @@ def test_run_batch_handles_system_exit_message_as_failure():
 
     assert results[0].exit_code == 1
     assert results[0].message == "usage error"
+
+
+def test_validate_batch_jobs_accepts_valid_config(tmp_path):
+    config_file = tmp_path / "gixs.json"
+    config_file.write_text(json.dumps({"q_bins": 64, "q_scale": "linear"}), encoding="utf-8")
+    jobs = [BatchJob(workflow="gixs", config=str(config_file), label="valid")]
+
+    results = validate_batch_jobs(jobs)
+
+    assert results[0].ok
+    assert results[0].message == "dry-run ok"
+
+
+def test_validate_batch_jobs_rejects_unknown_config_key(tmp_path):
+    config_file = tmp_path / "gixs.json"
+    config_file.write_text(json.dumps({"q_bnis": 64}), encoding="utf-8")
+    jobs = [BatchJob(workflow="gixs", config=str(config_file), label="invalid")]
+
+    results = validate_batch_jobs(jobs)
+
+    assert not results[0].ok
+    assert "Unknown config option" in results[0].message
 
 
 def test_run_batch_quiet_captures_output_and_writes_log(tmp_path):

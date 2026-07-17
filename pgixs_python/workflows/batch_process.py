@@ -41,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-dir", required=False, help="Directory for per-job captured log files.")
     parser.add_argument("--summary-json", required=False, help="Save a structured batch summary JSON file.")
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate batch jobs and workflow configs without processing input data.",
+    )
+    parser.add_argument(
         "--stop-on-error",
         action="store_true",
         help="Stop at the first failed job instead of continuing through the batch.",
@@ -55,13 +60,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.exit(status=0, message="Batch workflow runner is ready; pass --batch jobs.json.\n")
 
     jobs = load_batch_jobs(args.batch)
-    results = run_batch(
-        jobs,
-        shared_manifest=args.manifest,
-        stop_on_error=bool(args.stop_on_error),
-        quiet=bool(args.quiet),
-        log_dir=args.log_dir,
-    )
+    if args.dry_run:
+        results = validate_batch_jobs(jobs, shared_manifest=args.manifest, stop_on_error=bool(args.stop_on_error))
+    else:
+        results = run_batch(
+            jobs,
+            shared_manifest=args.manifest,
+            stop_on_error=bool(args.stop_on_error),
+            quiet=bool(args.quiet),
+            log_dir=args.log_dir,
+        )
     if args.summary_json:
         save_batch_summary_json(args.summary_json, results)
     failed = [result for result in results if not result.ok]
@@ -117,6 +125,24 @@ def run_batch(
         result = _run_one_job(job, argv, runner, capture=bool(quiet or log_dir))
         if log_dir:
             result.log_path = write_job_log(log_dir, len(results) + 1, result)
+        results.append(result)
+        if stop_on_error and not result.ok:
+            break
+    return results
+
+
+def validate_batch_jobs(
+    jobs: list[BatchJob],
+    shared_manifest: str | None = None,
+    stop_on_error: bool = False,
+) -> list[BatchJobResult]:
+    """Validate batch job argv/configs without invoking expensive processing."""
+
+    validators = _default_validators()
+    results: list[BatchJobResult] = []
+    for job in jobs:
+        argv = build_job_argv(job, shared_manifest=shared_manifest)
+        result = _validate_one_job(job, argv, validators[job.workflow])
         results.append(result)
         if stop_on_error and not result.ok:
             break
@@ -190,6 +216,42 @@ def _default_runners() -> dict[str, WorkflowRunner]:
     }
 
 
+def _default_validators() -> dict[str, WorkflowRunner]:
+    from pgixs_python.workflows.common import parse_workflow_args
+    from pgixs_python.workflows.export_1d_from_h5 import build_parser as build_export_parser
+    from pgixs_python.workflows.gixs_process import build_parser as build_gixs_parser
+    from pgixs_python.workflows.trxs_process import build_parser as build_trxs_parser
+
+    def _validator(parser_builder: Callable[[], argparse.ArgumentParser]) -> WorkflowRunner:
+        def validate(argv: list[str] | None) -> int:
+            parse_workflow_args(parser_builder(), argv)
+            return 0
+
+        return validate
+
+    return {
+        "trxs": _validator(build_trxs_parser),
+        "gixs": _validator(build_gixs_parser),
+        "export-1d": _validator(build_export_parser),
+    }
+
+
+def _validate_one_job(job: BatchJob, argv: list[str], validator: WorkflowRunner) -> BatchJobResult:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            exit_code = int(validator(argv) or 0)
+    except SystemExit as exc:
+        exit_code, message = _system_exit_result(exc)
+        message = message or stderr.getvalue().strip() or stdout.getvalue().strip()
+        return BatchJobResult(job=job, ok=(exit_code == 0), exit_code=exit_code, message=message)
+    except Exception as exc:  # noqa: BLE001 - dry-run must summarize all validation failures.
+        message = str(exc) or stderr.getvalue().strip() or stdout.getvalue().strip()
+        return BatchJobResult(job=job, ok=False, exit_code=1, message=message)
+    return BatchJobResult(job=job, ok=(exit_code == 0), exit_code=exit_code, message="dry-run ok")
+
+
 def _run_one_job(job: BatchJob, argv: list[str], runner: WorkflowRunner, capture: bool) -> BatchJobResult:
     if not capture:
         return _invoke_runner(job, argv, runner)
@@ -253,6 +315,7 @@ __all__ = [
     "main",
     "run_batch",
     "save_batch_summary_json",
+    "validate_batch_jobs",
     "write_job_log",
 ]
 

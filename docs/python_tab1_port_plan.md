@@ -289,6 +289,8 @@ Tasks:
   documentation item complete in the stabilization checklist.
 - Added a MATLAB-vs-Python validation template and comparison-log CSV scaffold
   for recording real-data numeric parity checks.
+- Added batch `--dry-run` validation so batch files and workflow configs can be
+  checked before loading detector data or writing processing outputs.
 
 ## Next Step
 

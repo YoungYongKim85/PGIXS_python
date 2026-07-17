@@ -20,6 +20,7 @@ CLI core into desktop/web UI design.
 - `[x]` Batch runner can execute multiple workflow jobs from one JSON file.
 - `[x]` Batch runner supports quiet mode, per-job logs, summary JSON, and a
   shared manifest path.
+- `[x]` Batch runner supports `--dry-run` config validation before processing.
 
 ## Input IO
 
@@ -105,8 +106,6 @@ Move into UI design after these items are acceptable:
 
 ## Recommended Next Stabilization Tasks
 
-1. Add optional batch dry-run validation that checks config files before
-   processing large data.
-2. Run the current CLI on a clean Python 3.10 environment with all pinned
+1. Run the current CLI on a clean Python 3.10 environment with all pinned
    dependencies installed.
-3. Start UI workflow interview once the user accepts the CLI contract.
+2. Start UI workflow interview once the user accepts the CLI contract.

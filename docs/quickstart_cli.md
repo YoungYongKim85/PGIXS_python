@@ -85,6 +85,28 @@ python -m pgixs_python.workflows.export_1d_from_h5 \
 
 ## Batch Workflow
 
+Use `--dry-run` first when checking a new batch file or edited workflow
+configs. It validates the batch structure and each workflow config without
+loading detector data or writing processing outputs.
+
+Windows PowerShell:
+
+```powershell
+python -m pgixs_python.workflows.batch_process `
+  --batch docs\example_batch_workflow.json `
+  --manifest validation_outputs\batch_manifest.jsonl `
+  --dry-run
+```
+
+Linux shell:
+
+```bash
+python -m pgixs_python.workflows.batch_process \
+  --batch docs/example_batch_workflow.json \
+  --manifest validation_outputs/batch_manifest.jsonl \
+  --dry-run
+```
+
 Windows PowerShell:
 
 ```powershell
