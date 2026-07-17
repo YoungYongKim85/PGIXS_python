@@ -307,6 +307,10 @@ Tasks:
   and `/api/startup` endpoints.
 - Expanded the local web index into a minimal workbench shell with workflow
   controls, schema preview, run summary, inspector, and log regions.
+- Confirmed the first UI design decision: redesign workflow layout while
+  keeping familiar MATLAB terminology.
+- Added `docs/user_manual_tab1_ko.md` as the Korean user manual scaffold for
+  local web UI users.
 
 ## Next Step
 

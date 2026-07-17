@@ -52,7 +52,7 @@ Suggested stack for the first prototype:
 
 | Question | Recommended starting answer |
 | --- | --- |
-| Should the first UI feel closer to MATLAB or be redesigned? | Redesign around a cleaner workflow, but keep familiar terms from MATLAB. |
+| Should the first UI feel closer to MATLAB or be redesigned? | Decided: redesign around a cleaner workflow, but keep familiar terms from MATLAB. |
 | Single-file/folder or batch from the beginning? | Single-file/folder first, with batch visible as a secondary tab. |
 | Which controls must always be visible? | Mode, input, standard, output folder, normalization, q/export options, run button, status. |
 | Which controls can be advanced? | Detector correction, masking, grid removal details, frame index, metadata mode, retry count. |
@@ -93,6 +93,15 @@ Suggested stack for the first prototype:
 The UI should avoid hiding scientific warnings in popups. Warnings should stay
 visible in the run summary until the next run starts.
 
+## Manual Policy
+
+The UI must be developed together with a detailed Korean user manual:
+`docs/user_manual_tab1_ko.md`.
+
+Manual updates should be part of each user-facing UI change. The manual should
+explain what the feature does, when to use it, expected inputs/outputs, warning
+meaning, and troubleshooting steps.
+
 ## UI Readiness Mapping
 
 | UI Need | Existing Backend Contract |
@@ -101,6 +110,7 @@ visible in the run summary until the next run starts.
 | UI backend service | `pgixs_python.ui_backend.service` |
 | UI discovery/status | `pgixs_python.ui_backend.discovery` |
 | Local web scaffold | `pgixs_python.ui_backend.local_server` |
+| Korean user manual | `docs/user_manual_tab1_ko.md` |
 | Dry-run validation | `pgixs_python.workflows.batch_process --dry-run` |
 | Run processing | `trxs_process`, `gixs_process` |
 | 2D-info output | `*_2Dinfo.h5` |
