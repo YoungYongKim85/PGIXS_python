@@ -90,8 +90,15 @@ python -m pip install -r requirements-torch-cu113.txt
 Minimal smoke test without pytest:
 
 ```powershell
+python tools\check_environment.py
 python tests\run_smoke.py
 python tests\run_unit_harness.py
+```
+
+Environment check plus quick validation:
+
+```powershell
+python tools\check_environment.py --run-tests
 ```
 
 Pytest test suite:

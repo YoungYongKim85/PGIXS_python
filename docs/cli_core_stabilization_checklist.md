@@ -77,6 +77,7 @@ CLI core into desktop/web UI design.
 - `[x]` Runtime paths use `pathlib` internally where practical.
 - `[x]` CLI examples are documented for Windows PowerShell.
 - `[x]` Linux shell examples are documented for core CLI workflows.
+- `[x]` Environment checker exists: `tools/check_environment.py`.
 - `[~]` Python 3.10 environment should be tested on a clean Windows machine.
 - `[~]` Python 3.10 environment should be tested on a clean Linux machine.
 
@@ -85,6 +86,8 @@ CLI core into desktop/web UI design.
 - `[x]` Minimal smoke test exists: `tests/run_smoke.py`.
 - `[x]` No-pytest unit harness exists: `tests/run_unit_harness.py`.
 - `[x]` Compile check is documented: `python -m compileall pgixs_python tests`.
+- `[x]` Environment/import/version check is documented:
+  `python tools/check_environment.py`.
 - `[~]` Full pytest suite should be run in the real Python 3.10 environment.
 - `[~]` Real H5 fixture regression set should be expanded.
 - `[x]` MATLAB-vs-Python numeric comparison template exists:
@@ -106,6 +109,8 @@ Move into UI design after these items are acceptable:
 
 ## Recommended Next Stabilization Tasks
 
-1. Run the current CLI on a clean Python 3.10 environment with all pinned
-   dependencies installed.
-2. Start UI workflow interview once the user accepts the CLI contract.
+1. Run `python tools/check_environment.py --run-tests` in a clean Windows
+   Python 3.10 environment.
+2. Run `python tools/check_environment.py --run-tests` in a clean Linux
+   Python 3.10 environment.
+3. Start UI workflow interview once the user accepts the CLI contract.

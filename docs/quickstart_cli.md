@@ -147,6 +147,7 @@ future desktop/web UI control contract.
 Windows PowerShell or Linux shell:
 
 ```powershell
+python tools/check_environment.py
 python tests\run_smoke.py
 python tests\run_unit_harness.py
 python -m compileall pgixs_python tests
@@ -155,7 +156,14 @@ python -m compileall pgixs_python tests
 Linux shell equivalent:
 
 ```bash
+python tools/check_environment.py
 python tests/run_smoke.py
 python tests/run_unit_harness.py
 python -m compileall pgixs_python tests
+```
+
+Run the full environment check with the quick tests:
+
+```powershell
+python tools/check_environment.py --run-tests
 ```

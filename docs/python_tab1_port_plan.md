@@ -291,6 +291,8 @@ Tasks:
   for recording real-data numeric parity checks.
 - Added batch `--dry-run` validation so batch files and workflow configs can be
   checked before loading detector data or writing processing outputs.
+- Added `tools/check_environment.py` for Python/version/import validation and
+  optional smoke/unit/compile checks in clean Windows/Linux environments.
 
 ## Next Step
 
