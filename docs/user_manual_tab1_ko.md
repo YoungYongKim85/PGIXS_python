@@ -68,8 +68,10 @@ python -m pgixs_python.ui_backend.local_server --port 8766
     `Load 1D Preview`로 q-intensity curve, q/intensity range, std/coverage
     column 여부를 확인한다. Coverage column이 있으면 low-coverage bin과
     abrupt coverage drop warning도 함께 표시된다.
-11. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
-12. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
+11. `Load Coverage`로 coverage curve를 따로 확인한다. 0.15 기준선과
+    low/drop bin 위치가 표시되어 detector gap 영향을 빠르게 볼 수 있다.
+12. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
+13. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
 
 ## 5. MATLAB 용어와 Python UI 용어
 
@@ -181,12 +183,13 @@ python tools\check_environment.py --run-tests
 - 2D-info H5 compact heatmap rendering
 - 1D export CSV/DAT preview API와 SVG curve rendering
 - 1D coverage diagnostics warning 표시
+- dedicated coverage preview API와 SVG coverage plot
 
 아직 구현 전인 기능:
 
 - 실제 file picker
 - full-resolution 2D image interaction
 - interactive 1D curve tools
-- dedicated coverage plot tab
+- tab navigation/state management
 - preset save/load
 - batch result table

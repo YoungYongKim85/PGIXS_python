@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from pgixs_python.ui_backend.api import startup_payload, status_payload, workflows_payload
-from pgixs_python.ui_backend.preview import one_d_export_preview_payload, preview_error_payload, two_d_info_preview_payload
+from pgixs_python.ui_backend.preview import (
+    coverage_preview_payload,
+    one_d_export_preview_payload,
+    preview_error_payload,
+    two_d_info_preview_payload,
+)
 from pgixs_python.ui_backend.service import UIWorkflowRequest, run_workflow, validate_workflow
 
 
@@ -229,6 +234,7 @@ INDEX_HTML = """<!doctype html>
         <button id="run-batch" class="primary">Run Batch</button>
         <button id="load-2d-preview">Load 2D Preview</button>
         <button id="load-1d-preview">Load 1D Preview</button>
+        <button id="load-coverage-preview">Load Coverage</button>
         <button>Add Job</button>
         <button>Save Batch Config</button>
       </div>
@@ -456,6 +462,60 @@ INDEX_HTML = """<!doctype html>
       svg.insertAdjacentHTML("beforeend", `<path class="coverage-path" d="${path}"></path>`);
     }
 
+    function renderCoveragePreview(payload) {
+      if (!payload.ok) {
+        return `<p class="warn">${escapeHtml(payload.message || "Coverage preview failed")}</p>`;
+      }
+      const diagnostics = payload.coverage_diagnostics || {};
+      const coverage = payload.coverage || {};
+      const warning = diagnostics.warning_count > 0
+        ? `<p class="warn">${escapeHtml(diagnostics.message)}</p>`
+        : `<p class="muted">${escapeHtml(diagnostics.message || "Coverage looks stable.")}</p>`;
+      const rows = [
+        ["File", payload.path],
+        ["Points", `${payload.finite_count} finite / ${payload.point_count} total`],
+        ["Coverage min/median/max", `${coverage.min} / ${coverage.median} / ${coverage.max}`],
+        ["Low coverage bins", (diagnostics.coverage_low_bins || []).join(", ") || "none"],
+        ["Coverage drop bins", (diagnostics.coverage_drop_bins || []).join(", ") || "none"],
+      ].map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
+      return `${warning}<div class="preview-layout">
+        <svg id="coverage-preview-svg" class="curve-preview" viewBox="0 0 640 300" role="img" aria-label="Coverage preview"></svg>
+        <table><tbody>${rows}</tbody></table>
+      </div>`;
+    }
+
+    function drawCoveragePreview(payload) {
+      const svg = document.getElementById("coverage-preview-svg");
+      if (!svg || !payload?.preview) return;
+      svg.innerHTML = "";
+      const width = 640;
+      const height = 300;
+      const pad = 34;
+      const q = payload.preview.q || [];
+      const coverage = payload.preview.coverage || [];
+      const points = q.map((x, index) => [x, coverage[index]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      if (!points.length) return;
+      const qValues = points.map(([x]) => x);
+      const qMin = Math.min(...qValues);
+      const qMax = Math.max(...qValues);
+      const xScale = (value) => pad + ((value - qMin) / Math.max(qMax - qMin, 1e-12)) * (width - pad * 2);
+      const yScale = (value) => height - pad - Math.max(0, Math.min(1, value)) * (height - pad * 2);
+      const path = points.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${xScale(x).toFixed(2)} ${yScale(y).toFixed(2)}`).join(" ");
+      svg.insertAdjacentHTML("beforeend", `<path class="coverage-path" d="${path}"></path>`);
+      svg.insertAdjacentHTML("beforeend", `<line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="#98a2b3"></line>`);
+      svg.insertAdjacentHTML("beforeend", `<line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" stroke="#98a2b3"></line>`);
+      svg.insertAdjacentHTML("beforeend", `<line x1="${pad}" y1="${yScale(0.15).toFixed(2)}" x2="${width - pad}" y2="${yScale(0.15).toFixed(2)}" stroke="#b45309" stroke-dasharray="3 4"></line>`);
+      svg.insertAdjacentHTML("beforeend", `<text x="${pad}" y="22" fill="#66788a" font-size="12">coverage</text>`);
+      svg.insertAdjacentHTML("beforeend", `<text x="${width - pad - 24}" y="${height - 8}" fill="#66788a" font-size="12">q</text>`);
+      (payload.coverage_diagnostics?.coverage_low_bins || []).forEach((bin) => drawCoverageMarker(svg, bin, coverage.length, width, height, pad, "#b45309"));
+      (payload.coverage_diagnostics?.coverage_drop_bins || []).forEach((bin) => drawCoverageMarker(svg, bin, coverage.length, width, height, pad, "#dc2626"));
+    }
+
+    function drawCoverageMarker(svg, bin, pointCount, width, height, pad, color) {
+      const x = pad + (bin / Math.max(pointCount - 1, 1)) * (width - pad * 2);
+      svg.insertAdjacentHTML("beforeend", `<line x1="${x.toFixed(2)}" y1="${pad}" x2="${x.toFixed(2)}" y2="${height - pad}" stroke="${color}" stroke-opacity="0.55"></line>`);
+    }
+
     function validateBatch() {
       const args = buildBatchArgs();
       if (!args.includes("--batch")) {
@@ -559,6 +619,31 @@ INDEX_HTML = """<!doctype html>
         });
     }
 
+    function loadCoveragePreview() {
+      const path = document.getElementById("one-d-export-path").value.trim();
+      if (!path) {
+        setSummary("Coverage", "1D export path is required.", false);
+        log("Coverage preview skipped: missing curve path.");
+        return;
+      }
+      log(`Loading coverage preview: ${path}`);
+      fetch("/api/preview/coverage", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path})
+      })
+        .then((response) => response.json())
+        .then((payload) => {
+          setSummary("Coverage", payload.ok ? "Loaded coverage diagnostics." : "Coverage preview failed.", payload.ok, renderCoveragePreview(payload));
+          if (payload.ok) requestAnimationFrame(() => drawCoveragePreview(payload));
+          log(`Coverage preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
+        })
+        .catch((error) => {
+          setSummary("Coverage", String(error), false);
+          log(String(error));
+        });
+    }
+
     function renderWorkflowOptions(workflows) {
       const mode = document.getElementById("mode");
       mode.innerHTML = "";
@@ -605,6 +690,7 @@ INDEX_HTML = """<!doctype html>
     document.getElementById("run-batch").addEventListener("click", runBatch);
     document.getElementById("load-2d-preview").addEventListener("click", loadTwoDPreview);
     document.getElementById("load-1d-preview").addEventListener("click", loadOneDPreview);
+    document.getElementById("load-coverage-preview").addEventListener("click", loadCoveragePreview);
   </script>
 </body>
 </html>
@@ -662,6 +748,9 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/preview/1d":
             self._send_json(one_d_preview_payload(self._read_json()))
+            return
+        if self.path == "/api/preview/coverage":
+            self._send_json(coverage_payload(self._read_json()))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -777,6 +866,16 @@ def one_d_preview_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return preview_error_payload(file_path, "path is required.")
     try:
         return one_d_export_preview_payload(file_path)
+    except Exception as exc:  # noqa: BLE001 - UI endpoint should return visible failure details.
+        return preview_error_payload(file_path, str(exc))
+
+
+def coverage_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    file_path = str(payload.get("path", "")).strip()
+    if not file_path:
+        return preview_error_payload(file_path, "path is required.")
+    try:
+        return coverage_preview_payload(file_path)
     except Exception as exc:  # noqa: BLE001 - UI endpoint should return visible failure details.
         return preview_error_payload(file_path, str(exc))
 

@@ -73,6 +73,26 @@ def test_one_d_export_preview_payload_reads_csv_with_coverage(tmp_path):
     assert [round(value, 4) for value in payload["preview"]["q"]] == [0.01, 0.02, 0.03, 0.04]
 
 
+def test_coverage_preview_payload_extracts_diagnostics(tmp_path):
+    from pgixs_python.ui_backend.preview import coverage_preview_payload
+
+    csv_file = tmp_path / "curve_1D.csv"
+    csv_file.write_text(
+        "q,intensity,coverage\n"
+        "0.01,10,1\n"
+        "0.02,20,0.8\n"
+        "0.03,12,0.05\n"
+        "0.04,11,0.04\n",
+        encoding="utf-8",
+    )
+
+    payload = coverage_preview_payload(csv_file)
+
+    assert payload["ok"]
+    assert payload["coverage_diagnostics"]["warning_count"] >= 1
+    assert [round(value, 4) for value in payload["preview"]["coverage"]] == [1.0, 0.8, 0.05, 0.04]
+
+
 def test_one_d_export_preview_payload_reads_dat_without_header(tmp_path):
     from pgixs_python.ui_backend.preview import one_d_export_preview_payload
 

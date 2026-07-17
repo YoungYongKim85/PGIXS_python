@@ -4,6 +4,7 @@ import json
 from pgixs_python.ui_backend.local_server import (
     INDEX_HTML,
     PGIXSRequestHandler,
+    coverage_payload,
     one_d_preview_payload,
     run_payload,
     two_d_preview_payload,
@@ -35,6 +36,9 @@ def test_index_html_contains_workbench_regions():
     assert "drawOneDCurve" in INDEX_HTML
     assert "Low coverage bins" in INDEX_HTML
     assert "Coverage drop bins" in INDEX_HTML
+    assert "/api/preview/coverage" in INDEX_HTML
+    assert "Load Coverage" in INDEX_HTML
+    assert "coverage-preview-svg" in INDEX_HTML
     assert "Coverage" in INDEX_HTML
 
 
@@ -100,6 +104,13 @@ def test_two_d_preview_payload_requires_path():
 
 def test_one_d_preview_payload_requires_path():
     payload = one_d_preview_payload({})
+
+    assert not payload["ok"]
+    assert "path is required" in payload["message"]
+
+
+def test_coverage_payload_requires_path():
+    payload = coverage_payload({})
 
     assert not payload["ok"]
     assert "path is required" in payload["message"]

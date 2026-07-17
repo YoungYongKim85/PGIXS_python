@@ -87,6 +87,27 @@ def one_d_export_preview_payload(file_path: str | Path, max_points: int = 600) -
     return payload
 
 
+def coverage_preview_payload(file_path: str | Path, max_points: int = 600) -> dict[str, Any]:
+    """Return only the 1D coverage information needed by the Coverage view."""
+
+    payload = one_d_export_preview_payload(file_path, max_points=max_points)
+    if not payload.get("has_coverage"):
+        raise ValueError(f"1D curve has no coverage column: {file_path}")
+    return {
+        "ok": True,
+        "path": payload["path"],
+        "point_count": payload["point_count"],
+        "finite_count": payload["finite_count"],
+        "q": payload["q"],
+        "coverage": payload["coverage"],
+        "coverage_diagnostics": payload["coverage_diagnostics"],
+        "preview": {
+            "q": payload["preview"]["q"],
+            "coverage": payload["preview"]["coverage"],
+        },
+    }
+
+
 def preview_error_payload(file_path: str | Path, message: str) -> dict[str, Any]:
     return {
         "ok": False,
@@ -220,6 +241,7 @@ def _array_to_list(values: np.ndarray | None) -> list[float | int] | None:
 
 
 __all__ = [
+    "coverage_preview_payload",
     "one_d_export_preview_payload",
     "preview_error_payload",
     "two_d_info_preview_payload",
