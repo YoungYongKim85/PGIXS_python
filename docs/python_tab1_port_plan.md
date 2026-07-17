@@ -299,6 +299,8 @@ Tasks:
   discussion tied to the existing CLI/config/output contract.
 - Updated the UI design interview with a local-web-first recommendation,
   initial answers, workbench layout, and prototype milestones.
+- Added `pgixs_python.ui_backend.service`, a thin UI-facing backend contract
+  for validating and running GIXS/TrXS/export workflow requests.
 
 ## Next Step
 

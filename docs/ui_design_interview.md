@@ -98,6 +98,7 @@ visible in the run summary until the next run starts.
 | UI Need | Existing Backend Contract |
 | --- | --- |
 | Form fields | `docs/*_workflow_config_schema.json` |
+| UI backend service | `pgixs_python.ui_backend.service` |
 | Dry-run validation | `pgixs_python.workflows.batch_process --dry-run` |
 | Run processing | `trxs_process`, `gixs_process` |
 | 2D-info output | `*_2Dinfo.h5` |
@@ -119,8 +120,8 @@ visible in the run summary until the next run starts.
 
 ## Prototype Milestones
 
-1. Create a backend service wrapper that can validate configs and run one GIXS
-   or TrXS job.
+1. Backend service wrapper exists for validating and running workflow requests:
+   `pgixs_python.ui_backend.service`.
 2. Build a minimal browser workbench with input/config/output controls and a
    run summary.
 3. Add 2D H5 preview and 1D export preview.
