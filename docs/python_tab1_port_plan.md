@@ -305,6 +305,8 @@ Tasks:
   backend runtime status needed by the future local web UI startup screen.
 - Added a stdlib local web UI scaffold with `/api/status`, `/api/workflows`,
   and `/api/startup` endpoints.
+- Expanded the local web index into a minimal workbench shell with workflow
+  controls, schema preview, run summary, inspector, and log regions.
 
 ## Next Step
 

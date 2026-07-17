@@ -128,14 +128,15 @@ visible in the run summary until the next run starts.
    `pgixs_python.ui_backend.discovery`.
 3. Local web scaffold exists with startup/status/workflow API endpoints:
    `python -m pgixs_python.ui_backend.local_server`.
-4. Build a minimal browser workbench with input/config/output controls and a
-   run summary.
-5. Add 2D H5 preview and 1D export preview.
-6. Add coverage diagnostics and detector-gap warnings.
-7. Add preset/config save-load.
-8. Add batch/results table.
-9. Add MATLAB-vs-Python comparison page.
-10. Package local launcher for Windows and Linux.
+4. Minimal browser workbench shell exists with workflow controls, schema field
+   preview, run summary, inspector, and log regions.
+5. Wire Validate/Run buttons to backend service endpoints.
+6. Add 2D H5 preview and 1D export preview.
+7. Add coverage diagnostics and detector-gap warnings.
+8. Add preset/config save-load.
+9. Add batch/results table.
+10. Add MATLAB-vs-Python comparison page.
+11. Package local launcher for Windows and Linux.
 
 ## Open Notes
 

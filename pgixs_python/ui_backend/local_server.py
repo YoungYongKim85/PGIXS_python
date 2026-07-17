@@ -18,27 +18,215 @@ INDEX_HTML = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PGIXS Python Tab1</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1f2933; }
-    main { max-width: 960px; margin: 0 auto; }
-    pre { background: #f4f7f9; border: 1px solid #d9e2ec; padding: 1rem; overflow: auto; }
-    .status { color: #334e68; }
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --line: #d7dee8;
+      --text: #1f2933;
+      --muted: #66788a;
+      --accent: #0f766e;
+      --warning: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 650; }
+    button, select, input {
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      padding: 8px 10px;
+      min-height: 36px;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 650;
+    }
+    .app {
+      min-height: calc(100vh - 56px);
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr) 300px;
+      grid-template-rows: minmax(0, 1fr) 180px;
+    }
+    aside, main, .inspector, .log {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      min-width: 0;
+    }
+    aside { padding: 16px; overflow: auto; }
+    main { padding: 16px; overflow: auto; }
+    .inspector { padding: 16px; overflow: auto; border-right: 0; }
+    .log {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--line);
+      border-right: 0;
+      padding: 12px 16px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      color: #344054;
+    }
+    .section { margin-bottom: 18px; }
+    .section h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; color: var(--muted); }
+    .field { display: grid; gap: 6px; margin-bottom: 10px; }
+    .field label { color: var(--muted); font-size: 12px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+    .tab { padding: 9px 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
+    .tab.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 650; }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      min-height: 180px;
+    }
+    .schema-list { display: grid; gap: 8px; }
+    .schema-item {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fbfdff;
+    }
+    .schema-item strong { display: block; margin-bottom: 4px; }
+    .muted { color: var(--muted); }
+    .warn { color: var(--warning); font-weight: 650; }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 300px minmax(0, 1fr); }
+      .inspector { display: none; }
+    }
+    @media (max-width: 760px) {
+      .app { display: block; }
+      aside, main, .log { border-right: 0; border-bottom: 1px solid var(--line); }
+    }
   </style>
 </head>
 <body>
-  <main>
+  <header>
     <h1>PGIXS Python Tab1</h1>
-    <p class="status">Local web UI scaffold is running.</p>
-    <p>API endpoints: <code>/api/status</code>, <code>/api/workflows</code>, <code>/api/startup</code></p>
-    <pre id="startup">Loading startup payload...</pre>
-  </main>
+    <div id="runtime" class="muted">Loading backend status...</div>
+  </header>
+  <div class="app">
+    <aside>
+      <section class="section">
+        <h2>Workflow</h2>
+        <div class="field">
+          <label for="mode">Mode</label>
+          <select id="mode"></select>
+        </div>
+        <div class="field">
+          <label for="input-path">Input H5 file or folder</label>
+          <input id="input-path" placeholder="Select in future file picker">
+        </div>
+        <div class="field">
+          <label for="standard-path">Standard/calibration file</label>
+          <input id="standard-path" placeholder="JSON or MAT standard">
+        </div>
+        <div class="field">
+          <label for="output-path">Output folder</label>
+          <input id="output-path" placeholder="Output folder">
+        </div>
+      </section>
+      <section class="section">
+        <h2>Schema Controls</h2>
+        <div id="schema-list" class="schema-list"></div>
+      </section>
+    </aside>
+    <main>
+      <div class="toolbar">
+        <button>Validate</button>
+        <button class="primary">Run</button>
+        <button>Export 1D</button>
+        <button>Save Config</button>
+      </div>
+      <div class="tabs">
+        <button class="tab active">Run Summary</button>
+        <button class="tab">2D Image</button>
+        <button class="tab">1D Curve</button>
+        <button class="tab">Coverage</button>
+        <button class="tab">Report</button>
+      </div>
+      <section class="panel" id="summary">
+        <h2>Run Summary</h2>
+        <p class="muted">No run has started. The next step is wiring Validate and Run to the backend service.</p>
+      </section>
+    </main>
+    <aside class="inspector">
+      <section class="section">
+        <h2>Inspector</h2>
+        <p id="inspector-text" class="muted">Select a workflow to inspect available config fields.</p>
+      </section>
+      <section class="section">
+        <h2>Warnings</h2>
+        <p class="warn">Coverage and detector-gap warnings will stay visible here after each run.</p>
+      </section>
+    </aside>
+    <section class="log" id="log">Starting local UI...</section>
+  </div>
   <script>
+    function log(message) {
+      const node = document.getElementById("log");
+      node.textContent += "\\n" + message;
+    }
+
+    function renderWorkflowOptions(workflows) {
+      const mode = document.getElementById("mode");
+      mode.innerHTML = "";
+      workflows.forEach((workflow) => {
+        const option = document.createElement("option");
+        option.value = workflow.workflow;
+        option.textContent = workflow.title;
+        mode.appendChild(option);
+      });
+      mode.addEventListener("change", () => renderSchema(workflows.find((item) => item.workflow === mode.value)));
+      renderSchema(workflows[0]);
+    }
+
+    function renderSchema(workflow) {
+      if (!workflow) return;
+      const properties = workflow.schema.properties || {};
+      const entries = Object.entries(properties).filter(([name]) => !["config"].includes(name)).slice(0, 10);
+      const list = document.getElementById("schema-list");
+      list.innerHTML = "";
+      entries.forEach(([name, schema]) => {
+        const item = document.createElement("div");
+        item.className = "schema-item";
+        item.innerHTML = `<strong>${name}</strong><span class="muted">${schema.description || schema.type || ""}</span>`;
+        list.appendChild(item);
+      });
+      document.getElementById("inspector-text").textContent =
+        `${workflow.workflow}: ${Object.keys(properties).length} config fields available.`;
+    }
+
     fetch("/api/startup")
       .then((response) => response.json())
       .then((payload) => {
-        document.getElementById("startup").textContent = JSON.stringify(payload, null, 2);
+        const status = payload.status;
+        document.getElementById("runtime").textContent =
+          `PGIXS ${status.version} | Python ${status.python_version} | ${status.python_ok ? "Python OK" : "Python 3.10 expected"}`;
+        renderWorkflowOptions(payload.workflows || []);
+        log(`Loaded ${payload.workflows.length} workflow schemas.`);
       })
       .catch((error) => {
-        document.getElementById("startup").textContent = String(error);
+        log(String(error));
       });
   </script>
 </body>
@@ -107,4 +295,3 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
