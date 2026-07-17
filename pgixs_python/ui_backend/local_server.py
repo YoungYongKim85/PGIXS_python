@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pgixs_python.ui_backend.api import startup_payload, status_payload, workflows_payload
+from pgixs_python.ui_backend.preview import preview_error_payload, two_d_info_preview_payload
 from pgixs_python.ui_backend.service import UIWorkflowRequest, run_workflow, validate_workflow
 
 
@@ -164,6 +165,10 @@ INDEX_HTML = """<!doctype html>
           <label for="summary-json-path">Batch summary JSON</label>
           <input id="summary-json-path" placeholder="validation_outputs/batch_summary.json">
         </div>
+        <div class="field">
+          <label for="two-d-info-path">2D-info H5 preview</label>
+          <input id="two-d-info-path" placeholder="validation_outputs/sample_2Dinfo.h5">
+        </div>
       </section>
       <section class="section">
         <h2>Single Job Defaults</h2>
@@ -185,6 +190,7 @@ INDEX_HTML = """<!doctype html>
       <div class="toolbar">
         <button id="validate-batch">Validate Batch</button>
         <button id="run-batch" class="primary">Run Batch</button>
+        <button id="load-2d-preview">Load 2D Preview</button>
         <button>Add Job</button>
         <button>Save Batch Config</button>
       </div>
@@ -272,6 +278,28 @@ INDEX_HTML = """<!doctype html>
       </table>`;
     }
 
+    function renderTwoDPreview(payload) {
+      if (!payload.ok) {
+        return `<p class="warn">${escapeHtml(payload.message || "2D preview failed")}</p>`;
+      }
+      const intensity = payload.intensity || {};
+      const q = payload.q || {};
+      const calibration = payload.calibration || {};
+      const rows = [
+        ["File", payload.path],
+        ["Mode", payload.measurement_mode],
+        ["Detector", payload.detector],
+        ["Shape", (payload.shape || []).join(" x ")],
+        ["Finite fraction", Number(payload.finite_fraction).toFixed(4)],
+        ["NaN fraction", Number(payload.nan_fraction).toFixed(4)],
+        ["Intensity min/median/max", `${intensity.min} / ${intensity.median} / ${intensity.max}`],
+        ["Q min/median/max", `${q.min} / ${q.median} / ${q.max}`],
+        ["Beam position", (calibration.beam_position || []).join(", ")],
+        ["Wavelength / SDD / Pixel", `${calibration.wavelength} / ${calibration.sdd} / ${calibration.pixel}`],
+      ].map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
+      return `<table><tbody>${rows}</tbody></table>`;
+    }
+
     function validateBatch() {
       const args = buildBatchArgs();
       if (!args.includes("--batch")) {
@@ -325,6 +353,30 @@ INDEX_HTML = """<!doctype html>
         });
     }
 
+    function loadTwoDPreview() {
+      const path = document.getElementById("two-d-info-path").value.trim();
+      if (!path) {
+        setSummary("2D Preview", "2D-info H5 path is required.", false);
+        log("2D preview skipped: missing H5 path.");
+        return;
+      }
+      log(`Loading 2D preview: ${path}`);
+      fetch("/api/preview/2d", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path})
+      })
+        .then((response) => response.json())
+        .then((payload) => {
+          setSummary("2D Preview", payload.ok ? "Loaded compact 2D-info H5 preview." : "Preview failed.", payload.ok, renderTwoDPreview(payload));
+          log(`2D preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
+        })
+        .catch((error) => {
+          setSummary("2D Preview", String(error), false);
+          log(String(error));
+        });
+    }
+
     function renderWorkflowOptions(workflows) {
       const mode = document.getElementById("mode");
       mode.innerHTML = "";
@@ -369,6 +421,7 @@ INDEX_HTML = """<!doctype html>
 
     document.getElementById("validate-batch").addEventListener("click", validateBatch);
     document.getElementById("run-batch").addEventListener("click", runBatch);
+    document.getElementById("load-2d-preview").addEventListener("click", loadTwoDPreview);
   </script>
 </body>
 </html>
@@ -420,6 +473,9 @@ class PGIXSRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/run":
             self._send_json(run_payload(self._read_json()))
+            return
+        if self.path == "/api/preview/2d":
+            self._send_json(two_d_preview_payload(self._read_json()))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -517,6 +573,16 @@ def _read_summary_json_arg(args: list[str]) -> dict[str, Any] | None:
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
     return payload if isinstance(payload, dict) else None
+
+
+def two_d_preview_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    file_path = str(payload.get("path", "")).strip()
+    if not file_path:
+        return preview_error_payload(file_path, "path is required.")
+    try:
+        return two_d_info_preview_payload(file_path)
+    except Exception as exc:  # noqa: BLE001 - UI endpoint should return visible failure details.
+        return preview_error_payload(file_path, str(exc))
 
 
 if __name__ == "__main__":

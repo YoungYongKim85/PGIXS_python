@@ -318,15 +318,18 @@ Tasks:
 - Wired the local web `Run Batch` button to `/api/run` for real batch
   processing through the UI backend service.
 - Added a Run Summary result table fed by the batch `--summary-json` output.
+- Added a compact 2D-info H5 preview API and UI summary table for shape,
+  intensity/q ranges, NaN fraction, and calibration.
 
 ## Next Step
 
 Continue the local web UI bridge while keeping Phase 8/9 validation active:
 
-1. Add 2D H5 preview and 1D export preview panels.
-2. Add coverage diagnostics and detector-gap warning panels.
-3. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
-4. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
+1. Render the compact 2D H5 preview as an actual browser image/heatmap.
+2. Add 1D export preview panels.
+3. Add coverage diagnostics and detector-gap warning panels.
+4. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.
+5. Compare selected Python `*_2Dinfo.h5` and 1D exports against MATLAB outputs
    once MATLAB is available.
-5. Use the generated config schemas as the UI-control contract during the UI
+6. Use the generated config schemas as the UI-control contract during the UI
    design review.

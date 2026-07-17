@@ -146,11 +146,12 @@ meaning, and troubleshooting steps.
    validation.
 7. Run Batch button is wired to `/api/run` for real batch processing.
 8. Batch summary JSON is rendered as a Run Summary result table.
-9. Add 2D H5 preview and 1D export preview.
-10. Add coverage diagnostics and detector-gap warnings.
-11. Add preset/config save-load.
-12. Add MATLAB-vs-Python comparison page.
-13. Package local launcher for Windows and Linux.
+9. 2D-info H5 compact preview is wired to `/api/preview/2d`.
+10. Add rendered 2D image preview and 1D export preview.
+11. Add coverage diagnostics and detector-gap warnings.
+12. Add preset/config save-load.
+13. Add MATLAB-vs-Python comparison page.
+14. Package local launcher for Windows and Linux.
 
 ## Open Notes
 

@@ -1,7 +1,13 @@
 from http import HTTPStatus
 import json
 
-from pgixs_python.ui_backend.local_server import INDEX_HTML, PGIXSRequestHandler, run_payload, validate_payload
+from pgixs_python.ui_backend.local_server import (
+    INDEX_HTML,
+    PGIXSRequestHandler,
+    run_payload,
+    two_d_preview_payload,
+    validate_payload,
+)
 
 
 def test_local_server_has_expected_routes():
@@ -18,6 +24,8 @@ def test_index_html_contains_workbench_regions():
     assert "/api/validate" in INDEX_HTML
     assert "/api/run" in INDEX_HTML
     assert "Batch summary JSON" in INDEX_HTML
+    assert "/api/preview/2d" in INDEX_HTML
+    assert "Load 2D Preview" in INDEX_HTML
     assert "Coverage" in INDEX_HTML
 
 
@@ -72,3 +80,10 @@ def test_run_payload_attaches_existing_batch_summary_json(tmp_path):
 
     assert payload["batch_summary"]["job_count"] == 1
     assert payload["batch_summary"]["jobs"][0]["label"] == "ok"
+
+
+def test_two_d_preview_payload_requires_path():
+    payload = two_d_preview_payload({})
+
+    assert not payload["ok"]
+    assert "path is required" in payload["message"]
