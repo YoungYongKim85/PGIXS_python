@@ -293,6 +293,8 @@ Tasks:
   checked before loading detector data or writing processing outputs.
 - Added `tools/check_environment.py` for Python/version/import validation and
   optional smoke/unit/compile checks in clean Windows/Linux environments.
+- Added `tools/compare_1d_exports.py` to compute pointwise and summary
+  differences between MATLAB and Python 1D exported curves.
 
 ## Next Step
 

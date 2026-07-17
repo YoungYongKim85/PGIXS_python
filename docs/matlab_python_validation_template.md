@@ -50,6 +50,12 @@ python -m pgixs_python.workflows.export_1d_from_h5 --input path/to/output_2Dinfo
 Record values in `docs/templates/matlab_python_comparison_log.csv` or a copied
 CSV using the same columns.
 
+Optional helper:
+
+```text
+python tools/compare_1d_exports.py --reference matlab_1d.csv --candidate python_1d.csv --json-out comparison_summary.json --csv-out comparison_points.csv
+```
+
 | Check | MATLAB value | Python value | Tolerance | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
 | q-bin count | | | exact | | |
@@ -65,4 +71,3 @@ CSV using the same columns.
 - Blocking differences:
 - Follow-up code changes:
 - Follow-up MATLAB checks:
-

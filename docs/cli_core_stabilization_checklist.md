@@ -92,6 +92,8 @@ CLI core into desktop/web UI design.
 - `[~]` Real H5 fixture regression set should be expanded.
 - `[x]` MATLAB-vs-Python numeric comparison template exists:
   `docs/matlab_python_validation_template.md`.
+- `[x]` 1D exported curve comparison helper exists:
+  `tools/compare_1d_exports.py`.
 - `[~]` Filled MATLAB-vs-Python validation cases still need to be captured for
   representative real datasets.
 

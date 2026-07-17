@@ -83,6 +83,33 @@ python -m pgixs_python.workflows.export_1d_from_h5 \
   --report-json
 ```
 
+## Compare 1D Outputs
+
+Use this after exporting a MATLAB 1D curve and a Python 1D curve with matching
+or comparable q-ranges.
+
+Windows PowerShell:
+
+```powershell
+python tools\compare_1d_exports.py `
+  --reference validation_outputs\matlab_1d.csv `
+  --candidate validation_outputs\python_1d.csv `
+  --json-out validation_outputs\comparison_summary.json `
+  --csv-out validation_outputs\comparison_points.csv
+```
+
+Linux shell:
+
+```bash
+python tools/compare_1d_exports.py \
+  --reference validation_outputs/matlab_1d.csv \
+  --candidate validation_outputs/python_1d.csv \
+  --json-out validation_outputs/comparison_summary.json \
+  --csv-out validation_outputs/comparison_points.csv
+```
+
+Add `--interpolate` when the q grids differ but the q ranges overlap.
+
 ## Batch Workflow
 
 Use `--dry-run` first when checking a new batch file or edited workflow
