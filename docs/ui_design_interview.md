@@ -151,9 +151,10 @@ meaning, and troubleshooting steps.
 11. 1D export CSV/DAT preview is wired to `/api/preview/1d` and rendered as an SVG curve.
 12. 1D coverage diagnostics warn about low-coverage and abrupt-drop bins.
 13. Dedicated coverage preview is wired to `/api/preview/coverage` and rendered as an SVG plot.
-14. Add preset/config save-load.
-15. Add MATLAB-vs-Python comparison page.
-16. Package local launcher for Windows and Linux.
+14. Main workbench tabs keep separate panel state for Batch, Summary, 2D, 1D, Coverage, and Report.
+15. Add preset/config save-load.
+16. Add MATLAB-vs-Python comparison page.
+17. Package local launcher for Windows and Linux.
 
 ## Open Notes
 

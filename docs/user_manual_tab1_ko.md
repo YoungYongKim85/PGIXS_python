@@ -71,6 +71,7 @@ python -m pgixs_python.ui_backend.local_server --port 8766
 11. `Load Coverage`로 coverage curve를 따로 확인한다. 0.15 기준선과
     low/drop bin 위치가 표시되어 detector gap 영향을 빠르게 볼 수 있다.
 12. `2D Image`, `1D Curve`, `Coverage`, `Report` tab에서 선택한 job의 결과를 확인한다.
+    각 결과는 자기 tab panel에 유지되므로 다른 preview를 열어도 이전 결과를 다시 볼 수 있다.
 13. 반복 사용이 필요한 batch 설정은 config/preset으로 저장한다.
 
 ## 5. MATLAB 용어와 Python UI 용어
@@ -184,12 +185,13 @@ python tools\check_environment.py --run-tests
 - 1D export CSV/DAT preview API와 SVG curve rendering
 - 1D coverage diagnostics warning 표시
 - dedicated coverage preview API와 SVG coverage plot
+- Batch/Run Summary/2D/1D/Coverage/Report tab별 panel 상태 관리
 
 아직 구현 전인 기능:
 
 - 실제 file picker
 - full-resolution 2D image interaction
 - interactive 1D curve tools
-- tab navigation/state management
+- real tab-specific report viewer
 - preset save/load
 - batch result table

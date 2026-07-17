@@ -22,6 +22,10 @@ def test_index_html_contains_workbench_regions():
     assert "Batch Workflow" in INDEX_HTML
     assert "Batch Queue" in INDEX_HTML
     assert "Run Summary" in INDEX_HTML
+    assert 'data-tab="batch"' in INDEX_HTML
+    assert 'id="panel-summary"' in INDEX_HTML
+    assert "activateTab" in INDEX_HTML
+    assert "setPanel" in INDEX_HTML
     assert "/api/startup" in INDEX_HTML
     assert "/api/validate" in INDEX_HTML
     assert "/api/run" in INDEX_HTML

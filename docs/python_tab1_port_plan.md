@@ -328,13 +328,14 @@ Tasks:
   coverage drops in the local web preview.
 - Added a dedicated coverage preview API and SVG plot with the 0.15 warning
   threshold plus low/drop bin markers.
+- Added tab navigation/state management so Batch, Run Summary, 2D, 1D,
+  Coverage, and Report panels keep separate results.
 
 ## Next Step
 
 Continue the local web UI bridge while keeping Phase 8/9 validation active:
 
-1. Add tab navigation/state management so Batch, 2D, 1D, Coverage, and Report
-   views stay distinct.
+1. Add real Report tab loading for `*_report.json` files.
 2. Add full-resolution 2D image interaction after the compact preview flow is
    stable.
 3. Keep validating real EIGER H5 fixtures against TrXS/GIXS workflow outputs.

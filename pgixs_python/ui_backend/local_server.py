@@ -108,6 +108,7 @@ INDEX_HTML = """<!doctype html>
       padding: 14px;
       min-height: 180px;
     }
+    .panel[hidden] { display: none; }
     .schema-list { display: grid; gap: 8px; }
     .schema-item {
       border: 1px solid var(--line);
@@ -239,17 +240,37 @@ INDEX_HTML = """<!doctype html>
         <button>Save Batch Config</button>
       </div>
       <div class="tabs">
-        <button class="tab active">Batch Queue</button>
-        <button class="tab">Run Summary</button>
-        <button class="tab">2D Image</button>
-        <button class="tab">1D Curve</button>
-        <button class="tab">Coverage</button>
-        <button class="tab">Report</button>
+        <button class="tab active" data-tab="batch">Batch Queue</button>
+        <button class="tab" data-tab="summary">Run Summary</button>
+        <button class="tab" data-tab="image">2D Image</button>
+        <button class="tab" data-tab="curve">1D Curve</button>
+        <button class="tab" data-tab="coverage">Coverage</button>
+        <button class="tab" data-tab="report">Report</button>
       </div>
-      <section class="panel" id="summary">
+      <section class="panel tab-panel" id="panel-batch" data-panel="batch">
         <h2>Batch Queue</h2>
         <p class="muted">No batch has started. Validate Batch checks the job file first; Run Batch starts processing.</p>
         <p class="muted">Single GIXS/TrXS runs will be represented as one-job batch entries.</p>
+      </section>
+      <section class="panel tab-panel" id="panel-summary" data-panel="summary" hidden>
+        <h2>Run Summary</h2>
+        <p class="muted">Run Batch results will appear here.</p>
+      </section>
+      <section class="panel tab-panel" id="panel-image" data-panel="image" hidden>
+        <h2>2D Image</h2>
+        <p class="muted">Load a 2D-info H5 preview to inspect the compact heatmap.</p>
+      </section>
+      <section class="panel tab-panel" id="panel-curve" data-panel="curve" hidden>
+        <h2>1D Curve</h2>
+        <p class="muted">Load a 1D CSV/DAT preview to inspect q-intensity data.</p>
+      </section>
+      <section class="panel tab-panel" id="panel-coverage" data-panel="coverage" hidden>
+        <h2>Coverage</h2>
+        <p class="muted">Load Coverage to inspect detector-gap affected bins.</p>
+      </section>
+      <section class="panel tab-panel" id="panel-report" data-panel="report" hidden>
+        <h2>Report</h2>
+        <p class="muted">Report preview and links will appear here.</p>
       </section>
     </main>
     <aside class="inspector">
@@ -292,10 +313,20 @@ INDEX_HTML = """<!doctype html>
         .replaceAll("'", "&#039;");
     }
 
-    function setSummary(title, body, ok, extraHtml = "") {
-      const summary = document.getElementById("summary");
+    function activateTab(tabName) {
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === tabName);
+      });
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.hidden = panel.dataset.panel !== tabName;
+      });
+    }
+
+    function setPanel(tabName, title, body, ok, extraHtml = "") {
+      const summary = document.getElementById(`panel-${tabName}`);
       const cls = ok ? "muted" : "warn";
       summary.innerHTML = `<h2>${title}</h2><p class="${cls}">${body}</p>${extraHtml}`;
+      activateTab(tabName);
     }
 
     function renderBatchSummaryTable(batchSummary) {
@@ -519,7 +550,7 @@ INDEX_HTML = """<!doctype html>
     function validateBatch() {
       const args = buildBatchArgs();
       if (!args.includes("--batch")) {
-        setSummary("Batch Validation", "Batch config JSON path is required.", false);
+        setPanel("batch", "Batch Validation", "Batch config JSON path is required.", false);
         log("Validation skipped: missing batch config JSON path.");
         return;
       }
@@ -532,11 +563,11 @@ INDEX_HTML = """<!doctype html>
         .then((response) => response.json())
         .then((payload) => {
           const message = payload.message || (payload.ok ? "validation ok" : "validation failed");
-          setSummary("Batch Validation", message.replaceAll("\\n", "<br>"), payload.ok);
+          setPanel("batch", "Batch Validation", message.replaceAll("\\n", "<br>"), payload.ok);
           log(`Validation ${payload.ok ? "OK" : "FAILED"}: ${message}`);
         })
         .catch((error) => {
-          setSummary("Batch Validation", String(error), false);
+          setPanel("batch", "Batch Validation", String(error), false);
           log(String(error));
         });
     }
@@ -544,12 +575,12 @@ INDEX_HTML = """<!doctype html>
     function runBatch() {
       const args = buildBatchArgs();
       if (!args.includes("--batch")) {
-        setSummary("Batch Run", "Batch config JSON path is required.", false);
+        setPanel("summary", "Batch Run", "Batch config JSON path is required.", false);
         log("Run skipped: missing batch config JSON path.");
         return;
       }
       log(`Running batch: ${args.join(" ")}`);
-      setSummary("Batch Run", "Batch processing is running. Check the log panel for progress.", true);
+      setPanel("summary", "Batch Run", "Batch processing is running. Check the log panel for progress.", true);
       fetch("/api/run", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -558,13 +589,13 @@ INDEX_HTML = """<!doctype html>
         .then((response) => response.json())
         .then((payload) => {
           const message = payload.message || (payload.ok ? "run completed" : "run failed");
-          setSummary("Batch Run", escapeHtml(message).replaceAll("\\n", "<br>"), payload.ok, renderBatchSummaryTable(payload.batch_summary));
+          setPanel("summary", "Batch Run", escapeHtml(message).replaceAll("\\n", "<br>"), payload.ok, renderBatchSummaryTable(payload.batch_summary));
           log(`Run ${payload.ok ? "OK" : "FAILED"}: ${message}`);
           if (payload.stdout) log(`[stdout]\\n${payload.stdout}`);
           if (payload.stderr) log(`[stderr]\\n${payload.stderr}`);
         })
         .catch((error) => {
-          setSummary("Batch Run", String(error), false);
+          setPanel("summary", "Batch Run", String(error), false);
           log(String(error));
         });
     }
@@ -572,7 +603,7 @@ INDEX_HTML = """<!doctype html>
     function loadTwoDPreview() {
       const path = document.getElementById("two-d-info-path").value.trim();
       if (!path) {
-        setSummary("2D Preview", "2D-info H5 path is required.", false);
+        setPanel("image", "2D Preview", "2D-info H5 path is required.", false);
         log("2D preview skipped: missing H5 path.");
         return;
       }
@@ -584,12 +615,12 @@ INDEX_HTML = """<!doctype html>
       })
         .then((response) => response.json())
         .then((payload) => {
-          setSummary("2D Preview", payload.ok ? "Loaded compact 2D-info H5 preview." : "Preview failed.", payload.ok, renderTwoDPreview(payload));
+          setPanel("image", "2D Preview", payload.ok ? "Loaded compact 2D-info H5 preview." : "Preview failed.", payload.ok, renderTwoDPreview(payload));
           if (payload.ok) requestAnimationFrame(() => drawTwoDHeatmap(payload.preview?.data2d_q));
           log(`2D preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
         })
         .catch((error) => {
-          setSummary("2D Preview", String(error), false);
+          setPanel("image", "2D Preview", String(error), false);
           log(String(error));
         });
     }
@@ -597,7 +628,7 @@ INDEX_HTML = """<!doctype html>
     function loadOneDPreview() {
       const path = document.getElementById("one-d-export-path").value.trim();
       if (!path) {
-        setSummary("1D Preview", "1D export path is required.", false);
+        setPanel("curve", "1D Preview", "1D export path is required.", false);
         log("1D preview skipped: missing curve path.");
         return;
       }
@@ -609,12 +640,12 @@ INDEX_HTML = """<!doctype html>
       })
         .then((response) => response.json())
         .then((payload) => {
-          setSummary("1D Preview", payload.ok ? "Loaded 1D export preview." : "Preview failed.", payload.ok, renderOneDPreview(payload));
+          setPanel("curve", "1D Preview", payload.ok ? "Loaded 1D export preview." : "Preview failed.", payload.ok, renderOneDPreview(payload));
           if (payload.ok) requestAnimationFrame(() => drawOneDCurve(payload.preview));
           log(`1D preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
         })
         .catch((error) => {
-          setSummary("1D Preview", String(error), false);
+          setPanel("curve", "1D Preview", String(error), false);
           log(String(error));
         });
     }
@@ -622,7 +653,7 @@ INDEX_HTML = """<!doctype html>
     function loadCoveragePreview() {
       const path = document.getElementById("one-d-export-path").value.trim();
       if (!path) {
-        setSummary("Coverage", "1D export path is required.", false);
+        setPanel("coverage", "Coverage", "1D export path is required.", false);
         log("Coverage preview skipped: missing curve path.");
         return;
       }
@@ -634,12 +665,12 @@ INDEX_HTML = """<!doctype html>
       })
         .then((response) => response.json())
         .then((payload) => {
-          setSummary("Coverage", payload.ok ? "Loaded coverage diagnostics." : "Coverage preview failed.", payload.ok, renderCoveragePreview(payload));
+          setPanel("coverage", "Coverage", payload.ok ? "Loaded coverage diagnostics." : "Coverage preview failed.", payload.ok, renderCoveragePreview(payload));
           if (payload.ok) requestAnimationFrame(() => drawCoveragePreview(payload));
           log(`Coverage preview ${payload.ok ? "OK" : "FAILED"}: ${payload.path || path}`);
         })
         .catch((error) => {
-          setSummary("Coverage", String(error), false);
+          setPanel("coverage", "Coverage", String(error), false);
           log(String(error));
         });
     }
@@ -691,6 +722,9 @@ INDEX_HTML = """<!doctype html>
     document.getElementById("load-2d-preview").addEventListener("click", loadTwoDPreview);
     document.getElementById("load-1d-preview").addEventListener("click", loadOneDPreview);
     document.getElementById("load-coverage-preview").addEventListener("click", loadCoveragePreview);
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => activateTab(tab.dataset.tab));
+    });
   </script>
 </body>
 </html>
