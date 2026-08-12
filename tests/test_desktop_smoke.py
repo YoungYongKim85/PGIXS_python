@@ -197,6 +197,164 @@ def test_image_canvas_centers_wide_aspect_equal_plot_with_colorbar(qapp):
     )
 
 
+def test_reset_view_restores_full_extent_after_zoom(qapp):
+    """Regression: Reset Zoom (ImageCanvas.reset_view -> toolbar.home()) was
+    a silent no-op. We never route through NavigationToolbar2's own pan/zoom
+    handlers (all axis changes go through ax.set_xlim/set_ylim directly via
+    set_axis_limits), which are what normally populate its nav stack -- left
+    alone the stack stays empty forever, and home() does nothing if there's
+    nothing on the stack to go home to. render() now seeds that stack with
+    the fresh full-extent view every time it draws a complete new dataset,
+    so Home has a real baseline to restore."""
+
+    import numpy as np
+
+    from pgixs_python.desktop.plot_canvas import ImageCanvas
+
+    canvas = ImageCanvas()
+    data = np.random.default_rng(0).uniform(1, 100, size=(50, 60))
+    canvas.render(data, extent=(1, 60, 50, 1))
+    full_xlim, full_ylim = canvas.get_axis_limits()
+
+    canvas.set_axis_limits((5.0, 20.0), (10.0, 30.0))
+    assert canvas.get_axis_limits() != (full_xlim, full_ylim)
+
+    canvas.reset_view()
+    assert canvas.get_axis_limits() == (full_xlim, full_ylim)
+
+
+def test_colorscale_and_colormap_apply_immediately(qapp, tmp_path):
+    """ColorScale and Colormap take effect the moment you pick one, same as
+    every other Image Controller display setting (see
+    test_display_spins_apply_live and test_update_resets_range_to_full_extent
+    below) -- none of them wait for a separate Update click anymore."""
+
+    import h5py
+    import numpy as np
+
+    from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config
+    from pgixs_python.ui_backend import console_session as cs
+
+    frame_path = tmp_path / "frame.h5"
+    data = np.random.default_rng(0).uniform(10, 100, size=(20, 24)).astype(np.float32)
+    with h5py.File(frame_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=data[None, :, :])
+
+    console = ConsoleWidget(gixs_config())
+    console._activate()
+    result = cs.console_load(
+        {
+            "directory": str(tmp_path),
+            "filename": frame_path.name,
+            "mode": "gixs",
+            "detector": "TestDetector",
+            "multishot": False,
+        }
+    )
+    assert result["ok"], result.get("message")
+    console._on_load_finished(result)
+
+    assert type(console.image_canvas._image.norm).__name__ == "Normalize"
+    console.color_scale_combo.setCurrentText("Log")
+    assert type(console.image_canvas._image.norm).__name__ == "LogNorm"
+
+    assert console.image_canvas._image.get_cmap().name == "viridis"
+    console.colormap_combo.setCurrentText("plasma")
+    assert console.image_canvas._image.get_cmap().name == "plasma"
+
+
+def _load_test_frame(tmp_path):
+    import h5py
+    import numpy as np
+
+    from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config
+    from pgixs_python.ui_backend import console_session as cs
+
+    frame_path = tmp_path / "frame.h5"
+    data = np.random.default_rng(0).uniform(10, 100, size=(20, 24)).astype(np.float32)
+    with h5py.File(frame_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=data[None, :, :])
+
+    console = ConsoleWidget(gixs_config())
+    console._activate()
+    result = cs.console_load(
+        {
+            "directory": str(tmp_path),
+            "filename": frame_path.name,
+            "mode": "gixs",
+            "detector": "TestDetector",
+            "multishot": False,
+        }
+    )
+    assert result["ok"], result.get("message")
+    console._on_load_finished(result)
+    return console
+
+
+def test_display_spins_apply_live(qapp, tmp_path):
+    """Contrast/Y-Range/Z-Range/Font Sz used to require an explicit Update
+    click; now every one of them applies as soon as it changes (spin boxes
+    have setKeyboardTracking(False), so this fires on step/scroll/Enter/
+    focus-loss, not on every keystroke)."""
+
+    console = _load_test_frame(tmp_path)
+
+    console.cmin_spin.setValue(15.0)
+    console.cmax_spin.setValue(80.0)
+    assert (console.image_canvas._image.norm.vmin, console.image_canvas._image.norm.vmax) == (15.0, 80.0)
+
+    console.font_sz_spin.setValue(20)
+    assert console.image_canvas.ax.xaxis.label.get_fontsize() == 20.0
+
+    console.yrange_min_spin.setValue(5.0)
+    console.yrange_max_spin.setValue(15.0)
+    assert console.image_canvas.ax.get_xlim() == (5.0, 15.0)
+
+    console.zrange_min_spin.setValue(3.0)
+    console.zrange_max_spin.setValue(12.0)
+    # Raw (uncentered) pixel mode reads top-to-bottom as small-to-large, so
+    # the axis-reversed ylim is (max, min).
+    assert console.image_canvas.ax.get_ylim() == (12.0, 3.0)
+
+
+def test_update_resets_range_to_full_extent_keeps_other_settings(qapp, tmp_path):
+    """Regression for the redefined Update button: it no longer re-applies
+    ColorScale/Colormap/Contrast/Font (those are live now, see
+    test_display_spins_apply_live) -- its only job is putting Y-Range/
+    Z-Range back to the full extent of the current data, leaving every
+    other display setting exactly as the user left it."""
+
+    console = _load_test_frame(tmp_path)
+    full_xlim = console.image_canvas.ax.get_xlim()
+    full_ylim = console.image_canvas.ax.get_ylim()
+
+    console.color_scale_combo.setCurrentText("Log")
+    console.colormap_combo.setCurrentText("plasma")
+    console.cmin_spin.setValue(15.0)
+    console.cmax_spin.setValue(80.0)
+    console.font_sz_spin.setValue(20)
+    console.yrange_min_spin.setValue(5.0)
+    console.yrange_max_spin.setValue(15.0)
+    console.zrange_min_spin.setValue(3.0)
+    console.zrange_max_spin.setValue(12.0)
+    assert console.image_canvas.ax.get_xlim() != full_xlim
+
+    console._on_update_clicked()
+
+    assert console.image_canvas.ax.get_xlim() == full_xlim
+    assert console.image_canvas.ax.get_ylim() == full_ylim
+    assert (console.yrange_min_spin.value(), console.yrange_max_spin.value()) == full_xlim
+    assert (console.zrange_min_spin.value(), console.zrange_max_spin.value()) == (
+        min(full_ylim),
+        max(full_ylim),
+    )
+    # Everything else stays as the user set it.
+    assert type(console.image_canvas._image.norm).__name__ == "LogNorm"
+    assert console.image_canvas._image.get_cmap().name == "plasma"
+    assert (console.image_canvas._image.norm.vmin, console.image_canvas._image.norm.vmax) == (15.0, 80.0)
+    assert console.image_canvas.ax.xaxis.label.get_fontsize() == 20.0
+
+
 def test_load_info_recenters_pixel_axis_on_beam_position(qapp, tmp_path):
     """Regression, verified against GIXS_gui.m's Openinfo_Callback: once
     Load Info has set the beam position, the pixel-mode axis re-centers on

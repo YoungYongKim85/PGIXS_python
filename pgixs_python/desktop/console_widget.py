@@ -381,8 +381,9 @@ class ConsoleWidget(QWidget):
         self.plus_data_spin = _double_spin(-1.0e6, 1.0e6, 3, 1.0, 0.01)
         self.normal_combo = QComboBox()
         self.normal_combo.addItems(["None", "IC", "BC"])
-        layout.addWidget(_field("*Data", self.plus_data_spin))
-        layout.addWidget(_field("Normalization", self.normal_combo))
+        data_field = _field("*Data", self.plus_data_spin, label_width=48)
+        normal_field = _field("Normalization", self.normal_combo, label_width=88)
+        layout.addWidget(_split_row(data_field, normal_field))
 
         self.subtract_button = QPushButton("BKG sub. && Norm")
         self.subtract_button.clicked.connect(self._on_subtract_clicked)
@@ -513,6 +514,11 @@ class ConsoleWidget(QWidget):
         controller_group = QGroupBox("Image Controller")
         controller_layout = QVBoxLayout(controller_group)
 
+        # This panel has plenty of horizontal room (the right side of the
+        # splitter, unlike the constrained left panel), so related controls
+        # share a row instead of each taking its own line: render-style
+        # dropdowns together, numeric display tuning together, axis ranges
+        # together -- 7 rows down to 4.
         self.color_scale_combo = QComboBox()
         self.color_scale_combo.addItems(["Linear", "Log"])
         self.colormap_combo = QComboBox()
@@ -520,32 +526,52 @@ class ConsoleWidget(QWidget):
         default_index = self.colormap_combo.findText("viridis")
         if default_index >= 0:
             self.colormap_combo.setCurrentIndex(default_index)
-        row1 = _row(
-            _field("ColorScale", self.color_scale_combo, label_width=70),
-            _field("Colormap", self.colormap_combo, label_width=70),
-        )
-        controller_layout.addWidget(row1)
-
-        self.cmin_spin = _double_spin(-1.0e12, 1.0e12, 3, 0.0, 1.0)
-        self.cmax_spin = _double_spin(-1.0e12, 1.0e12, 3, 0.0, 1.0)
-        controller_layout.addWidget(_field("Contrast min/max", self.cmin_spin, self.cmax_spin, label_width=110))
-
         self.map_format_combo = QComboBox()
         self.map_format_combo.addItems(cfg.map_formats)
         self.map_format_combo.currentTextChanged.connect(self._on_map_format_changed)
-        controller_layout.addWidget(_field("Map format", self.map_format_combo, label_width=110))
+        # Every display-only control (ColorScale/Colormap/Contrast/Range/
+        # Font) applies the moment it changes -- Update no longer needs to
+        # be clicked for these to take effect. Spin boxes have
+        # setKeyboardTracking(False) (see _double_spin), so valueChanged
+        # fires on step/scroll/Enter/focus-loss, not on every keystroke.
+        self.color_scale_combo.currentTextChanged.connect(self._apply_display_settings)
+        self.colormap_combo.currentTextChanged.connect(self._apply_display_settings)
+        controller_layout.addWidget(
+            _split_row(
+                _field("ColorScale", self.color_scale_combo, label_width=70),
+                _field("Colormap", self.colormap_combo, label_width=64),
+                _field("Map format", self.map_format_combo, label_width=76),
+            )
+        )
 
+        self.cmin_spin = _double_spin(-1.0e12, 1.0e12, 3, 0.0, 1.0)
+        self.cmax_spin = _double_spin(-1.0e12, 1.0e12, 3, 0.0, 1.0)
         self.yrange_min_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.yrange_max_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.zrange_min_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.zrange_max_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
-        controller_layout.addWidget(_field("Y-Range", self.yrange_min_spin, self.yrange_max_spin, label_width=110))
-        controller_layout.addWidget(_field("Z-Range", self.zrange_min_spin, self.zrange_max_spin, label_width=110))
-
         self.font_sz_spin = _double_spin(6.0, 30.0, 0, 10.0, 1.0)
-        controller_layout.addWidget(_field("Font Sz", self.font_sz_spin, label_width=110))
+        for spin in (
+            self.cmin_spin,
+            self.cmax_spin,
+            self.yrange_min_spin,
+            self.yrange_max_spin,
+            self.zrange_min_spin,
+            self.zrange_max_spin,
+            self.font_sz_spin,
+        ):
+            spin.valueChanged.connect(self._apply_display_settings)
+        controller_layout.addWidget(
+            _split_row(
+                _field("Contrast", self.cmin_spin, self.cmax_spin, label_width=54),
+                _field("Y-Range", self.yrange_min_spin, self.yrange_max_spin, label_width=54),
+                _field("Z-Range", self.zrange_min_spin, self.zrange_max_spin, label_width=54),
+                _field("Font", self.font_sz_spin, label_width=32),
+            )
+        )
 
         self.update_button = QPushButton("Update")
+        self.update_button.setToolTip("Reset Y-Range/Z-Range to the full extent (everything else stays as set).")
         self.reset_zoom_button = QPushButton("Reset Zoom")
         self.update_button.clicked.connect(self._on_update_clicked)
         self.reset_zoom_button.clicked.connect(self._on_reset_zoom_clicked)
@@ -1062,16 +1088,18 @@ class ConsoleWidget(QWidget):
         self._set_status(f"{mode} image ready.", True)
 
     # ------------------------------------------------------------------
-    # Update / Reset Zoom / Save
+    # Display settings (live) / Update (reset ranges) / Reset Zoom / Save
     # ------------------------------------------------------------------
-    def _on_update_clicked(self) -> None:
+    def _apply_display_settings(self) -> None:
         # Re-render the *currently displayed* array (pixel- or Q-space --
         # whichever "Map format" is active) with the current ColorScale/
         # Colormap/Contrast/Font Sz, then apply the Y-Range/Z-Range fields
         # as axis limits. This deliberately does not re-fetch from the
-        # backend in Q mode, so editing Y-Range/Z-Range and clicking Update
-        # actually crops the view instead of being silently overwritten by
-        # a fresh full-extent transform.
+        # backend in Q mode, so editing Y-Range/Z-Range actually crops the
+        # view instead of being silently overwritten by a fresh
+        # full-extent transform. Wired to every display control below so
+        # each one takes effect immediately, not just on an explicit
+        # button click.
         if self._current_image_data is None:
             return
         self._render_image(
@@ -1095,6 +1123,32 @@ class ConsoleWidget(QWidget):
             axis_reversed = self._axis_mode == "pixel" and not self._pixel_centered
             ylim = (z_max, z_min) if axis_reversed else (z_min, z_max)
             self.image_canvas.set_axis_limits(None, ylim)
+
+    def _on_update_clicked(self) -> None:
+        # Every other display control now applies live (see
+        # _apply_display_settings above), so Update's own job narrows to
+        # just this: put Y-Range/Z-Range back to the full extent of the
+        # currently displayed data, leaving ColorScale/Colormap/Contrast/
+        # Font exactly as the user left them. `_current_image_extent` is
+        # the (left, right, bottom, top) the last full render used --
+        # stable across live Y/Z-Range edits, since those only crop the
+        # view (set_axis_limits), never touch this stored extent.
+        if self._current_image_extent is None:
+            return
+        left, right, bottom, top = self._current_image_extent
+        self.yrange_min_spin.blockSignals(True)
+        self.yrange_max_spin.blockSignals(True)
+        self.zrange_min_spin.blockSignals(True)
+        self.zrange_max_spin.blockSignals(True)
+        self.yrange_min_spin.setValue(min(left, right))
+        self.yrange_max_spin.setValue(max(left, right))
+        self.zrange_min_spin.setValue(min(bottom, top))
+        self.zrange_max_spin.setValue(max(bottom, top))
+        self.yrange_min_spin.blockSignals(False)
+        self.yrange_max_spin.blockSignals(False)
+        self.zrange_min_spin.blockSignals(False)
+        self.zrange_max_spin.blockSignals(False)
+        self.image_canvas.set_axis_limits((left, right), (bottom, top))
 
     def _on_reset_zoom_clicked(self) -> None:
         self.image_canvas.reset_view()

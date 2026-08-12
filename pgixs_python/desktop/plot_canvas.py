@@ -138,6 +138,17 @@ class ImageCanvas(QWidget):
         if keep_limits and prev_xlim is not None:
             self.ax.set_xlim(prev_xlim)
             self.ax.set_ylim(prev_ylim)
+        else:
+            # NavigationToolbar2's Home button restores whichever view sits
+            # at the bottom of its own nav stack -- it has no idea we just
+            # replaced the plotted data via ax.imshow() directly. We never
+            # go through the toolbar's own pan/zoom handlers, which are what
+            # normally populate that stack, so left alone it stays empty
+            # forever and Home silently does nothing. `update()` clears any
+            # stale stack from a previous dataset; `push_current()` then
+            # seeds it with *this* full-extent view as the new baseline.
+            self.toolbar.update()
+            self.toolbar.push_current()
 
         self.canvas.draw_idle()
         return vmin, vmax

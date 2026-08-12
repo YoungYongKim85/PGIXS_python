@@ -183,6 +183,19 @@ QComboBox::drop-down {{
     width: 18px;
 }}
 
+/* The popup list is a separate top-level widget (QAbstractItemView), not a
+   QComboBox subcontrol -- it doesn't inherit the combo box's own QSS rules
+   and otherwise falls back to a dark default, so it needs its own explicit
+   colors to match the rest of the light theme. */
+QComboBox QAbstractItemView {{
+    background: {PANEL_BG};
+    border: 1px solid {BORDER_STRONG};
+    color: {TEXT};
+    outline: none;
+    selection-background-color: {ACCENT};
+    selection-color: white;
+}}
+
 QCheckBox {{
     spacing: 6px;
 }}
