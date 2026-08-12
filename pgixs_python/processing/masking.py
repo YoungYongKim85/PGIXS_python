@@ -57,7 +57,11 @@ def detector_mask_for_type(detector_type: str, mask_dir: str | Path | None = Non
 
     detector = str(detector_type)
     if detector == "Eiger4M":
-        return _mask_from_file_or_default("EigerMask.mat", (2167, 2070), 0.075, mask_dir)
+        # (2070, 2167): rows x cols as returned by `load_h5_frame`, which
+        # transposes the raw H5 dataset (matching MATLAB `loadPGIXSH5Frame`).
+        # A real Eiger4M frame confirmed this empirically; the other
+        # detectors below are square so this row/col mixup never surfaced.
+        return _mask_from_file_or_default("EigerMask.mat", (2070, 2167), 0.075, mask_dir)
     if detector in {"MarCCD", "SX165"}:
         return _mask_from_file_or_default("SX165mask.mat", (2048, 2048), 0.079, mask_dir)
     if detector == "MX170HS":

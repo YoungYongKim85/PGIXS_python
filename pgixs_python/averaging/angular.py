@@ -6,7 +6,70 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from pgixs_python.averaging.qbin import qbin_average
 from pgixs_python.averaging.radial import RadiusAverageResult, build_radius_bin_map, radius_average
+
+
+@dataclass
+class AngularProfileResult:
+    radius_range: tuple[float, float]
+    center: tuple[float, float]
+    angle_axis: np.ndarray
+    intensity: np.ndarray
+    std: np.ndarray
+    counts: np.ndarray
+    geom_counts: np.ndarray
+    coverage: np.ndarray
+
+
+def angular_profile(
+    data: np.ndarray,
+    center: tuple[float, float],
+    radius_range: tuple[float, float],
+    n_angle_bins: int = 180,
+    use_median: bool = False,
+    calc_std: bool = False,
+) -> AngularProfileResult:
+    """Ring intensity profile versus angle at a fixed pixel-radius range.
+
+    Mirrors the MATLAB `DrawPlot_Callback` polar sampling: for each angle
+    bin, average the pixels whose radius from `center` falls inside
+    `radius_range`. Angle convention matches `make_sector_mask`.
+    """
+
+    image = np.asarray(data, dtype=np.float32)
+    if image.ndim != 2:
+        raise ValueError("data must be a 2D array.")
+
+    n_rows, n_cols = image.shape
+    cols, rows = np.meshgrid(
+        np.arange(1, n_cols + 1, dtype=np.float64),
+        np.arange(1, n_rows + 1, dtype=np.float64),
+    )
+    angle = np.degrees(np.arctan2(-(rows - float(center[1])), -(cols - float(center[0]))))
+    angle = np.mod(angle, 360.0)
+    radius = np.hypot(cols - float(center[0]), rows - float(center[1]))
+
+    r_min, r_max = sorted((float(radius_range[0]), float(radius_range[1])))
+    ring_mask = (radius >= r_min) & (radius <= r_max)
+
+    n_bins = max(1, int(n_angle_bins))
+    bin_width = 360.0 / n_bins
+    bin_index = np.minimum(np.floor(angle / bin_width).astype(np.int64), n_bins - 1)
+
+    binned = qbin_average(image, bin_index, n_bins, use_median=use_median, calc_std=calc_std, geom_mask=ring_mask)
+    angle_axis = ((np.arange(n_bins, dtype=np.float64) + 0.5) * bin_width).astype(np.float32)
+
+    return AngularProfileResult(
+        radius_range=(r_min, r_max),
+        center=(float(center[0]), float(center[1])),
+        angle_axis=angle_axis,
+        intensity=binned.intensity,
+        std=binned.std,
+        counts=binned.counts,
+        geom_counts=binned.geom_counts,
+        coverage=binned.coverage,
+    )
 
 
 @dataclass

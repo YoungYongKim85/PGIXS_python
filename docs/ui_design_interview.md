@@ -152,13 +152,27 @@ meaning, and troubleshooting steps.
 12. 1D coverage diagnostics warn about low-coverage and abrupt-drop bins.
 13. Dedicated coverage preview is wired to `/api/preview/coverage` and rendered as an SVG plot.
 14. Main workbench tabs keep separate panel state for Batch, Summary, 2D, 1D, Coverage, and Report.
-15. Add preset/config save-load.
-16. Add MATLAB-vs-Python comparison page.
-17. Package local launcher for Windows and Linux.
+15. Batch Queue jobs can be added, edited, removed, saved, and reloaded from
+    the browser table (`Add Job`/`Save Batch Config`/`Load Batch Config`,
+    wired to `/api/batch/save` and `/api/batch/load`). Validate/Run Batch
+    auto-save the current table before executing.
+16. Add named preset support layered on top of job/batch save-load (detector
+    calibration defaults, q export settings, normalization/background
+    conventions reused across jobs).
+17. Add MATLAB-vs-Python comparison page.
+18. Package local launcher for Windows and Linux.
 
 ## Open Notes
 
-- Final UI framework is not chosen yet.
+- UI framework decision: stay on the stdlib `http.server` scaffold and hand-
+  authored HTML/CSS/JS (no build step), so the tool keeps running from a
+  single `python -m pgixs_python.ui_backend.local_server` command on
+  offline/beamline machines. Visual design targets a dark instrument-
+  console look (near-black surfaces, gold action accent, teal data accent,
+  monospace data readouts) rather than a generic light dashboard, matching
+  the beamline-software aesthetic (DPDAK/GIXSGUI/pyFAI-GUI) and the fact
+  that detector heatmaps read best on a neutral dark ground. No custom web
+  fonts are bundled, to keep the app usable without internet access.
 - Actual MATLAB-vs-Python validation data still needs to be filled before
   declaring the scientific backend ready for routine use.
 - Clean Windows/Linux Python 3.10 environment checks still need to be run by the

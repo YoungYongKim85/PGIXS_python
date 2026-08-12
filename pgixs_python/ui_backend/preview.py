@@ -240,8 +240,14 @@ def _array_to_list(values: np.ndarray | None) -> list[float | int] | None:
     return [item.item() if hasattr(item, "item") else item for item in array.reshape(-1)]
 
 
+downsample_2d_for_json = _downsample_for_json
+downsample_1d_for_json = _downsample_1d_for_json
+
+
 __all__ = [
     "coverage_preview_payload",
+    "downsample_1d_for_json",
+    "downsample_2d_for_json",
     "one_d_export_preview_payload",
     "preview_error_payload",
     "two_d_info_preview_payload",

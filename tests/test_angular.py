@@ -1,6 +1,11 @@
 import numpy as np
 
-from pgixs_python.averaging.angular import find_coverage_drop_bins, make_sector_mask, sector_average
+from pgixs_python.averaging.angular import (
+    angular_profile,
+    find_coverage_drop_bins,
+    make_sector_mask,
+    sector_average,
+)
 
 
 def test_make_sector_mask_wraparound_and_full_circle():
@@ -33,3 +38,29 @@ def test_find_coverage_drop_bins_detects_step():
     drops = find_coverage_drop_bins(coverage)
 
     assert 3 in drops
+
+
+def test_angular_profile_uniform_ring_gives_flat_intensity():
+    data = np.full((13, 13), 5.0, dtype=np.float32)
+    center = (7.0, 7.0)
+
+    result = angular_profile(data, center=center, radius_range=(2.0, 5.0), n_angle_bins=8)
+
+    assert result.angle_axis.shape == (8,)
+    assert result.intensity.shape == (8,)
+    finite = np.isfinite(result.intensity)
+    assert np.any(finite)
+    assert np.allclose(result.intensity[finite], 5.0)
+    assert np.all(result.coverage[finite] == 1.0)
+
+
+def test_angular_profile_reports_low_coverage_for_masked_quadrant():
+    data = np.full((13, 13), 5.0, dtype=np.float32)
+    center = (7.0, 7.0)
+    cols, rows = np.meshgrid(np.arange(1, 14, dtype=np.float64), np.arange(1, 14, dtype=np.float64))
+    angle = np.mod(np.degrees(np.arctan2(-(rows - center[1]), -(cols - center[0]))), 360.0)
+    data[(angle >= 0) & (angle < 90)] = np.nan
+
+    result = angular_profile(data, center=center, radius_range=(2.0, 5.0), n_angle_bins=4)
+
+    assert result.coverage[0] == 0.0

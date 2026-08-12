@@ -27,3 +27,13 @@ validation_outputs/
 *.png
 *.jpg
 *.jpeg
+
+# Real beamline datasets used for local manual testing (~19GB) -- never
+# meant to be tracked, only individual *.h5/*.mat above were being ignored
+# so the folder itself still showed as untracked.
+testdata/
+
+# Claude Code local session state (absolute local paths, PIDs, temp-dir
+# permissions accumulated during this machine's sessions) -- not shared
+# project config, unlike .claude/launch.json.
+.claude/settings.local.json
