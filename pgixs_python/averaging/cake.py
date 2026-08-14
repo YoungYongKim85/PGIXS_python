@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -118,6 +119,124 @@ def cake_average(
         low_coverage_bins=np.flatnonzero(radial.coverage < 0.15).astype(np.int64),
         coverage_drop_bins=find_coverage_drop_bins(radial.coverage),
         selected_pixel_count=int(np.count_nonzero(selected)),
+        is_valid=True,
+    )
+
+
+def accumulation_average(
+    data: np.ndarray,
+    q_map: np.ndarray,
+    center: tuple[float, float],
+    angle_deg: float,
+    perp_offset: float,
+    band_minus: float,
+    band_plus: float,
+    use_median: bool = False,
+) -> CakeAverageResult:
+    """Perpendicular pixel-band mean along an axis-aligned cut direction.
+
+    Mirrors MATLAB `Accumpix_gi`: an axis-aligned band (angle 0/90/180) is
+    already perfectly aligned with the pixel grid, so this is a direct
+    row-slice (0/180) or column-slice (90) mean rather than `cake_average`'s
+    fuzzy floor-radius binning -- no interpolation needed. `perp_offset`
+    shifts the band's fixed coordinate using this codebase's HD/VD
+    convention (VD = beam_z - row, HD = col - beam_y), matching how
+    Y-Range/Z-Range and the Center fields already treat pixel offsets
+    elsewhere, rather than replicating MATLAB's internal row/col variable
+    naming (which differs by sign for asymmetric band_minus/band_plus but
+    is identical for MATLAB's own symmetric -1/+1 defaults).
+    """
+
+    angle = float(angle_deg)
+    if angle not in (0.0, 90.0, 180.0):
+        raise ValueError("Accumulation cut only supports angle 0, 90, or 180 degrees.")
+
+    image = np.asarray(data, dtype=np.float32)
+    q = np.asarray(q_map, dtype=np.float32)
+    if image.ndim != 2 or q.shape != image.shape:
+        raise ValueError("data and q_map must be 2D arrays with matching shape.")
+
+    n_rows, n_cols = image.shape
+    beam_y, beam_z = float(center[0]), float(center[1])
+    reducer = np.nanmedian if use_median else np.nanmean
+
+    if angle in (0.0, 180.0):
+        row_center = beam_z - float(perp_offset)
+        row_start = max(0, min(n_rows - 1, int(np.floor(row_center + band_minus))))
+        row_end = max(row_start, min(n_rows - 1, int(np.ceil(row_center + band_plus))))
+        band = image[row_start : row_end + 1, :]
+        band_q = q[row_start : row_end + 1, :]
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            # A detector column whose entire band is gap/masked pixels is
+            # an expected, harmless case near detector edges -- nanmean/
+            # nanmedian correctly return NaN for it (kept as NaN downstream
+            # via the `keep` mask below), but warn on every occurrence via
+            # Python's warnings module, which np.errstate does not cover.
+            warnings.filterwarnings("ignore", message="Mean of empty slice")
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+            intensity = reducer(band, axis=0)
+            mean_q = np.nanmean(band_q, axis=0)
+        finite_counts = np.count_nonzero(np.isfinite(band), axis=0)
+        band_width = band.shape[0]
+        col_offset = np.arange(1, n_cols + 1, dtype=np.float64) - beam_y
+        keep = (col_offset <= 0) if angle == 0.0 else (col_offset >= 0)
+        r_axis = np.abs(col_offset)
+    else:  # angle == 90.0
+        col_center = beam_y + float(perp_offset)
+        col_start = max(0, min(n_cols - 1, int(np.floor(col_center + band_minus))))
+        col_end = max(col_start, min(n_cols - 1, int(np.ceil(col_center + band_plus))))
+        band = image[:, col_start : col_end + 1]
+        band_q = q[:, col_start : col_end + 1]
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Mean of empty slice")
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+            intensity = reducer(band, axis=1)
+            mean_q = np.nanmean(band_q, axis=1)
+        finite_counts = np.count_nonzero(np.isfinite(band), axis=1)
+        band_width = band.shape[1]
+        row_offset = -(np.arange(1, n_rows + 1, dtype=np.float64) - beam_z)
+        keep = row_offset >= 0
+        r_axis = np.abs(row_offset)
+
+    coverage = finite_counts.astype(np.float32) / max(1, band_width)
+    keep = keep & np.isfinite(mean_q) & (mean_q > 0) & np.isfinite(intensity)
+
+    if not np.any(keep):
+        empty_f = np.array([], dtype=np.float32)
+        empty_i = np.array([], dtype=np.int64)
+        return CakeAverageResult(
+            reference_angle=angle,
+            angle_range=(float(band_minus), float(band_plus)),
+            q_axis=empty_f,
+            r_axis=empty_f,
+            intensity=empty_f,
+            std=empty_f,
+            counts=empty_i,
+            geom_counts=empty_i,
+            coverage=empty_f,
+            low_coverage_bins=empty_i,
+            coverage_drop_bins=empty_i,
+            selected_pixel_count=0,
+            is_valid=False,
+        )
+
+    idx = np.flatnonzero(keep)[np.argsort(r_axis[keep])]
+    coverage_out = coverage[idx]
+    counts_out = finite_counts[idx].astype(np.int64)
+
+    return CakeAverageResult(
+        reference_angle=angle,
+        angle_range=(float(band_minus), float(band_plus)),
+        q_axis=mean_q[idx].astype(np.float32),
+        r_axis=r_axis[idx].astype(np.float32),
+        intensity=intensity[idx].astype(np.float32),
+        std=np.full(idx.shape, np.nan, dtype=np.float32),
+        counts=counts_out,
+        geom_counts=counts_out,
+        coverage=coverage_out,
+        low_coverage_bins=np.flatnonzero(coverage_out < 0.15).astype(np.int64),
+        coverage_drop_bins=find_coverage_drop_bins(coverage_out),
+        selected_pixel_count=int(np.sum(counts_out)),
         is_valid=True,
     )
 

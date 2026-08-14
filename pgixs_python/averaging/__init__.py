@@ -3,6 +3,7 @@
 from pgixs_python.averaging.angular import SectorAverageResult, find_coverage_drop_bins, make_sector_mask, sector_average
 from pgixs_python.averaging.cake import (
     CakeAverageResult,
+    accumulation_average,
     angle_in_relative_sector,
     cake_average,
     normalize_angle180,
@@ -17,6 +18,7 @@ __all__ = [
     "RadiusAverageResult",
     "RadiusBinMap",
     "SectorAverageResult",
+    "accumulation_average",
     "angle_in_relative_sector",
     "build_radius_bin_map",
     "cake_average",

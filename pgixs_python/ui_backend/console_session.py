@@ -36,6 +36,7 @@ Deliberate simplifications versus MATLAB, noted in
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ from typing import Any
 import numpy as np
 
 from pgixs_python.averaging.angular import angular_profile, sector_average
-from pgixs_python.averaging.cake import cake_average, pixel_angle_map
+from pgixs_python.averaging.cake import accumulation_average, cake_average, pixel_angle_map
 from pgixs_python.averaging.qbin import summarize_coverage
 from pgixs_python.calibration.calibration_io import load_standard_calibration
 from pgixs_python.calibration.sdd import wavelength_from_energy_kev
@@ -506,10 +507,17 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         range_minus = float(payload.get("range_minus", -1.0))
         range_plus = float(payload.get("range_plus", 1.0))
         use_median = bool(payload.get("use_median", False))
+        y_pos_move = float(payload.get("y_pos_move", 0.0))
+        z_pos_move = float(payload.get("z_pos_move", 0.0))
+        accumulation = bool(payload.get("accumulation", False))
+        accum_minus = float(payload.get("accum_minus", -1.0))
+        accum_plus = float(payload.get("accum_plus", 1.0))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid line parameters: {exc}"}
 
-    angle_range = (range_minus, range_plus) if cakecut else (-1.0, 1.0)
+    if accumulation and cakecut:
+        return {"ok": False, "message": "Turn off Cakecut before using Accumulation."}
+
     data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
     beam_pos = _SESSION.calibration["beam_pos"]
     angle_map = _SESSION.angle_map
@@ -517,15 +525,63 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         angle_map = pixel_angle_map(data_for_1d.shape, center=beam_pos)
         _SESSION.angle_map = angle_map
 
-    result = cake_average(
-        data_for_1d,
-        _SESSION.qmap["q"],
-        angle_map,
-        center=beam_pos,
-        reference_angle=angle_deg,
-        angle_range=angle_range,
-        use_median=use_median,
-    )
+    # Three cut modes, matching GIXS_gui.m's calculateLinePositions: a plain
+    # angle cut (default -- narrow wedge from the beam center, or an
+    # axis-aligned offset ray once y/z-pos move is nonzero), an angular
+    # Cakecut wedge (never affected by y/z-pos move, matching MATLAB), and
+    # a perpendicular-band Accumulation cut (axis-aligned only, offset by
+    # y/z-pos move).
+    axis_aligned = angle_deg in (0.0, 90.0, 180.0)
+    try:
+        if accumulation:
+            if not axis_aligned:
+                return {"ok": False, "message": "Accumulation cut only supports angle 0, 90, or 180 degrees."}
+            perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
+            result = accumulation_average(
+                data_for_1d,
+                _SESSION.qmap["q"],
+                center=beam_pos,
+                angle_deg=angle_deg,
+                perp_offset=perp_offset,
+                band_minus=accum_minus,
+                band_plus=accum_plus,
+                use_median=use_median,
+            )
+        elif cakecut:
+            result = cake_average(
+                data_for_1d,
+                _SESSION.qmap["q"],
+                angle_map,
+                center=beam_pos,
+                reference_angle=angle_deg,
+                angle_range=(range_minus, range_plus),
+                use_median=use_median,
+            )
+        elif axis_aligned and (y_pos_move != 0.0 or z_pos_move != 0.0):
+            perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
+            result = accumulation_average(
+                data_for_1d,
+                _SESSION.qmap["q"],
+                center=beam_pos,
+                angle_deg=angle_deg,
+                perp_offset=perp_offset,
+                band_minus=0.0,
+                band_plus=0.0,
+                use_median=use_median,
+            )
+        else:
+            result = cake_average(
+                data_for_1d,
+                _SESSION.qmap["q"],
+                angle_map,
+                center=beam_pos,
+                reference_angle=angle_deg,
+                angle_range=(-1.0, 1.0),
+                use_median=use_median,
+            )
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+
     if not result.is_valid:
         return {"ok": False, "message": "No pixels selected for this line/cake-cut geometry."}
 
@@ -534,6 +590,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         "q": result.q_axis,
         "intensity": result.intensity,
         "coverage": result.coverage,
+        "angle_deg": angle_deg,
     }
     return {
         "ok": True,
@@ -631,7 +688,7 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
     intensity[below] = np.nan
 
     _SESSION.last_curve = {
-        "kind": "line",
+        "kind": "circular",
         "q": result.q_axis,
         "intensity": intensity,
         "coverage": coverage,
@@ -655,10 +712,8 @@ def console_save(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.qmap is None:
         return {"ok": False, "message": "Run q-Map Cal. before saving."}
 
-    out_dir = str(payload.get("out_dir", "")).strip()
     stem = _output_stem(payload)
-    target_dir = Path(out_dir) if out_dir else (Path(_SESSION.source_path).parent if _SESSION.source_path else Path("console_outputs"))
-    target_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = _resolve_output_dir(payload, stem)
     h5_path = target_dir / f"{stem}_2Dinfo.h5"
 
     cal = _SESSION.calibration
@@ -689,17 +744,8 @@ def console_save(payload: dict[str, Any]) -> dict[str, Any]:
 
     curve_path: Path | None = None
     if _SESSION.last_curve is not None:
-        curve = _SESSION.last_curve
-        x_axis = curve["q"] if curve["kind"] == "line" else curve["angle"]
-        export = OneDExport(
-            x=x_axis,
-            intensity=curve["intensity"],
-            coverage=curve.get("coverage"),
-            x_label="q" if curve["kind"] == "line" else "angle_deg",
-        )
-        curve_path = target_dir / f"{stem}_1D.csv"
         try:
-            save_1d_data(curve_path, export, include_diagnostics=True)
+            curve_path = _export_last_curve(target_dir, stem)
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"2D-info saved, but 1D export failed: {exc}", "h5_path": str(h5_path)}
 
@@ -708,6 +754,73 @@ def console_save(payload: dict[str, Any]) -> dict[str, Any]:
         "h5_path": str(h5_path),
         "curve_path": str(curve_path) if curve_path is not None else None,
     }
+
+
+def console_save_curve(payload: dict[str, Any]) -> dict[str, Any]:
+    """Save just the current 1D Result curve (Line/Azimuthal/Circular) as a
+    CSV -- unlike console_save, doesn't require q-Map Cal. to have been run
+    (no 2D-info bundle), just a curve to have been plotted."""
+
+    if _SESSION.last_curve is None:
+        return {"ok": False, "message": "Run a 1D plot first."}
+
+    stem = _output_stem(payload)
+    target_dir = _resolve_output_dir(payload, stem)
+
+    try:
+        curve_path = _export_last_curve(target_dir, stem)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "message": str(exc)}
+
+    return {"ok": True, "curve_path": str(curve_path)}
+
+
+def _resolve_output_dir(payload: dict[str, Any], stem: str) -> Path:
+    """Every save (console_save / console_save_curve) lands in its own
+    <stem>/ subfolder rather than dropping files directly into the source
+    directory -- repeated saves for different frames (or repeated saves of
+    the same frame with different settings) stay grouped instead of piling
+    up loose files side by side."""
+
+    out_dir = str(payload.get("out_dir", "")).strip()
+    base = Path(out_dir) if out_dir else (Path(_SESSION.source_path).parent if _SESSION.source_path else Path("console_outputs"))
+    target_dir = base / stem
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
+def _export_last_curve(target_dir: Path, stem: str) -> Path:
+    curve = _SESSION.last_curve
+    kind = curve["kind"]
+    is_q_axis = kind in ("line", "circular")
+    x_axis = curve["q"] if is_q_axis else curve["angle"]
+    export = OneDExport(
+        x=x_axis,
+        intensity=curve["intensity"],
+        coverage=curve.get("coverage"),
+        x_label="q" if is_q_axis else "angle_deg",
+    )
+    curve_path = target_dir / f"{stem}_1D{_curve_filename_suffix(curve)}.csv"
+    save_1d_data(curve_path, export, include_diagnostics=True)
+    return curve_path
+
+
+def _curve_filename_suffix(curve: dict[str, Any]) -> str:
+    """A q-axis "line" export on its own can't be told apart from another
+    line cut at a different angle, or from a q-axis "circular" average --
+    stamp the kind (and, for a line cut, the reference angle it was taken
+    at) into the filename so a folder of saved 1D profiles stays legible
+    without having to open each one."""
+
+    kind = curve["kind"]
+    if kind == "line":
+        angle_deg = curve.get("angle_deg")
+        return f"_line_ang{angle_deg:g}deg" if angle_deg is not None else "_line"
+    if kind == "azimuthal":
+        return "_azimuthal"
+    if kind == "circular":
+        return "_circular"
+    return ""
 
 
 def _reset_for_new_data() -> None:
@@ -738,8 +851,16 @@ def _normalize_series_prefix(filename: str) -> str:
 
 
 def _list_series_files(directory: Path, filename: str) -> list[Path]:
-    """Port of MATLAB `listPGIXSSeriesFiles.m`: same prefix, same extension,
-    non-recursive, sorted by name."""
+    """List same-series files: same normalized prefix, same extension,
+    non-recursive, sorted by name.
+
+    MATLAB `listPGIXSSeriesFiles.m` matches via `contains(allNames, prefix)`,
+    a plain substring check -- so a series like "PTCDIC13_0001.h5" also
+    sweeps up unrelated series such as "PTCDIC13_pPS_0001.h5" whose stem
+    merely contains "PTCDIC13" as a substring. We instead require the
+    candidate's own `_NNNN`-stripped prefix to match exactly, so only true
+    same-series files are grouped.
+    """
 
     if not directory.is_dir():
         raise ValueError(f"Directory not found: {directory}")
@@ -748,7 +869,7 @@ def _list_series_files(directory: Path, filename: str) -> list[Path]:
     matches = [
         item
         for item in directory.iterdir()
-        if item.is_file() and suffix == item.suffix.lower() and prefix in item.stem
+        if item.is_file() and suffix == item.suffix.lower() and _normalize_series_prefix(item.name) == prefix
     ]
     return sorted(matches, key=lambda item: item.name)
 
@@ -774,12 +895,18 @@ def _load_series_average(file_path: Path) -> tuple[np.ndarray, np.ndarray, list[
         if result.counts.size:
             counts_list.append(result.counts)
 
-    averaged = np.nanmean(np.stack(stack, axis=0), axis=0).astype(np.float32)
-    counts = (
-        np.nanmean(np.stack(counts_list, axis=0), axis=0).astype(np.float32)
-        if counts_list
-        else np.asarray([], dtype=np.float32)
-    )
+    with warnings.catch_warnings():
+        # A detector gap pixel that is NaN in every frame of the series is
+        # an expected, harmless case -- nanmean correctly returns NaN for
+        # it, but warns on every occurrence via Python's warnings module.
+        warnings.filterwarnings("ignore", message="Mean of empty slice")
+        warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+        averaged = np.nanmean(np.stack(stack, axis=0), axis=0).astype(np.float32)
+        counts = (
+            np.nanmean(np.stack(counts_list, axis=0), axis=0).astype(np.float32)
+            if counts_list
+            else np.asarray([], dtype=np.float32)
+        )
     return averaged, counts, files
 
 
@@ -849,6 +976,7 @@ __all__ = [
     "console_qmap",
     "console_qspace_image",
     "console_save",
+    "console_save_curve",
     "console_state",
     "get_session",
     "reset_session",

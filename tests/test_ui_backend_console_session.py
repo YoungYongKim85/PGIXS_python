@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import h5py
 import numpy as np
 
@@ -159,6 +161,80 @@ def test_console_line_1d_returns_curve(tmp_path):
     assert cs.get_session().last_curve["kind"] == "line"
 
 
+def test_console_line_1d_accumulation_returns_curve(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_line_1d({"angle_deg": 90.0, "accumulation": True, "accum_minus": -2.0, "accum_plus": 2.0})
+
+    assert payload["ok"], payload.get("message")
+    assert len(payload["preview"]["q"]) > 0
+
+
+def test_console_line_1d_accumulation_and_cakecut_are_mutually_exclusive(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_line_1d({"accumulation": True, "cakecut": True})
+
+    assert not payload["ok"]
+    assert "Accumulation" in payload["message"]
+
+
+def test_console_line_1d_accumulation_requires_axis_aligned_angle(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_line_1d({"angle_deg": 45.0, "accumulation": True})
+
+    assert not payload["ok"]
+    assert "0, 90, or 180" in payload["message"]
+
+
+def test_console_line_1d_pos_move_shifts_axis_aligned_cut_but_not_diagonal(tmp_path):
+    """z/y-pos move only takes effect for axis-aligned angles (0/90/180),
+    matching GIXS_gui.m's Anglecut1d_gi -- a diagonal cut always emanates
+    from the true beam center regardless of these fields."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    baseline = cs.console_line_1d({"angle_deg": 90.0})
+    assert baseline["ok"], baseline.get("message")
+    baseline_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    shifted = cs.console_line_1d({"angle_deg": 90.0, "y_pos_move": 5.0})
+    assert shifted["ok"], shifted.get("message")
+    shifted_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert shifted_intensity.shape != baseline_intensity.shape or not np.allclose(
+        shifted_intensity, baseline_intensity, equal_nan=True
+    )
+
+    diag_baseline = cs.console_line_1d({"angle_deg": 45.0})
+    assert diag_baseline["ok"], diag_baseline.get("message")
+    diag_baseline_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    diag_shifted = cs.console_line_1d({"angle_deg": 45.0, "y_pos_move": 5.0, "z_pos_move": 5.0})
+    assert diag_shifted["ok"], diag_shifted.get("message")
+    diag_shifted_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert diag_shifted_intensity.shape == diag_baseline_intensity.shape
+    assert np.allclose(diag_shifted_intensity, diag_baseline_intensity, equal_nan=True)
+
+
 def test_console_azimuthal_1d_returns_curve(tmp_path):
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -241,6 +317,78 @@ def test_console_save_writes_files_and_round_trips(tmp_path):
     assert info.data2d_pix.shape == (48, 48)
 
 
+def test_console_save_creates_stem_named_subfolder(tmp_path):
+    """console_save and console_save_curve both save into out_dir/<stem>/
+    rather than dropping files directly into out_dir -- keeps repeated
+    saves (different frames, or the same frame re-saved after changing
+    settings) from colliding or piling up loose files together."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    out_dir = tmp_path / "out"
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+    cs.console_line_1d({"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0})
+
+    payload = cs.console_save({"out_dir": str(out_dir)})
+
+    assert payload["ok"]
+    expected_dir = out_dir / "frame"
+    assert Path(payload["h5_path"]).parent == expected_dir
+    assert Path(payload["curve_path"]).parent == expected_dir
+    assert Path(payload["h5_path"]).name == "frame_2Dinfo.h5"
+
+
+def test_console_save_curve_creates_stem_named_subfolder(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    out_dir = tmp_path / "out"
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+    cs.console_line_1d({"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0})
+
+    payload = cs.console_save_curve({"out_dir": str(out_dir)})
+
+    assert payload["ok"]
+    # Line kind's filename also stamps the reference angle it was cut at
+    # (angle_deg=45.0 above) -- see test_curve_filename_labels_kind_and_angle
+    # for dedicated coverage of line/azimuthal/circular filenames.
+    assert Path(payload["curve_path"]) == out_dir / "frame" / "frame_1D_line_ang45deg.csv"
+
+
+def test_curve_filename_labels_kind_and_angle(tmp_path):
+    """Regression for "x축이 q일때, 어느 angle에서 cut한건지 file이름에 표기, azimuthal은
+    azimuthal이라고 표기": a saved 1D profile's filename must say which kind
+    of cut it is, and for a line cut, which angle -- otherwise a folder of
+    saved profiles is impossible to tell apart without opening each one."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(64, 64))
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0, "incident_angle_deg": 0.2})
+
+    # Line cut at a negative angle -- filename must stay filesystem-safe.
+    cs.console_line_1d({"angle_deg": -30.0})
+    payload = cs.console_save_curve({"out_dir": str(tmp_path)})
+    assert payload["ok"], payload.get("message")
+    assert Path(payload["curve_path"]).name == "frame_1D_line_ang-30deg.csv"
+
+    cs.console_azimuthal_1d({"pixel": 10.0})
+    payload = cs.console_save_curve({"out_dir": str(tmp_path)})
+    assert payload["ok"], payload.get("message")
+    assert Path(payload["curve_path"]).name == "frame_1D_azimuthal.csv"
+
+    _load(frame_path, mode="trxs")
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
+    cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.0})
+    payload = cs.console_save_curve({"out_dir": str(tmp_path)})
+    assert payload["ok"], payload.get("message")
+    assert Path(payload["curve_path"]).name == "frame_1D_circular.csv"
+
+
 def test_console_load_defaults_to_gixs_mode(tmp_path):
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -297,7 +445,7 @@ def test_console_circular_average_returns_curve_and_nulls_low_coverage(tmp_path)
 
     assert payload["ok"]
     assert len(payload["preview"]["q"]) == len(payload["preview"]["intensity"])
-    assert cs.get_session().last_curve["kind"] == "line"
+    assert cs.get_session().last_curve["kind"] == "circular"
 
 
 def test_console_save_trxs_mode_has_no_incident_angle(tmp_path):
@@ -376,6 +524,24 @@ def test_list_series_files_matches_prefix_and_extension(tmp_path):
     files = cs._list_series_files(tmp_path, "HDH_155_0001.h5")
 
     assert [f.name for f in files] == ["HDH_155_0001.h5", "HDH_155_0002.h5", "HDH_155_0003.h5"]
+
+
+def test_list_series_files_excludes_prefix_that_is_only_a_substring(tmp_path):
+    """Regression: a series like "PTCDIC13_0001.h5" must not sweep up an
+    unrelated series such as "PTCDIC13_pPS_0001.h5" just because
+    "PTCDIC13" is a substring of "PTCDIC13_pPS" -- the normalized prefixes
+    ("PTCDIC13" vs "PTCDIC13_pPS") must match exactly."""
+
+    (tmp_path / "PTCDIC13_0001.h5").write_bytes(b"")
+    (tmp_path / "PTCDIC13_0002.h5").write_bytes(b"")
+    (tmp_path / "PTCDIC13_0003.h5").write_bytes(b"")
+    (tmp_path / "PTCDIC13_pPS_0001.h5").write_bytes(b"")
+    (tmp_path / "PTCDIC13_pPS_0002.h5").write_bytes(b"")
+    (tmp_path / "PTCDIC13_pPS_0003.h5").write_bytes(b"")
+
+    files = cs._list_series_files(tmp_path, "PTCDIC13_0001.h5")
+
+    assert [f.name for f in files] == ["PTCDIC13_0001.h5", "PTCDIC13_0002.h5", "PTCDIC13_0003.h5"]
 
 
 def test_console_load_multishot_averages_only_matching_series(tmp_path):

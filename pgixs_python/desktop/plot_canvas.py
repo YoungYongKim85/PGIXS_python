@@ -166,19 +166,52 @@ class ImageCanvas(QWidget):
     def reset_view(self) -> None:
         self.toolbar.home()
 
-    def draw_beam_line(self, center: tuple[float, float], angle_deg: float) -> None:
+    def draw_beam_line(self, center: tuple[float, float], angle_deg: float, bidirectional: bool = True) -> None:
+        """Draw a line through `center` at `angle_deg`. `bidirectional=False`
+        draws only the ray extending outward in that direction (angle_deg,
+        not angle_deg+180) -- use this for a wedge boundary like Cakecut,
+        where the region beyond center in the *opposite* direction was
+        never actually selected by the cut and drawing it there is
+        misleading (looks like an X/bowtie instead of a wedge/V)."""
+
         rad = np.radians(angle_deg)
-        dx, dy = np.cos(rad), -np.sin(rad)
+        # Must satisfy the same convention _on_image_clicked's "line"
+        # branch derives an angle FROM (atan2(-(y-beam_z), -(x-beam_y))),
+        # so a redrawn line/ray at a given angle points back through
+        # whatever pixel a click at that angle would have hit. Plain
+        # cos(rad) is mirrored across the vertical axis relative to that
+        # (confirmed: a ray "at 45 deg" landed on a pixel that reports back
+        # as 135 deg) -- invisible for a *bidirectional* line at the
+        # cardinal 0/90/180/270 angles this app used everywhere until
+        # Cakecut's wedge boundaries needed a one-directional ray at
+        # arbitrary (non-cardinal) angles, which is where the mirroring
+        # first became visible.
+        dx, dy = -np.cos(rad), -np.sin(rad)
         xlim, ylim = self.ax.get_xlim(), self.ax.get_ylim()
         length = max(xlim[1] - xlim[0], ylim[1] - ylim[0])
         cx, cy = center
+        start = 0.0 if not bidirectional else -length
         (line,) = self.ax.plot(
-            [cx - dx * length, cx + dx * length],
-            [cy - dy * length, cy + dy * length],
+            [cx + dx * start, cx + dx * length],
+            [cy + dy * start, cy + dy * length],
             color="white",
             linewidth=1.6,
             linestyle="--",
         )
+        self._overlay_artists.append(line)
+        self.ax.set_xlim(xlim)
+        self.ax.set_ylim(ylim)
+        self.canvas.draw_idle()
+
+    def draw_polyline(self, xs: np.ndarray, ys: np.ndarray) -> None:
+        """Draw an arbitrary (possibly gapped -- NaN breaks the line)
+        sequence of points, e.g. a pixel-space cut line/wedge/band edge
+        mapped point-by-point into Q-space, where it may not stay straight.
+        Preserves the current view like draw_beam_line, since the mapped
+        path can run well outside the visible Q-range."""
+
+        xlim, ylim = self.ax.get_xlim(), self.ax.get_ylim()
+        (line,) = self.ax.plot(xs, ys, color="white", linewidth=1.6, linestyle="--")
         self._overlay_artists.append(line)
         self.ax.set_xlim(xlim)
         self.ax.set_ylim(ylim)
@@ -266,18 +299,35 @@ class CurveCanvas(QWidget):
         self.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.canvas.mpl_connect("figure_leave_event", self._hide_hover)
 
-    def render(self, x: np.ndarray, y: np.ndarray, *, xlabel: str = "", ylabel: str = "Intensity, arb. units", title: str = "") -> None:
+    def render(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        xlabel: str = "",
+        ylabel: str = "Intensity, arb. units",
+        title: str = "",
+        xlog: bool = False,
+        ylog: bool = False,
+    ) -> None:
         self.ax.clear()
-        self.ax.plot(x, y, color="#1d5c9e", linewidth=1.4)
+        # Explicit float64 (not just np.asarray(x)) matters when a caller
+        # hands us JSON-style data where masked/non-finite points were
+        # serialized as None instead of NaN (e.g. preview.py's
+        # downsample_1d_for_json, built for the web UI's JSON transport) --
+        # np.asarray alone would silently produce an object-dtype array,
+        # and indexing into it in _on_motion crashes float(None). Casting
+        # to float64 here converts None to NaN instead, same as any other
+        # non-finite point.
+        self._data_x = np.asarray(x, dtype=np.float64)
+        self._data_y = np.asarray(y, dtype=np.float64)
+        self.ax.plot(self._data_x, self._data_y, color="#1d5c9e", linewidth=1.4)
         self.ax.set_xlabel(xlabel, fontsize=10)
         self.ax.set_ylabel(ylabel, fontsize=10)
         if title:
             self.ax.set_title(title, fontsize=9)
         self.ax.grid(True, alpha=0.25)
         self.ax.tick_params(labelsize=8)
-
-        self._data_x = np.asarray(x)
-        self._data_y = np.asarray(y)
         # Marker + coordinate readout for the nearest point under the mouse
         # (see _on_motion) -- recreated after every ax.clear() above, hidden
         # until the mouse actually moves over the axes.
@@ -290,7 +340,22 @@ class CurveCanvas(QWidget):
             color="#ff5a1f", bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#ff5a1f", alpha=0.85),
             visible=False,
         )
+        # set_scales after the plot exists so it can silently drop
+        # non-positive points from a log axis the same way on first render
+        # as on a later live toggle.
+        self.set_scales(xlog, ylog)
 
+    def set_scales(self, xlog: bool, ylog: bool) -> None:
+        """Toggle X/Y between linear and log without touching the plotted
+        data -- lets ColorScale-style controls apply live, matching the
+        Image Controller's ColorScale/Colormap. Points that are <= 0 simply
+        don't appear on a log axis (matplotlib's normal behavior); real
+        detector counts/q values are never negative, so this only ever
+        drops zero-intensity or (rare) beam-center q=0 points, not silently
+        distorting the rest of the curve."""
+
+        self.ax.set_xscale("log" if xlog else "linear")
+        self.ax.set_yscale("log" if ylog else "linear")
         self.canvas.draw_idle()
 
     def clear(self) -> None:
@@ -300,6 +365,9 @@ class CurveCanvas(QWidget):
         self._hover_marker = None
         self._hover_text = None
         self.canvas.draw_idle()
+
+    def save_figure(self, path: str) -> None:
+        self.figure.savefig(path, dpi=150, facecolor="white")
 
     def _on_click(self, event) -> None:
         if event.inaxes != self.ax or event.xdata is None or event.ydata is None:

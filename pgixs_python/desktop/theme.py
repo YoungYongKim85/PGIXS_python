@@ -256,7 +256,7 @@ QSplitter::handle:vertical {{
     height: 2px;
 }}
 
-QProgressDialog {{
+QProgressDialog, QMessageBox {{
     background: {PANEL_BG};
 }}
 

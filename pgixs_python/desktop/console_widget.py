@@ -46,7 +46,9 @@ from pgixs_python.desktop.plot_canvas import CurveCanvas, ImageCanvas
 from pgixs_python.desktop.theme import BORDER, RING
 from pgixs_python.ui_backend import console_session as cs
 
-_COLORMAPS = sorted(plt.colormaps())
+# Matplotlib ships 160+ colormaps; a curated shortlist is easier to pick
+# from than the full registry. viridis is first/default.
+_COLORMAPS = ["viridis", "turbo", "hot", "gray", "ocean", "magma", "RdBu", "binary", "gist_earth"]
 
 
 @dataclass
@@ -225,6 +227,20 @@ def _muted(text: str = "") -> QLabel:
     label.setProperty("role", "muted")
     label.setWordWrap(True)
     return label
+
+
+def _wrap_long_tokens(text: str) -> str:
+    """Insert a zero-width-space break opportunity after every backslash.
+
+    Qt's word-wrap only breaks at whitespace, and a Windows path (e.g. the
+    full source/output paths Load Data and Save Img report) has none -- an
+    unbreakable ~800px-wide token forces the status label, and with it the
+    whole scroll area, wider instead of wrapping, which visibly resizes the
+    left panel. This keeps every character of the message intact; it just
+    gives the layout somewhere to break a long path across lines."""
+
+    zero_width_space = chr(0x200B)
+    return text.replace("\\", "\\" + zero_width_space)
 
 
 class ConsoleWidget(QWidget):
@@ -406,8 +422,32 @@ class ConsoleWidget(QWidget):
         layout.addWidget(_field("Line angle", self.line_angle_spin))
         layout.addWidget(_muted("0: ←,  90: ↑,  180: →"))
 
+        # Shared first-column width for Pos move's label and the Cakecut/
+        # Accumulation checkboxes right below it, so all three rows' text
+        # boxes line up at the same x position -- sized to fit
+        # "Accumulation", the widest of the three (measured sizeHint ~164px).
+        first_column_width = 168
+        self.y_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 1, 0.0, 1.0)
+        self.z_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 1, 0.0, 1.0)
+        pos_move_field = _field(
+            "Pos move (y,z)", self.y_pos_move_spin, self.z_pos_move_spin, label_width=first_column_width
+        )
+        pos_move_field.setToolTip(
+            "At angle 0/180, only z moves the cut (y stays 0).\n"
+            "At angle 90, only y moves the cut (z stays 0).\n"
+            "Every other angle ignores both (y=0, z=0).\n"
+            "Has no effect on Cakecut."
+        )
+        layout.addWidget(pos_move_field)
+        # Only one field ever applies at a time (see _update_pos_move_availability),
+        # so keep them in sync with Line angle live rather than letting a
+        # stale nonzero value sit in a field that's silently being ignored.
+        self.line_angle_spin.valueChanged.connect(self._update_pos_move_availability)
+        self._update_pos_move_availability()
+
         if cfg.has_cakecut:
             self.cakecut_check = QCheckBox("Cakecut")
+            self.cakecut_check.setFixedWidth(first_column_width)
             self.cakecut_check.setToolTip("Cakecut angle range (-/+), degrees from the line angle.")
             self.cakecut_minus_spin = _double_spin(-360.0, 360.0, 1, -1.0, 0.5)
             self.cakecut_plus_spin = _double_spin(-360.0, 360.0, 1, 1.0, 0.5)
@@ -416,6 +456,25 @@ class ConsoleWidget(QWidget):
             self.cakecut_check = None
             self.cakecut_minus_spin = None
             self.cakecut_plus_spin = None
+
+        self.accum_check = QCheckBox("Accumulation")
+        self.accum_check.setFixedWidth(first_column_width)
+        self.accum_check.setToolTip("Perpendicular pixel-band mean around the cut line. Angle must be 0, 90, or 180.")
+        self.accum_minus_spin = _double_spin(-360.0, 360.0, 1, -1.0, 0.5)
+        self.accum_plus_spin = _double_spin(-360.0, 360.0, 1, 1.0, 0.5)
+        layout.addWidget(_row(self.accum_check, self.accum_minus_spin, self.accum_plus_spin))
+
+        # Cakecut (angular wedge) and Accumulation (perpendicular band) are
+        # mutually exclusive cut modes -- enforce that directly in the UI
+        # (uncheck the other one) rather than letting the user hit the
+        # backend's "Turn off Cakecut before using Accumulation" error.
+        if self.cakecut_check is not None:
+            self.cakecut_check.toggled.connect(
+                lambda checked: self.accum_check.setChecked(False) if checked else None
+            )
+            self.accum_check.toggled.connect(
+                lambda checked: self.cakecut_check.setChecked(False) if checked else None
+            )
 
         self.line_median_check = QCheckBox("Median")
         layout.addWidget(self.line_median_check)
@@ -432,8 +491,9 @@ class ConsoleWidget(QWidget):
         self.azi_pixel_spin = _double_spin(0.0, 1.0e6, 1, 202.0, 1.0)
         self.azi_range_minus_spin = _double_spin(-1.0e5, 1.0e5, 2, -1.0, 0.5)
         self.azi_range_plus_spin = _double_spin(-1.0e5, 1.0e5, 2, 1.0, 0.5)
-        layout.addWidget(_field("Pixel / Range(-/+)", self.azi_pixel_spin, self.azi_range_minus_spin))
-        layout.addWidget(_field("Range(+)", self.azi_range_plus_spin))
+        layout.addWidget(
+            _field("Pixel / Range(-/+)", self.azi_pixel_spin, self.azi_range_minus_spin, self.azi_range_plus_spin, label_width=110)
+        )
 
         self.azi_q_label = QLineEdit("0")
         self.azi_q_label.setReadOnly(True)
@@ -577,19 +637,56 @@ class ConsoleWidget(QWidget):
         self.reset_zoom_button.clicked.connect(self._on_reset_zoom_clicked)
         self.save_format_combo = QComboBox()
         self.save_format_combo.addItems(["png", "jpg", "pdf", "svg"])
+        self.save_format_combo.setMaximumWidth(70)
         self.save_button = QPushButton("Save Img")
         self.save_button.clicked.connect(self._on_save_clicked)
-        controller_layout.addWidget(
-            _row(self.update_button, self.reset_zoom_button, QLabel("Format"), self.save_format_combo, self.save_button)
-        )
+        # Built directly (not via _row()) so the "Format" label and its
+        # combo can get stretch=0 -- glued together regardless of window
+        # width -- while the three buttons share the leftover space evenly.
+        # _row()'s plain addWidget() with no stretch factors was instead
+        # splitting all five items into equal-width cells, stranding the
+        # short "Format" label in its own ~200px cell with a visible gap
+        # before the combo that actually belongs next to it.
+        bottom_row = QWidget()
+        bottom_layout = QHBoxLayout(bottom_row)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(6)
+        bottom_layout.addWidget(self.update_button, 1)
+        bottom_layout.addWidget(self.reset_zoom_button, 1)
+        bottom_layout.addWidget(QLabel("Format"), 0)
+        bottom_layout.addWidget(self.save_format_combo, 0)
+        bottom_layout.addWidget(self.save_button, 1)
+        controller_layout.addWidget(bottom_row)
         splitter.addWidget(controller_group)
 
         curve_group = QGroupBox("1D Result")
         curve_layout = QVBoxLayout(curve_group)
         self.curve_canvas = CurveCanvas()
         self.curve_canvas.point_clicked.connect(self._on_curve_clicked)
-        self.curve_status_label = _muted("")
+
+        self.curve_xscale_combo = QComboBox()
+        self.curve_xscale_combo.addItems(["Linear", "Log"])
+        self.curve_yscale_combo = QComboBox()
+        self.curve_yscale_combo.addItems(["Linear", "Log"])
+        self.curve_xscale_combo.currentTextChanged.connect(self._apply_curve_scales)
+        self.curve_yscale_combo.currentTextChanged.connect(self._apply_curve_scales)
+        self.curve_save_button = QPushButton("Save")
+        self.curve_save_button.setToolTip("Save the current 1D Result curve as a CSV.")
+        self.curve_save_button.clicked.connect(self._on_curve_save_clicked)
+        curve_controls = QWidget()
+        curve_controls_layout = QHBoxLayout(curve_controls)
+        curve_controls_layout.setContentsMargins(0, 0, 0, 0)
+        curve_controls_layout.setSpacing(6)
+        curve_controls_layout.addWidget(QLabel("X"), 0)
+        curve_controls_layout.addWidget(self.curve_xscale_combo, 0)
+        curve_controls_layout.addWidget(QLabel("Y"), 0)
+        curve_controls_layout.addWidget(self.curve_yscale_combo, 0)
+        curve_controls_layout.addStretch(1)
+        curve_controls_layout.addWidget(self.curve_save_button, 0)
+        curve_layout.addWidget(curve_controls)
+
         curve_layout.addWidget(self.curve_canvas)
+        self.curve_status_label = _muted("")
         curve_layout.addWidget(self.curve_status_label)
         splitter.addWidget(curve_group)
 
@@ -608,13 +705,13 @@ class ConsoleWidget(QWidget):
     # Status helpers
     # ------------------------------------------------------------------
     def _set_status(self, message: str, ok: bool) -> None:
-        self.status_label.setText(message)
+        self.status_label.setText(_wrap_long_tokens(message))
         self.status_label.setProperty("role", "status-ok" if ok else "status-error")
         self.status_label.style().unpolish(self.status_label)
         self.status_label.style().polish(self.status_label)
 
     def _set_curve_status(self, message: str, ok: bool) -> None:
-        self.curve_status_label.setText(message)
+        self.curve_status_label.setText(_wrap_long_tokens(message))
         self.curve_status_label.setProperty("role", "status-ok" if ok else "status-error")
         self.curve_status_label.style().unpolish(self.curve_status_label)
         self.curve_status_label.style().polish(self.curve_status_label)
@@ -752,9 +849,161 @@ class ConsoleWidget(QWidget):
         elif self._position_mode == "azimuthal":
             pass
 
+    def _pos_move_display_offset(self, band_edge_y: float = 0.0, band_edge_z: float = 0.0) -> tuple[float, float]:
+        """Display-coordinate center for a line offset by Pos move, plus an
+        optional extra perpendicular shift on top of it (Accumulation's
+        band edges) -- pass only whichever of band_edge_y/band_edge_z
+        matches the cut's axis (0/180 -> z, 90 -> y), the other stays 0.
+
+        Pos move only ever has one of y_pos_move/z_pos_move nonzero at a
+        time (the other is force-zeroed by _update_pos_move_availability),
+        so both are added unconditionally rather than re-branching on angle
+        here. z's sign flips between the two pixel-mode conventions: raw
+        mode's display y *is* the row index (so shifting the cut's row by
+        -z_pos_move shifts the displayed line by -z_pos_move too), while
+        beam-centered mode's display y is VD = beam_z - row (inverted
+        relative to row), so the same row shift shows up as +z_pos_move on
+        screen. y needs no such flip -- raw mode's display x is the column
+        index directly and centered mode's is HD = col - beam_y, and both
+        equal y_pos_move + band_edge_y measured from the beam center either
+        way. Matches the offsets console_line_1d's accumulation_average
+        call actually cuts at. Only called in pixel display mode --
+        `_draw_line_overlay` routes to `_draw_line_overlay_q_space`/
+        `_draw_q_space_line` instead when Map format is Qxy/Qz or Qy/Qz,
+        since these axes aren't a linear function of pixel position."""
+
+        beam_y, beam_z = self._current_beam_center()
+        offset_y = self.y_pos_move_spin.value() + band_edge_y
+        raw_offset_z = band_edge_z - self.z_pos_move_spin.value()
+        offset_z = -raw_offset_z if self._pixel_centered else raw_offset_z
+        return (beam_y + offset_y, beam_z + offset_z)
+
+    def _pos_move_pixel_point(self, band_edge_y: float = 0.0, band_edge_z: float = 0.0) -> tuple[float, float]:
+        """The same offset as `_pos_move_display_offset`, but as a true
+        detector pixel (col, row) in raw 1-based coordinates -- independent
+        of what the 2D image currently displays. Used to sample a cut
+        line/band-edge in real pixel space before mapping each sample
+        point through the per-pixel Q maps for a Q-space overlay (see
+        `_draw_q_space_line`)."""
+
+        col = self.beam_y_spin.value() + self.y_pos_move_spin.value() + band_edge_y
+        row = self.beam_z_spin.value() - self.z_pos_move_spin.value() + band_edge_z
+        return (col, row)
+
+    def _draw_q_space_line(self, col0: float, row0: float, angle_deg: float, bidirectional: bool = True) -> None:
+        """Draw a pixel-space line (through pixel (col0, row0) at
+        angle_deg) as it actually appears in Q-space. `bidirectional=False`
+        samples only the angle_deg-outward ray (see draw_beam_line's same
+        parameter -- used for Cakecut's wedge boundaries, since the
+        opposite direction was never part of the selected wedge).
+        Q-space axes aren't a linear function of pixel position, so a
+        straight pixel-space line can curve once mapped -- sample many
+        points along it in real pixel
+        space, look each one up in the true per-pixel Q maps (the same
+        maps `_display_xy_to_pixel_offset` searches in the opposite
+        direction), and draw the resulting path. Points that fall off the
+        detector or land on a masked/gap pixel come back NaN, which
+        matplotlib breaks the line on instead of drawing a wrong straight
+        segment across the gap."""
+
+        session = cs.get_session()
+        if session.data is None or session.qmap is None:
+            return
+        rows, cols = session.data.shape
+        horizontal_key = "qy" if self.map_format_combo.currentText() == "Qy/Qz" else "qr"
+        horizontal_map = session.qmap.get(horizontal_key)
+        qz_map = session.qmap.get("qz")
+        if horizontal_map is None or qz_map is None:
+            return
+
+        rad = math.radians(angle_deg)
+        # Must match draw_beam_line's (-cos, -sin) convention -- see its
+        # docstring/comment for why plain (cos, -sin) mirrors the ray
+        # across the vertical axis relative to what a click at the same
+        # angle actually reports.
+        dx, dy = -math.cos(rad), -math.sin(rad)
+        extent = math.hypot(rows, cols)
+        t_start = 0.0 if not bidirectional else -extent
+        t = np.linspace(t_start, extent, 600)
+        col_pts = col0 + dx * t
+        row_pts = row0 + dy * t
+
+        row_idx = np.rint(row_pts - 1).astype(np.int64)
+        col_idx = np.rint(col_pts - 1).astype(np.int64)
+        in_bounds = (row_idx >= 0) & (row_idx < rows) & (col_idx >= 0) & (col_idx < cols)
+        safe_row = np.clip(row_idx, 0, rows - 1)
+        safe_col = np.clip(col_idx, 0, cols - 1)
+        x_vals = np.where(in_bounds, horizontal_map[safe_row, safe_col], np.nan)
+        y_vals = np.where(in_bounds, qz_map[safe_row, safe_col], np.nan)
+        finite = np.isfinite(x_vals) & np.isfinite(y_vals)
+        x_vals = np.where(finite, x_vals, np.nan)
+        y_vals = np.where(finite, y_vals, np.nan)
+        self.image_canvas.draw_polyline(x_vals, y_vals)
+
+    def _draw_line_overlay_q_space(self, angle: float, cakecut_on: bool, accum_on: bool) -> None:
+        if cakecut_on:
+            # Cakecut always emanates from the true beam center and ignores
+            # Pos move (matching console_line_1d/GIXS_gui.m).
+            beam_y = self.beam_y_spin.value()
+            beam_z = self.beam_z_spin.value()
+            self._draw_q_space_line(beam_y, beam_z, angle + self.cakecut_minus_spin.value(), bidirectional=False)
+            self._draw_q_space_line(beam_y, beam_z, angle + self.cakecut_plus_spin.value(), bidirectional=False)
+            return
+        if accum_on:
+            if angle in (0.0, 180.0):
+                col_m, row_m = self._pos_move_pixel_point(band_edge_z=self.accum_minus_spin.value())
+                col_p, row_p = self._pos_move_pixel_point(band_edge_z=self.accum_plus_spin.value())
+            else:  # angle == 90.0
+                col_m, row_m = self._pos_move_pixel_point(band_edge_y=self.accum_minus_spin.value())
+                col_p, row_p = self._pos_move_pixel_point(band_edge_y=self.accum_plus_spin.value())
+            self._draw_q_space_line(col_m, row_m, angle)
+            self._draw_q_space_line(col_p, row_p, angle)
+            return
+        col0, row0 = self._pos_move_pixel_point()
+        self._draw_q_space_line(col0, row0, angle)
+
     def _draw_line_overlay(self) -> None:
-        center = self._current_beam_center()
-        self.image_canvas.draw_beam_line(center, self.line_angle_spin.value())
+        angle = self.line_angle_spin.value()
+        cakecut_on = self.cakecut_check is not None and self.cakecut_check.isChecked()
+        accum_on = self.accum_check.isChecked() and angle in (0.0, 90.0, 180.0)
+
+        if self._axis_mode != "pixel":
+            self._draw_line_overlay_q_space(angle, cakecut_on, accum_on)
+            return
+
+        if cakecut_on:
+            # Cakecut always emanates from the true beam center and ignores
+            # Pos move entirely (matching console_line_1d/GIXS_gui.m) --
+            # show its actual angular wedge as two boundary lines instead
+            # of a single line at the reference angle, so the wedge width
+            # is actually visible.
+            center = self._current_beam_center()
+            self.image_canvas.draw_beam_line(
+                center, self._mode_corrected_angle(angle + self.cakecut_minus_spin.value()), bidirectional=False
+            )
+            self.image_canvas.draw_beam_line(
+                center, self._mode_corrected_angle(angle + self.cakecut_plus_spin.value()), bidirectional=False
+            )
+            return
+
+        if accum_on:
+            # Accumulation is a perpendicular pixel band, not a single
+            # line -- draw its two edges (Pos move's offset plus the
+            # band's own minus/plus range) instead of one center line, so
+            # the band width is visible, not just its centerline.
+            if angle in (0.0, 180.0):
+                edge_minus = self._pos_move_display_offset(band_edge_z=self.accum_minus_spin.value())
+                edge_plus = self._pos_move_display_offset(band_edge_z=self.accum_plus_spin.value())
+            else:  # angle == 90.0
+                edge_minus = self._pos_move_display_offset(band_edge_y=self.accum_minus_spin.value())
+                edge_plus = self._pos_move_display_offset(band_edge_y=self.accum_plus_spin.value())
+            display_angle = self._mode_corrected_angle(angle)
+            self.image_canvas.draw_beam_line(edge_minus, display_angle)
+            self.image_canvas.draw_beam_line(edge_plus, display_angle)
+            return
+
+        center = self._pos_move_display_offset()
+        self.image_canvas.draw_beam_line(center, self._mode_corrected_angle(angle))
 
     def _current_beam_center(self) -> tuple[float, float]:
         if self._axis_mode == "pixel" and not self._pixel_centered:
@@ -763,6 +1012,28 @@ class ConsoleWidget(QWidget):
         # has been re-centered by Load Info (see _render_pixel_image), the
         # beam sits at (0, 0) on that axis too.
         return (0.0, 0.0)
+
+    def _mode_corrected_angle(self, angle_deg: float) -> float:
+        """Beam-centered pixel display flips the vertical axis convention
+        relative to raw pixel mode: raw mode's display-y *is* the row
+        index (increases going down the screen, matching the underlying
+        array), while centered mode's display-y is VD = beam_z - row
+        (increases going *up* the screen). The "0 left / 90 up / 180
+        right" legend and the click-to-angle formula
+        (_on_image_clicked's "line" branch) both assume raw mode's
+        convention -- in centered mode they need the angle mirrored
+        across the horizontal axis to still mean the same physical
+        direction on screen. This mirror is its own inverse, so the same
+        call converts a physical angle into what draw_beam_line needs to
+        draw it correctly, and converts a raw click-formula angle back
+        into the physical one. Only affects pixel mode -- Q-space's click/
+        draw paths (_display_xy_to_pixel_offset/_draw_q_space_line)
+        already work in real pixel coordinates and don't go through this
+        display-angle formula at all."""
+
+        if self._axis_mode == "pixel" and self._pixel_centered:
+            return (-angle_deg) % 360.0
+        return angle_deg % 360.0
 
     # ------------------------------------------------------------------
     # Directory ("Set" mirrors GIXS_gui.m's Directory field + Set button --
@@ -932,7 +1203,7 @@ class ConsoleWidget(QWidget):
         if not np.any(valid):
             self._set_status("No finite data along that column for z-plot.", False)
             return
-        self.curve_canvas.render(row_pixels[valid], column[valid], xlabel="pixel (beam-centered, z)")
+        self._render_curve(row_pixels[valid], column[valid], xlabel="pixel (beam-centered, z)")
         self._zplot_active = True
         self._set_curve_status("Click the peak on the profile below to set the incidence pixel.", True)
 
@@ -1173,6 +1444,44 @@ class ConsoleWidget(QWidget):
         self._set_status(f"Saved {result['h5_path']}{curve_note} and {image_path}.", True)
 
     # ------------------------------------------------------------------
+    # 1D Result: X/Y scale (live) + Save
+    # ------------------------------------------------------------------
+    def _render_curve(self, x: np.ndarray, y: np.ndarray, *, xlabel: str = "") -> None:
+        """Every 1D Result render (z-plot, Line, Azimuthal, Circular) goes
+        through here so the ColorScale-style X/Y log toggles apply
+        uniformly, not just to whichever curve happened to be plotted
+        last."""
+
+        self.curve_canvas.render(
+            x,
+            y,
+            xlabel=xlabel,
+            xlog=self.curve_xscale_combo.currentText() == "Log",
+            ylog=self.curve_yscale_combo.currentText() == "Log",
+        )
+
+    def _apply_curve_scales(self) -> None:
+        self.curve_canvas.set_scales(
+            self.curve_xscale_combo.currentText() == "Log",
+            self.curve_yscale_combo.currentText() == "Log",
+        )
+
+    def _on_curve_save_clicked(self) -> None:
+        self._activate()
+        result = cs.console_save_curve({})
+        if not result.get("ok"):
+            self._set_curve_status(result.get("message", "Save failed."), False)
+            return
+        curve_path = Path(result["curve_path"])
+        image_path = curve_path.with_name(f"{curve_path.stem}.png")
+        try:
+            self.curve_canvas.save_figure(str(image_path))
+        except Exception as exc:  # noqa: BLE001
+            self._set_curve_status(f"Saved {curve_path}, but image export failed: {exc}", False)
+            return
+        self._set_curve_status(f"Saved {curve_path} and {image_path}.", True)
+
+    # ------------------------------------------------------------------
     # Click-to-position (Line / Azimuthal)
     # ------------------------------------------------------------------
     def _arm_position_mode(self, mode: str) -> None:
@@ -1182,6 +1491,38 @@ class ConsoleWidget(QWidget):
         elif mode == "azimuthal":
             self._set_status("Click a point on the 2D image to set the azimuthal radius.", True)
 
+    def _display_xy_to_pixel_offset(self, x: float, y: float) -> tuple[float, float]:
+        """Convert a click's (x, y) in the *currently displayed* coordinate
+        system into a true pixel offset from the beam center.
+
+        Pixel mode's display already is pixel offsets (identity, matching
+        `_current_beam_center()`'s subtraction in the caller). Q-space mode
+        is not a linear function of pixel position -- Qxy/Qz's horizontal
+        axis (qr) in particular is a magnitude/projection, so an inverse
+        trig formula would only be approximate. Instead, look up the actual
+        detector pixel whose (Q, Qz) is nearest the click, using the real
+        per-pixel Q maps q-Map Cal. already computed -- exact, and works
+        identically for Qxy/Qz and Qy/Qz without separate formulas."""
+
+        if self._axis_mode != "q":
+            return (x, y)
+        session = cs.get_session()
+        if session.qmap is None:
+            return (x, y)
+        horizontal_key = "qy" if self.map_format_combo.currentText() == "Qy/Qz" else "qr"
+        horizontal_map = session.qmap.get(horizontal_key)
+        qz_map = session.qmap.get("qz")
+        if horizontal_map is None or qz_map is None:
+            return (x, y)
+        dist_sq = (horizontal_map - x) ** 2 + (qz_map - y) ** 2
+        dist_sq = np.where(np.isfinite(dist_sq), dist_sq, np.inf)
+        row, col = np.unravel_index(int(np.argmin(dist_sq)), horizontal_map.shape)
+        # +1 for the 1-based pixel convention used throughout this codebase
+        # (pixel_angle_map, build_radius_bin_map).
+        pixel_dx = float(col + 1) - self.beam_y_spin.value()
+        pixel_dz = float(row + 1) - self.beam_z_spin.value()
+        return (pixel_dx, pixel_dz)
+
     def _on_image_clicked(self, x: float, y: float) -> None:
         if self._position_mode is None:
             return
@@ -1189,7 +1530,9 @@ class ConsoleWidget(QWidget):
             return
         beam_y, beam_z = self._current_beam_center()
         if self._position_mode == "line":
-            angle = (math.degrees(math.atan2(-(y - beam_z), -(x - beam_y))) + 360.0) % 360.0
+            px, pz = self._display_xy_to_pixel_offset(x, y)
+            raw_angle = (math.degrees(math.atan2(-(pz - beam_z), -(px - beam_y))) + 360.0) % 360.0
+            angle = self._mode_corrected_angle(raw_angle)
             self.line_angle_spin.setValue(angle)
             self._set_status(f"Line position clicked at ({x:.1f}, {y:.1f}) -> angle {angle:.2f} deg.", True)
         elif self._position_mode == "azimuthal":
@@ -1200,6 +1543,28 @@ class ConsoleWidget(QWidget):
     # ------------------------------------------------------------------
     # 1D Line Process
     # ------------------------------------------------------------------
+    def _update_pos_move_availability(self) -> None:
+        """Pos move only ever applies to one axis at a time, and only for
+        an axis-aligned cut: 0/180 moves along z (y stays 0), 90 moves
+        along y (z stays 0), every other angle ignores both. Disable and
+        zero whichever field doesn't apply so a leftover nonzero value
+        can't sit in a field that's silently having no effect."""
+
+        angle = self.line_angle_spin.value()
+        if angle in (0.0, 180.0):
+            y_enabled, z_enabled = False, True
+        elif angle == 90.0:
+            y_enabled, z_enabled = True, False
+        else:
+            y_enabled, z_enabled = False, False
+
+        self.y_pos_move_spin.setEnabled(y_enabled)
+        if not y_enabled:
+            self.y_pos_move_spin.setValue(0.0)
+        self.z_pos_move_spin.setEnabled(z_enabled)
+        if not z_enabled:
+            self.z_pos_move_spin.setValue(0.0)
+
     def _on_line_draw_clicked(self) -> None:
         self.image_canvas.clear_overlays()
         self._draw_line_overlay()
@@ -1213,13 +1578,24 @@ class ConsoleWidget(QWidget):
             "range_minus": self.cakecut_minus_spin.value() if cfg.has_cakecut and self.cakecut_minus_spin is not None else -1.0,
             "range_plus": self.cakecut_plus_spin.value() if cfg.has_cakecut and self.cakecut_plus_spin is not None else 1.0,
             "use_median": self.line_median_check.isChecked(),
+            "y_pos_move": self.y_pos_move_spin.value(),
+            "z_pos_move": self.z_pos_move_spin.value(),
+            "accumulation": self.accum_check.isChecked(),
+            "accum_minus": self.accum_minus_spin.value(),
+            "accum_plus": self.accum_plus_spin.value(),
         }
         result = cs.console_line_1d(payload)
         if not result.get("ok"):
             self._set_curve_status(result.get("message", "1D line plot failed."), False)
             return
-        preview = result["preview"]
-        self.curve_canvas.render(np.asarray(preview["q"]), np.asarray(preview["intensity"]), xlabel="q [1/A]")
+        # `preview` is downsampled and JSON-sanitized (masked points become
+        # None) for the web UI's HTTP transport -- neither limit applies
+        # in-process, and asarray()-ing None values silently produces an
+        # object-dtype array that crashes float() the moment the hover
+        # crosshair lands on a masked point. `last_curve` is the real,
+        # full-resolution float array (masked points are NaN, not None).
+        curve = cs.get_session().last_curve
+        self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]")
         diag = result.get("coverage_diagnostics", {})
         self._set_curve_status(
             f"Line 1D ready. Coverage median {diag.get('coverage_median', 'n/a')}, "
@@ -1247,8 +1623,8 @@ class ConsoleWidget(QWidget):
         if not result.get("ok"):
             self._set_curve_status(result.get("message", "Azimuthal plot failed."), False)
             return
-        preview = result["preview"]
-        self.curve_canvas.render(np.asarray(preview["angle"]), np.asarray(preview["intensity"]), xlabel="angle [deg]")
+        curve = cs.get_session().last_curve
+        self._render_curve(np.asarray(curve["angle"]), np.asarray(curve["intensity"]), xlabel="angle [deg]")
         diag = result.get("coverage_diagnostics", {})
         self._set_curve_status(
             f"Azimuthal profile ready. Coverage median {diag.get('coverage_median', 'n/a')}, "
@@ -1274,8 +1650,8 @@ class ConsoleWidget(QWidget):
         if not result.get("ok"):
             self._set_curve_status(result.get("message", "Circular average failed."), False)
             return
-        preview = result["preview"]
-        self.curve_canvas.render(np.asarray(preview["q"]), np.asarray(preview["intensity"]), xlabel="q [1/A]")
+        curve = cs.get_session().last_curve
+        self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]")
         diag = result.get("coverage_diagnostics", {})
         self._set_curve_status(
             f"Circular average ready. Coverage median {diag.get('coverage_median', 'n/a')}, "
