@@ -98,6 +98,11 @@ class ConsoleSession:
     grid_removed: bool = False
     last_curve: dict[str, Any] | None = None
     load_progress: dict[str, Any] | None = None
+    # User-drawn ROI mask for Circular Process (True = keep, False =
+    # exclude) -- distinct from `mask` above, which is the fixed detector
+    # gap/hot-pixel mask. Mirrors TrXS_gui.m's CircularAve_Callback
+    # `selectROIMask`/`BW`.
+    circular_mask: np.ndarray | None = None
 
 
 _SESSION = ConsoleSession()
@@ -707,6 +712,14 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": f"Invalid circular average parameters: {exc}"}
 
     data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    mask_active = False
+    if _SESSION.circular_mask is not None and _SESSION.circular_mask.shape == data_for_1d.shape:
+        # ROI mask (see console_set_circular_mask): pixels outside the
+        # user-drawn polygon become NaN, matching TrXS_gui.m's
+        # `I2d(BW <= 0) = NaN`. np.where copies -- session data is never
+        # mutated in place.
+        data_for_1d = np.where(_SESSION.circular_mask, data_for_1d, np.nan).astype(np.float32)
+        mask_active = True
     beam_pos = _SESSION.calibration["beam_pos"]
 
     result = sector_average(
@@ -735,6 +748,7 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "angle_range": list(result.angle_range),
         "min_coverage": min_coverage,
+        "mask_active": mask_active,
         "coverage_diagnostics": _coverage_summary(coverage),
         "preview": {
             "q": downsample_1d_for_json(result.q_axis, max_points=600),
@@ -742,6 +756,33 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
             "coverage": downsample_1d_for_json(coverage, max_points=600),
         },
     }
+
+
+def console_set_circular_mask(payload: dict[str, Any]) -> dict[str, Any]:
+    """Set or clear the Circular Process ROI mask (True = keep, False =
+    excluded from Circular Average) -- port of TrXS_gui.m's
+    `selectROIMask`, but as a persistent Draw/Clear pair on the console
+    instead of a per-run modal popup. `console_circular_average` applies
+    whatever mask is currently set, regardless of angle range (MATLAB only
+    offered it for a full 0-360 sweep; that restriction was about when the
+    popup asked, not a real requirement of the masking itself)."""
+
+    if _SESSION.data is None:
+        return {"ok": False, "message": "Load a detector image first."}
+
+    if payload.get("clear"):
+        _SESSION.circular_mask = None
+        return {"ok": True, "cleared": True}
+
+    mask = payload.get("mask")
+    if mask is None:
+        return {"ok": False, "message": "No mask provided."}
+    mask_arr = np.asarray(mask, dtype=bool)
+    if mask_arr.shape != _SESSION.data.shape:
+        return {"ok": False, "message": "Mask shape does not match the loaded image."}
+
+    _SESSION.circular_mask = mask_arr
+    return {"ok": True, "pixel_count": int(np.count_nonzero(mask_arr)), "total_pixels": int(mask_arr.size)}
 
 
 def console_save(payload: dict[str, Any]) -> dict[str, Any]:
@@ -870,6 +911,7 @@ def _reset_for_new_data() -> None:
     _SESSION.last_curve = None
     _SESSION.background = None
     _SESSION.background_counts = None
+    _SESSION.circular_mask = None
 
 
 _SERIES_SUFFIX_RE = re.compile(r"^(.*)_\d{4,}$")
@@ -1016,6 +1058,7 @@ __all__ = [
     "console_qspace_image",
     "console_save",
     "console_save_curve",
+    "console_set_circular_mask",
     "console_state",
     "get_session",
     "reset_session",

@@ -15,6 +15,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolb
 from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
+from matplotlib.widgets import PolygonSelector
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -39,6 +40,7 @@ class ImageCanvas(QWidget):
         self._image = None
         self._colorbar = None
         self._overlay_artists: list = []
+        self._polygon_selector: PolygonSelector | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -78,6 +80,7 @@ class ImageCanvas(QWidget):
         # trying to remove/recreate that second axes across calls is fragile
         # (matplotlib's colorbar bookkeeping can end up pointing at a stale
         # subplotspec). A full `figure.clear()` sidesteps that entirely.
+        self.stop_polygon_selector()
         self.figure.clear()
         self.ax = self.figure.add_subplot(111)
         self._colorbar = None
@@ -243,6 +246,27 @@ class ImageCanvas(QWidget):
                 pass
         self._overlay_artists = []
         self.canvas.draw_idle()
+
+    def start_polygon_selector(self, on_complete) -> None:
+        """Let the user click out a polygon on the image (double-click, or
+        click the first vertex again, to close it) -- `on_complete` is
+        called once with the list of (x, y) vertices in data coordinates.
+        Used for the Circular Process mask: caller converts those vertices
+        into a pixel-array boolean mask however its current display
+        convention (raw vs. beam-centered) maps onto session.data."""
+
+        self.stop_polygon_selector()
+
+        def _handle(vertices: list) -> None:
+            self.stop_polygon_selector()
+            on_complete(list(vertices))
+
+        self._polygon_selector = PolygonSelector(self.ax, onselect=_handle, useblit=False)
+
+    def stop_polygon_selector(self) -> None:
+        if self._polygon_selector is not None:
+            self._polygon_selector.disconnect_events()
+            self._polygon_selector = None
 
     def save_figure(self, path: str) -> None:
         self.figure.savefig(path, dpi=150, facecolor="white")

@@ -50,6 +50,100 @@ def test_trxs_console_omits_incidence_but_has_circular(qapp):
     assert console.circ_button is not None
 
 
+def test_circular_process_is_positioned_above_1d_plot_process(qapp):
+    """Regression: "Circular Process를 1D plot process 위로 오게 배치해줘" --
+    the left panel's section dividers, top to bottom, must have Circular
+    Process before 1D Plot Process (Azimuthal Process's relative order
+    wasn't part of the request, so it's left where it already was, after
+    1D Plot Process)."""
+
+    from PySide6.QtWidgets import QLabel
+
+    console = ConsoleWidget(trxs_config())
+    dividers = [label.text() for label in console.findChildren(QLabel) if label.property("role") == "divider"]
+    assert dividers.index("Circular Process") < dividers.index("1D Plot Process")
+
+
+def test_contrast_auto_resets_after_background_subtraction(qapp, tmp_path, monkeypatch):
+    """Regression: "백그라운드를 Subtraction하면 Contrast가 자동으로 변경되게 해줘" --
+    Contrast used to hold onto whatever min/max applied to the raw data,
+    so after subtracting a background (a completely different intensity
+    scale) the image looked wrong until the user manually reset it."""
+
+    import h5py
+    import numpy as np
+    from PySide6.QtWidgets import QMessageBox
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    console.cmin_spin.setValue(500.0)
+    console.cmax_spin.setValue(600.0)
+
+    bkg_path = tmp_path / "bkg.h5"
+    bkg_data = np.random.default_rng(99).uniform(1, 5, size=(20, 24)).astype(np.float32)
+    with h5py.File(bkg_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=bkg_data[None, :, :])
+    bkg_result = cs.console_background_load({"directory": str(tmp_path), "filename": bkg_path.name, "multishot": False})
+    assert bkg_result["ok"], bkg_result.get("message")
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    console._on_subtract_clicked()
+
+    assert (console.cmin_spin.value(), console.cmax_spin.value()) != (500.0, 600.0)
+
+
+def test_trxs_circular_mask_draw_start_and_reject_outside_pixel_mode(qapp, tmp_path):
+    console = _load_test_frame_trxs(tmp_path)
+    assert console.image_canvas._polygon_selector is None
+
+    console._on_circ_mask_draw_clicked()
+    assert console.image_canvas._polygon_selector is not None
+
+    console.image_canvas.stop_polygon_selector()
+    console._axis_mode = "q"
+    console._on_circ_mask_draw_clicked()
+    assert console.image_canvas._polygon_selector is None
+
+
+def test_trxs_circular_mask_polygon_complete_sets_and_clears_mask(qapp, tmp_path):
+    """Regression: "circular process에서 mask를 만들 수 있도록 해줘" -- drawing a
+    polygon on the 2D image must set console_session's circular_mask and
+    update the status label; Clear Mask must remove it again. Also locks
+    in the polarity the user explicitly specified afterward ("선택한 영역을
+    마스킹하여, 나머지영역만 살리는 역할"): the drawn polygon's *inside* is
+    excluded, and everything *outside* it survives -- not the other way
+    around."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    assert console.circ_mask_status_label.text() == "Mask: none"
+
+    # _load_test_frame_trxs's synthetic frame is 20 rows x 24 cols; cover
+    # roughly the left half in uncentered Pixel-mode display coordinates
+    # (1-based col/row, identity mapping -- see _on_circ_mask_polygon_complete).
+    vertices = [(0.5, 0.5), (12.0, 0.5), (12.0, 20.5), (0.5, 20.5)]
+    console._on_circ_mask_polygon_complete(vertices)
+
+    mask = cs.get_session().circular_mask
+    assert mask is not None
+    assert mask.shape == (20, 24)
+    assert 0 < mask.sum() < mask.size
+    assert console.circ_mask_status_label.text() != "Mask: none"
+
+    # Column 5 (1-based) sits inside the drawn polygon (x in [0.5, 12.0])
+    # -> must be excluded (False). Column 20 sits outside it -> must be
+    # kept (True). Array indices are 0-based, so col 5 -> index 4, col 20
+    # -> index 19; row is irrelevant here so just check row 0.
+    assert not mask[0, 4]
+    assert mask[0, 19]
+
+    console._on_circ_mask_clear_clicked()
+    assert cs.get_session().circular_mask is None
+    assert console.circ_mask_status_label.text() == "Mask: none"
+
+
 def test_gixs_and_trxs_consoles_keep_independent_sessions(qapp):
     gixs = ConsoleWidget(gixs_config())
     trxs = ConsoleWidget(trxs_config())
@@ -1242,6 +1336,10 @@ def test_polar_toggle_switches_view_and_recovers_cartesian_on_uncheck(qapp, tmp_
 
     console.polar_check.setChecked(True)
     assert console._current_xlabel == "Angle, deg"
+    # Regression: "polar coordinate로 보면 Q로 나와. q로 맞춰줘" -- Cartesian
+    # views label q_xy/q_y/q_z in lowercase; Polar's radial axis must match
+    # that convention (it was shipping as uppercase "Q, 1/A").
+    assert console._current_ylabel == "q, 1/A"
     assert console._current_image_data.shape != cartesian_data.shape or not np.allclose(
         console._current_image_data, cartesian_data, equal_nan=True
     )
@@ -1300,13 +1398,25 @@ def test_polar_check_resets_when_map_format_changes(qapp, tmp_path):
 # (TrXS has no Cakecut, and sweeps the full 360deg where GIXS is
 # restricted to 180deg).
 # ----------------------------------------------------------------------
-def test_trxs_has_no_cakecut_widgets(qapp, tmp_path):
+def test_trxs_has_no_cakecut_pos_move_or_accumulation_widgets(qapp, tmp_path):
+    """Regression: "1D plot process에서 pos move는 필요없어... Accumulation도
+    없어도돼" -- TrXS_gui.m's line cut (Anglecut1d) always goes through the
+    beam center with no offset, so neither Cakecut, Pos move, nor
+    Accumulation exist for TrXS (see has_pos_move_and_accumulation)."""
+
     console = _load_test_frame_trxs(tmp_path)
     assert console.cakecut_check is None
     assert console.cakecut_minus_spin is None
     assert console.cakecut_plus_spin is None
-    # Accumulation is not GIXS-only -- TrXS_gui.m has it too.
-    assert console.accum_check is not None
+    assert console.y_pos_move_spin is None
+    assert console.z_pos_move_spin is None
+    assert console.accum_check is None
+    assert console.accum_minus_spin is None
+    assert console.accum_plus_spin is None
+    # The redundant, never-wired Qxy/Qz-vs-Qy/Qz "q uncertainty" row is
+    # GIXS-only too -- TrXS's map_formats never even offers Qxy/Qz.
+    assert console.q_uncertain_check is None
+    assert console.mapping_combo is None
 
 
 def test_trxs_azi_q_label_and_draw_range_boundaries_work(qapp, tmp_path):
@@ -1355,7 +1465,15 @@ def test_trxs_curve_zoom_and_reset_work(qapp):
     assert console.curve_canvas.ax.get_xlim() == pytest.approx(full_xlim)
 
 
-def test_trxs_accumulation_cut_and_overlay_work(qapp, tmp_path):
+def test_trxs_line_plot_always_cuts_through_beam_center(qapp, tmp_path):
+    """Regression: "여기선 모두 [0,0]을 중심으로 cut 할꺼야" -- with no Pos move
+    field to offset it, a TrXS line cut/overlay must always go through the
+    beam center. _on_line_plot_clicked's payload must send zeroed
+    y_pos_move/z_pos_move/accumulation regardless of anything else, and
+    the overlay helpers must resolve to the plain beam center."""
+
+    import numpy as np
+
     from pgixs_python.ui_backend import console_session as cs
 
     console = _load_test_frame_trxs(tmp_path)
@@ -1363,14 +1481,22 @@ def test_trxs_accumulation_cut_and_overlay_work(qapp, tmp_path):
     console.beam_z_spin.setValue(10.0)
     assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
 
-    result = cs.console_line_1d({"angle_deg": 90.0, "accumulation": True, "accum_minus": -1.0, "accum_plus": 1.0})
-    assert result["ok"], result.get("message")
+    assert console._pos_move_display_offset() == (12.0, 10.0)
+    assert console._pos_move_pixel_point() == (12.0, 10.0)
 
     console.line_angle_spin.setValue(90.0)
-    console.accum_check.setChecked(True)
+    console._on_line_plot_clicked()
+    assert cs.get_session().last_curve is not None
+
     console.image_canvas.clear_overlays()
     console._draw_line_overlay()
-    assert len(console.image_canvas._overlay_artists) == 2
+    # A plain (bidirectional) line is two vertices, -length and +length
+    # from the center along the angle -- their average is the center,
+    # since neither endpoint is the center itself.
+    (line,) = console.image_canvas._overlay_artists
+    xdata, ydata = np.asarray(line.get_xdata()), np.asarray(line.get_ydata())
+    assert float(np.mean(xdata)) == pytest.approx(12.0)
+    assert float(np.mean(ydata)) == pytest.approx(10.0)
 
 
 def test_trxs_azimuthal_sweeps_full_360_not_restricted_like_gixs(qapp, tmp_path):
@@ -1412,6 +1538,55 @@ def test_trxs_polar_toggle_sweeps_full_360_not_restricted_like_gixs(qapp, tmp_pa
     console.polar_check.setChecked(False)
     assert console._current_xlabel == "q_y, 1/A"
     assert console.image_canvas.ax.get_aspect() == 1.0
+
+
+def test_trxs_polar_toggles_directly_from_pixel_view(qapp, tmp_path):
+    """Regression: "Transmission에서는 polar coordinate 바꿀때, pixel 맵을 바로
+    바꿀수있도록 해줘" -- TrXS only ever has one Q mapping (Qy/Qz), so Polar
+    should be reachable straight from Pixel view once q-Map Cal. has run,
+    with no need to first click over to Qy/Qz. Unchecking must recover
+    Pixel (not Qy/Qz), since that's what was actually showing before."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert console.map_format_combo.currentText() == "Pixel"
+    assert not console.polar_check.isEnabled()
+
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console._on_qmap_clicked()
+    assert console.map_format_combo.currentText() == "Pixel"
+    assert console.polar_check.isEnabled()
+
+    console.polar_check.setChecked(True)
+    assert console._current_xlabel == "Angle, deg"
+    assert console._current_ylabel == "q, 1/A"
+    assert console._axis_mode == "q"
+
+    console.polar_check.setChecked(False)
+    assert console.map_format_combo.currentText() == "Pixel"
+    assert console._current_xlabel == "Y, pixel"
+    assert console._axis_mode == "pixel"
+    assert console.polar_check.isEnabled()
+
+
+def test_gixs_polar_still_requires_an_explicit_map_format_pick(qapp, tmp_path):
+    """GIXS has two Q mappings (Qxy/Qz, Qy/Qz) -- unlike TrXS, Polar must
+    stay disabled from Pixel view even after q-Map Cal., since there's no
+    single unambiguous mapping to jump to."""
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console._on_qmap_clicked()
+    assert console.map_format_combo.currentText() == "Pixel"
+    assert not console.polar_check.isEnabled()
 
 
 def test_line_overlay_in_q_mode_draws_a_real_curve_not_a_single_point(qapp, tmp_path):

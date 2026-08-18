@@ -60,6 +60,10 @@ class ConsoleConfig:
     has_footprint: bool
     has_cakecut: bool
     has_circular: bool
+    # Pos move (y,z) + Accumulation are GIXS-only in GIXS_gui.m (Accumpix_gi
+    # etc.) -- TrXS_gui.m's Lineplot_Callback/Anglecut1d always cuts through
+    # the beam center with no offset, so TrXS has neither field.
+    has_pos_move_and_accumulation: bool = True
     map_formats: list[str] = field(default_factory=lambda: ["Pixel", "Qxy/Qz", "Qy/Qz"])
 
 
@@ -72,6 +76,7 @@ def gixs_config() -> ConsoleConfig:
         has_footprint=True,
         has_cakecut=True,
         has_circular=False,
+        has_pos_move_and_accumulation=True,
         map_formats=["Pixel", "Qxy/Qz", "Qy/Qz"],
     )
 
@@ -85,6 +90,7 @@ def trxs_config() -> ConsoleConfig:
         has_footprint=False,
         has_cakecut=False,
         has_circular=True,
+        has_pos_move_and_accumulation=False,
         map_formats=["Pixel", "Qy/Qz"],
     )
 
@@ -406,10 +412,18 @@ class ConsoleWidget(QWidget):
         self.subtract_button.clicked.connect(self._on_subtract_clicked)
         layout.addWidget(self.subtract_button)
 
-        self.q_uncertain_check = QCheckBox("q uncertainty")
-        self.mapping_combo = QComboBox()
-        self.mapping_combo.addItems(["Qxy/Qz", "Qy/Qz"])
-        layout.addWidget(_row(self.q_uncertain_check, self.mapping_combo))
+        if "Qxy/Qz" in cfg.map_formats:
+            # Qxy/Qz vs Qy/Qz only exists as a GIXS distinction (TrXS's qr
+            # is always plain Qy -- map_formats never even offers Qxy/Qz
+            # for it), so this row -- and the "q uncertainty" checkbox that
+            # was never wired to anything -- has nothing to do for TrXS.
+            self.q_uncertain_check = QCheckBox("q uncertainty")
+            self.mapping_combo = QComboBox()
+            self.mapping_combo.addItems(["Qxy/Qz", "Qy/Qz"])
+            layout.addWidget(_row(self.q_uncertain_check, self.mapping_combo))
+        else:
+            self.q_uncertain_check = None
+            self.mapping_combo = None
 
         self.qmap_button = QPushButton("q-Map Cal.")
         self.qmap_button.clicked.connect(self._on_qmap_clicked)
@@ -417,6 +431,42 @@ class ConsoleWidget(QWidget):
 
         self.q_range_label = _muted("Q range: not computed yet.")
         layout.addWidget(self.q_range_label)
+
+        if cfg.has_circular:
+            layout.addWidget(_divider("Circular Process"))
+            self.circ_angle_min_spin = _double_spin(-360.0, 360.0, 1, 0.0, 1.0)
+            self.circ_angle_max_spin = _double_spin(-360.0, 720.0, 1, 360.0, 1.0)
+            self.circ_min_coverage_spin = _double_spin(0.0, 1.0, 2, 0.80, 0.05)
+            self.circ_median_check = QCheckBox("Median")
+            self.circ_std_check = QCheckBox("Std")
+            layout.addWidget(_field("Ang. Avg (min/max)", self.circ_angle_min_spin, self.circ_angle_max_spin))
+            layout.addWidget(_field("Min coverage", self.circ_min_coverage_spin))
+            layout.addWidget(_row(self.circ_median_check, self.circ_std_check))
+            self.circ_mask_draw_button = QPushButton("Draw Mask")
+            self.circ_mask_draw_button.setToolTip(
+                "Draw a polygon on the 2D Image Plot (Pixel view) -- pixels inside it are\n"
+                "excluded from Circular Average; everything outside it is kept.\n"
+                "Click points, double-click to close."
+            )
+            self.circ_mask_clear_button = QPushButton("Clear Mask")
+            self.circ_mask_draw_button.clicked.connect(self._on_circ_mask_draw_clicked)
+            self.circ_mask_clear_button.clicked.connect(self._on_circ_mask_clear_clicked)
+            layout.addWidget(_row(self.circ_mask_draw_button, self.circ_mask_clear_button))
+            self.circ_mask_status_label = _muted("Mask: none")
+            layout.addWidget(self.circ_mask_status_label)
+            self.circ_button = QPushButton("Plot (Circular Average)")
+            self.circ_button.clicked.connect(self._on_circular_clicked)
+            layout.addWidget(self.circ_button)
+        else:
+            self.circ_angle_min_spin = None
+            self.circ_angle_max_spin = None
+            self.circ_min_coverage_spin = None
+            self.circ_median_check = None
+            self.circ_std_check = None
+            self.circ_mask_draw_button = None
+            self.circ_mask_clear_button = None
+            self.circ_mask_status_label = None
+            self.circ_button = None
 
         layout.addWidget(_divider("1D Plot Process"))
         self.line_angle_spin = _double_spin(-360.0, 360.0, 2, 90.0, 0.5)
@@ -428,23 +478,27 @@ class ConsoleWidget(QWidget):
         # boxes line up at the same x position -- sized to fit
         # "Accumulation", the widest of the three (measured sizeHint ~164px).
         first_column_width = 168
-        self.y_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 1, 0.0, 1.0)
-        self.z_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 1, 0.0, 1.0)
-        pos_move_field = _field(
-            "Pos move (y,z)", self.y_pos_move_spin, self.z_pos_move_spin, label_width=first_column_width
-        )
-        pos_move_field.setToolTip(
-            "At angle 0/180, only z moves the cut (y stays 0).\n"
-            "At angle 90, only y moves the cut (z stays 0).\n"
-            "Every other angle ignores both (y=0, z=0).\n"
-            "Has no effect on Cakecut."
-        )
-        layout.addWidget(pos_move_field)
-        # Only one field ever applies at a time (see _update_pos_move_availability),
-        # so keep them in sync with Line angle live rather than letting a
-        # stale nonzero value sit in a field that's silently being ignored.
-        self.line_angle_spin.valueChanged.connect(self._update_pos_move_availability)
-        self._update_pos_move_availability()
+        if cfg.has_pos_move_and_accumulation:
+            self.y_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 1, 0.0, 1.0)
+            self.z_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 1, 0.0, 1.0)
+            pos_move_field = _field(
+                "Pos move (y,z)", self.y_pos_move_spin, self.z_pos_move_spin, label_width=first_column_width
+            )
+            pos_move_field.setToolTip(
+                "At angle 0/180, only z moves the cut (y stays 0).\n"
+                "At angle 90, only y moves the cut (z stays 0).\n"
+                "Every other angle ignores both (y=0, z=0).\n"
+                "Has no effect on Cakecut."
+            )
+            layout.addWidget(pos_move_field)
+            # Only one field ever applies at a time (see _update_pos_move_availability),
+            # so keep them in sync with Line angle live rather than letting a
+            # stale nonzero value sit in a field that's silently being ignored.
+            self.line_angle_spin.valueChanged.connect(self._update_pos_move_availability)
+            self._update_pos_move_availability()
+        else:
+            self.y_pos_move_spin = None
+            self.z_pos_move_spin = None
 
         if cfg.has_cakecut:
             self.cakecut_check = QCheckBox("Cakecut")
@@ -458,18 +512,23 @@ class ConsoleWidget(QWidget):
             self.cakecut_minus_spin = None
             self.cakecut_plus_spin = None
 
-        self.accum_check = QCheckBox("Accumulation")
-        self.accum_check.setFixedWidth(first_column_width)
-        self.accum_check.setToolTip("Perpendicular pixel-band mean around the cut line. Angle must be 0, 90, or 180.")
-        self.accum_minus_spin = _double_spin(-360.0, 360.0, 1, -1.0, 0.5)
-        self.accum_plus_spin = _double_spin(-360.0, 360.0, 1, 1.0, 0.5)
-        layout.addWidget(_row(self.accum_check, self.accum_minus_spin, self.accum_plus_spin))
+        if cfg.has_pos_move_and_accumulation:
+            self.accum_check = QCheckBox("Accumulation")
+            self.accum_check.setFixedWidth(first_column_width)
+            self.accum_check.setToolTip("Perpendicular pixel-band mean around the cut line. Angle must be 0, 90, or 180.")
+            self.accum_minus_spin = _double_spin(-360.0, 360.0, 1, -1.0, 0.5)
+            self.accum_plus_spin = _double_spin(-360.0, 360.0, 1, 1.0, 0.5)
+            layout.addWidget(_row(self.accum_check, self.accum_minus_spin, self.accum_plus_spin))
+        else:
+            self.accum_check = None
+            self.accum_minus_spin = None
+            self.accum_plus_spin = None
 
         # Cakecut (angular wedge) and Accumulation (perpendicular band) are
         # mutually exclusive cut modes -- enforce that directly in the UI
         # (uncheck the other one) rather than letting the user hit the
         # backend's "Turn off Cakecut before using Accumulation" error.
-        if self.cakecut_check is not None:
+        if self.cakecut_check is not None and self.accum_check is not None:
             self.cakecut_check.toggled.connect(
                 lambda checked: self.accum_check.setChecked(False) if checked else None
             )
@@ -513,27 +572,6 @@ class ConsoleWidget(QWidget):
         self.azi_draw_button.clicked.connect(self._on_azi_draw_clicked)
         self.azi_plot_button.clicked.connect(self._on_azi_plot_clicked)
         layout.addWidget(_row(self.azi_draw_button, self.azi_plot_button))
-
-        if cfg.has_circular:
-            layout.addWidget(_divider("Circular Process"))
-            self.circ_angle_min_spin = _double_spin(-360.0, 360.0, 1, 0.0, 1.0)
-            self.circ_angle_max_spin = _double_spin(-360.0, 720.0, 1, 360.0, 1.0)
-            self.circ_min_coverage_spin = _double_spin(0.0, 1.0, 2, 0.80, 0.05)
-            self.circ_median_check = QCheckBox("Median")
-            self.circ_std_check = QCheckBox("Std")
-            layout.addWidget(_field("Ang. Avg (min/max)", self.circ_angle_min_spin, self.circ_angle_max_spin))
-            layout.addWidget(_field("Min coverage", self.circ_min_coverage_spin))
-            layout.addWidget(_row(self.circ_median_check, self.circ_std_check))
-            self.circ_button = QPushButton("Plot (Circular Average)")
-            self.circ_button.clicked.connect(self._on_circular_clicked)
-            layout.addWidget(self.circ_button)
-        else:
-            self.circ_angle_min_spin = None
-            self.circ_angle_max_spin = None
-            self.circ_min_coverage_spin = None
-            self.circ_median_check = None
-            self.circ_std_check = None
-            self.circ_button = None
 
         layout.addStretch(1)
 
@@ -888,11 +926,18 @@ class ConsoleWidget(QWidget):
         call actually cuts at. Only called in pixel display mode --
         `_draw_line_overlay` routes to `_draw_line_overlay_q_space`/
         `_draw_q_space_line` instead when Map format is Qxy/Qz or Qy/Qz,
-        since these axes aren't a linear function of pixel position."""
+        since these axes aren't a linear function of pixel position.
+
+        Pos move doesn't exist for TrXS (see has_pos_move_and_accumulation
+        -- TrXS_gui.m's line cut always goes through the beam center with
+        no offset), so y_pos_move/z_pos_move are 0 whenever those spins
+        are None."""
 
         beam_y, beam_z = self._current_beam_center()
-        offset_y = self.y_pos_move_spin.value() + band_edge_y
-        raw_offset_z = band_edge_z - self.z_pos_move_spin.value()
+        y_pos_move = self.y_pos_move_spin.value() if self.y_pos_move_spin is not None else 0.0
+        z_pos_move = self.z_pos_move_spin.value() if self.z_pos_move_spin is not None else 0.0
+        offset_y = y_pos_move + band_edge_y
+        raw_offset_z = band_edge_z - z_pos_move
         offset_z = -raw_offset_z if self._pixel_centered else raw_offset_z
         return (beam_y + offset_y, beam_z + offset_z)
 
@@ -904,8 +949,10 @@ class ConsoleWidget(QWidget):
         point through the per-pixel Q maps for a Q-space overlay (see
         `_draw_q_space_line`)."""
 
-        col = self.beam_y_spin.value() + self.y_pos_move_spin.value() + band_edge_y
-        row = self.beam_z_spin.value() - self.z_pos_move_spin.value() + band_edge_z
+        y_pos_move = self.y_pos_move_spin.value() if self.y_pos_move_spin is not None else 0.0
+        z_pos_move = self.z_pos_move_spin.value() if self.z_pos_move_spin is not None else 0.0
+        col = self.beam_y_spin.value() + y_pos_move + band_edge_y
+        row = self.beam_z_spin.value() - z_pos_move + band_edge_z
         return (col, row)
 
     def _draw_q_space_line(self, col0: float, row0: float, angle_deg: float, bidirectional: bool = True) -> None:
@@ -983,7 +1030,7 @@ class ConsoleWidget(QWidget):
     def _draw_line_overlay(self) -> None:
         angle = self.line_angle_spin.value()
         cakecut_on = self.cakecut_check is not None and self.cakecut_check.isChecked()
-        accum_on = self.accum_check.isChecked() and angle in (0.0, 90.0, 180.0)
+        accum_on = self.accum_check is not None and self.accum_check.isChecked() and angle in (0.0, 90.0, 180.0)
 
         if self._axis_mode != "pixel":
             self._draw_line_overlay_q_space(angle, cakecut_on, accum_on)
@@ -1147,6 +1194,8 @@ class ConsoleWidget(QWidget):
         self._mark_ok(self.grid_remove_button, False)
         self.q_range_label.setText("Q range: not computed yet.")
         self.azi_q_label.setText("0")
+        if self.circ_mask_status_label is not None:
+            self.circ_mask_status_label.setText("Mask: none")
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
@@ -1301,6 +1350,19 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
+        # Background subtraction routinely changes the data's whole
+        # intensity scale (raw counts vs. a subtracted/normalized
+        # difference) -- Contrast holding onto whatever min/max applied to
+        # the *previous* data would leave the image looking blank or
+        # blown out. 0/0 is this app's "auto-contrast" sentinel (see
+        # _render_image), so resetting to it here re-derives min/max from
+        # the new data, same as a fresh Load Data does.
+        self.cmin_spin.blockSignals(True)
+        self.cmax_spin.blockSignals(True)
+        self.cmin_spin.setValue(0.0)
+        self.cmax_spin.setValue(0.0)
+        self.cmin_spin.blockSignals(False)
+        self.cmax_spin.blockSignals(False)
         self._render_pixel_image()
         self._set_status(committed.get("message", "Normalization complete."), True)
 
@@ -1331,6 +1393,10 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
+        # Signals are blocked above, so _on_map_format_changed (which would
+        # otherwise handle this) never runs -- enable Polar here instead,
+        # same condition it uses: a single unambiguous Q mapping (TrXS).
+        self.polar_check.setEnabled(self._only_q_mapping() is not None)
         self._render_pixel_image()
         self._update_azi_q_label()
         self._set_status("q-Map Cal. complete.", True)
@@ -1349,7 +1415,12 @@ class ConsoleWidget(QWidget):
         self.polar_check.setChecked(False)
         self.polar_check.blockSignals(False)
         if mode == "Pixel":
-            self.polar_check.setEnabled(False)
+            # TrXS only ever has one Q mapping (Qy/Qz), so Polar can jump
+            # straight there from Pixel with no ambiguity -- keep it
+            # enabled rather than forcing an intermediate Qy/Qz click.
+            # GIXS has two (Qxy/Qz, Qy/Qz), so Map format must be picked
+            # explicitly first.
+            self.polar_check.setEnabled(session.qmap is not None and self._only_q_mapping() is not None)
             if session.data is None:
                 return
             self._render_pixel_image()
@@ -1393,18 +1464,36 @@ class ConsoleWidget(QWidget):
         self.image_canvas.reset_view()
         self._set_status(f"{mode} image ready.", True)
 
+    def _only_q_mapping(self) -> str | None:
+        """The single non-Pixel Map format, when there's exactly one (TrXS:
+        just Qy/Qz) -- lets Polar be toggled straight from Pixel view with
+        no intermediate Cartesian step, since there's no ambiguity about
+        which mapping to use. None when there's more than one (GIXS has
+        both Qxy/Qz and Qy/Qz), where Map format must be picked first."""
+
+        q_formats = [fmt for fmt in self.config.map_formats if fmt != "Pixel"]
+        return q_formats[0] if len(q_formats) == 1 else None
+
     def _on_polar_toggled(self, checked: bool) -> None:
         self._activate()
-        mode = self.map_format_combo.currentText()
-        if mode == "Pixel":
+        combo_mode = self.map_format_combo.currentText()
+        mapping = combo_mode if combo_mode != "Pixel" else self._only_q_mapping()
+        if mapping is None:
+            if checked:
+                self.polar_check.blockSignals(True)
+                self.polar_check.setChecked(False)
+                self.polar_check.blockSignals(False)
             return
         if not checked:
-            # "Recover" the Cartesian view -- literally just re-running the
-            # same fetch the combo box itself would trigger, since Polar
-            # never mutates session state.
-            self._on_map_format_changed(mode)
+            # "Recover" whatever was showing before Polar -- literally just
+            # re-running the same fetch the combo box itself would trigger
+            # (Pixel view if Polar was toggled straight from Pixel; the
+            # Cartesian view otherwise), since Polar never mutates session
+            # state.
+            self._on_map_format_changed(combo_mode)
             return
-        result = cs.console_polar_image({"mapping": mode})
+        self._axis_mode = "q"
+        result = cs.console_polar_image({"mapping": mapping})
         if not result.get("ok"):
             self._set_status(result.get("message", "Polar transform failed."), False)
             self.polar_check.blockSignals(True)
@@ -1436,9 +1525,9 @@ class ConsoleWidget(QWidget):
         # have completely different natural scales, so forcing equal data
         # units per pixel would crush the plot into a sliver a few pixels
         # tall -- this is the actual bug the polar view shipped with.
-        self._render_image(preview, extent, "Angle, deg", "Q, 1/A", aspect="auto")
+        self._render_image(preview, extent, "Angle, deg", "q, 1/A", aspect="auto")
         self.image_canvas.reset_view()
-        self._set_status(f"Polar ({mode}) view ready.", True)
+        self._set_status(f"Polar ({mapping}) view ready.", True)
 
     # ------------------------------------------------------------------
     # Display settings (live) / Update (reset ranges) / Reset Zoom / Save
@@ -1634,7 +1723,12 @@ class ConsoleWidget(QWidget):
         an axis-aligned cut: 0/180 moves along z (y stays 0), 90 moves
         along y (z stays 0), every other angle ignores both. Disable and
         zero whichever field doesn't apply so a leftover nonzero value
-        can't sit in a field that's silently having no effect."""
+        can't sit in a field that's silently having no effect. No-op for
+        TrXS, which has no Pos move fields at all (see
+        has_pos_move_and_accumulation)."""
+
+        if self.y_pos_move_spin is None or self.z_pos_move_spin is None:
+            return
 
         angle = self.line_angle_spin.value()
         if angle in (0.0, 180.0):
@@ -1664,11 +1758,11 @@ class ConsoleWidget(QWidget):
             "range_minus": self.cakecut_minus_spin.value() if cfg.has_cakecut and self.cakecut_minus_spin is not None else -1.0,
             "range_plus": self.cakecut_plus_spin.value() if cfg.has_cakecut and self.cakecut_plus_spin is not None else 1.0,
             "use_median": self.line_median_check.isChecked(),
-            "y_pos_move": self.y_pos_move_spin.value(),
-            "z_pos_move": self.z_pos_move_spin.value(),
-            "accumulation": self.accum_check.isChecked(),
-            "accum_minus": self.accum_minus_spin.value(),
-            "accum_plus": self.accum_plus_spin.value(),
+            "y_pos_move": self.y_pos_move_spin.value() if self.y_pos_move_spin is not None else 0.0,
+            "z_pos_move": self.z_pos_move_spin.value() if self.z_pos_move_spin is not None else 0.0,
+            "accumulation": self.accum_check.isChecked() if self.accum_check is not None else False,
+            "accum_minus": self.accum_minus_spin.value() if self.accum_minus_spin is not None else -1.0,
+            "accum_plus": self.accum_plus_spin.value() if self.accum_plus_spin is not None else 1.0,
         }
         result = cs.console_line_1d(payload)
         if not result.get("ok"):
@@ -1769,8 +1863,66 @@ class ConsoleWidget(QWidget):
         curve = cs.get_session().last_curve
         self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]")
         diag = result.get("coverage_diagnostics", {})
+        mask_note = " (mask applied)" if result.get("mask_active") else ""
         self._set_curve_status(
-            f"Circular average ready. Coverage median {diag.get('coverage_median', 'n/a')}, "
+            f"Circular average ready{mask_note}. Coverage median {diag.get('coverage_median', 'n/a')}, "
             f"low bins {diag.get('low_bin_count', 0)}, drops {diag.get('drop_bin_count', 0)}.",
             True,
         )
+
+    def _on_circ_mask_draw_clicked(self) -> None:
+        self._activate()
+        if self._axis_mode != "pixel":
+            self._set_status("Switch Map format to Pixel before drawing a mask.", False)
+            return
+        if cs.get_session().data is None:
+            self._set_status("Load a detector image first.", False)
+            return
+        self._set_status("Click points to draw the mask polygon; double-click (or click the first point) to close it.", True)
+        self.image_canvas.start_polygon_selector(self._on_circ_mask_polygon_complete)
+
+    def _on_circ_mask_polygon_complete(self, vertices: list[tuple[float, float]]) -> None:
+        """The drawn polygon marks the region to *exclude* -- everything
+        outside it survives into Circular Average (console_set_circular_mask's
+        `mask` is True = keep, so the polygon's inside is inverted below)."""
+
+        self._activate()
+        session = cs.get_session()
+        if session.data is None or len(vertices) < 3:
+            self._set_status("Mask needs at least 3 points.", False)
+            return
+        rows, cols = session.data.shape
+        if self._pixel_centered:
+            beam_y = self.beam_y_spin.value()
+            beam_z = self.beam_z_spin.value()
+            col_disp = np.arange(1, cols + 1, dtype=np.float64) - beam_y
+            row_disp = beam_z - np.arange(1, rows + 1, dtype=np.float64)
+        else:
+            col_disp = np.arange(1, cols + 1, dtype=np.float64)
+            row_disp = np.arange(1, rows + 1, dtype=np.float64)
+        xx, yy = np.meshgrid(col_disp, row_disp)
+
+        from matplotlib.path import Path as MplPath
+
+        path = MplPath(vertices)
+        points = np.column_stack([xx.ravel(), yy.ravel()])
+        inside = path.contains_points(points).reshape(xx.shape)
+        # The drawn polygon marks the region to EXCLUDE -- everything
+        # outside it is what survives into Circular Average.
+        keep = ~inside
+
+        result = cs.console_set_circular_mask({"mask": keep})
+        if not result.get("ok"):
+            self._set_status(result.get("message", "Mask failed."), False)
+            return
+        kept = result["pixel_count"]
+        total = result["total_pixels"]
+        self.circ_mask_status_label.setText(f"Mask: {kept}/{total} px kept")
+        self._set_status(f"Mask set ({kept}/{total} px kept).", True)
+
+    def _on_circ_mask_clear_clicked(self) -> None:
+        self._activate()
+        self.image_canvas.stop_polygon_selector()
+        cs.console_set_circular_mask({"clear": True})
+        self.circ_mask_status_label.setText("Mask: none")
+        self._set_status("Mask cleared.", True)

@@ -569,6 +569,91 @@ def test_console_circular_average_returns_curve_and_nulls_low_coverage(tmp_path)
     assert cs.get_session().last_curve["kind"] == "circular"
 
 
+def test_console_set_circular_mask_requires_loaded_data():
+    cs.reset_session()
+
+    payload = cs.console_set_circular_mask({"mask": [[True]]})
+
+    assert not payload["ok"]
+    assert "Load a detector image" in payload["message"]
+
+
+def test_console_set_circular_mask_rejects_shape_mismatch(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(20, 20))
+    _load(frame_path, mode="trxs")
+
+    payload = cs.console_set_circular_mask({"mask": np.ones((5, 5), dtype=bool)})
+
+    assert not payload["ok"]
+    assert "shape" in payload["message"].lower()
+
+
+def test_console_set_circular_mask_accepts_and_clears(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(20, 20))
+    _load(frame_path, mode="trxs")
+
+    mask = np.zeros((20, 20), dtype=bool)
+    mask[5:10, 5:10] = True
+    payload = cs.console_set_circular_mask({"mask": mask})
+
+    assert payload["ok"], payload.get("message")
+    assert payload["pixel_count"] == 25
+    assert payload["total_pixels"] == 400
+    assert cs.get_session().circular_mask is not None
+
+    cleared = cs.console_set_circular_mask({"clear": True})
+    assert cleared["ok"]
+    assert cs.get_session().circular_mask is None
+
+
+def test_console_circular_average_applies_mask(tmp_path):
+    """Regression for "circular process에서 mask를 만들 수 있도록 해줘": once a
+    mask is set, console_circular_average must actually exclude
+    outside-mask pixels (matching TrXS_gui.m's `I2d(BW <= 0) = NaN`), not
+    just store the mask inertly."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    data = _write_synthetic_frame(frame_path, shape=(64, 64))
+    _load(frame_path, mode="trxs")
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
+
+    unmasked = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.0})
+    assert unmasked["ok"]
+    assert not unmasked.get("mask_active")
+
+    # Mask out the whole right half of the detector -- the resulting
+    # curve must differ from the unmasked one somewhere.
+    mask = np.zeros((64, 64), dtype=bool)
+    mask[:, :32] = True
+    assert cs.console_set_circular_mask({"mask": mask})["ok"]
+
+    masked = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.0})
+    assert masked["ok"], masked.get("message")
+    assert masked["mask_active"]
+    assert masked["preview"]["intensity"] != unmasked["preview"]["intensity"]
+
+
+def test_console_load_clears_circular_mask(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(20, 20))
+    _load(frame_path, mode="trxs")
+    mask = np.ones((20, 20), dtype=bool)
+    assert cs.console_set_circular_mask({"mask": mask})["ok"]
+    assert cs.get_session().circular_mask is not None
+
+    frame_path_2 = tmp_path / "frame2.h5"
+    _write_synthetic_frame(frame_path_2, shape=(20, 20), seed=7)
+    _load(frame_path_2, mode="trxs")
+
+    assert cs.get_session().circular_mask is None
+
+
 def test_console_save_trxs_mode_has_no_incident_angle(tmp_path):
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
