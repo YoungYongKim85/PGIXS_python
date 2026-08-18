@@ -291,6 +291,40 @@ def _load_test_frame(tmp_path):
     return console
 
 
+def _load_test_frame_trxs(tmp_path):
+    """TrXS counterpart of _load_test_frame -- same synthetic frame, but
+    through trxs_config() (no Cakecut, has Circular) so widget-level tests
+    can confirm a GIXS-side fix actually reaches the shared ConsoleWidget/
+    console_session.py code TrXS runs through too, not just assume it via
+    the shared architecture."""
+
+    import h5py
+    import numpy as np
+
+    from pgixs_python.desktop.console_widget import ConsoleWidget, trxs_config
+    from pgixs_python.ui_backend import console_session as cs
+
+    frame_path = tmp_path / "frame.h5"
+    data = np.random.default_rng(0).uniform(10, 100, size=(20, 24)).astype(np.float32)
+    with h5py.File(frame_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=data[None, :, :])
+
+    console = ConsoleWidget(trxs_config())
+    console._activate()
+    result = cs.console_load(
+        {
+            "directory": str(tmp_path),
+            "filename": frame_path.name,
+            "mode": "trxs",
+            "detector": "TestDetector",
+            "multishot": False,
+        }
+    )
+    assert result["ok"], result.get("message")
+    console._on_load_finished(result)
+    return console
+
+
 def test_azi_q_label_updates_after_qmap_cal_and_pixel_change(qapp, tmp_path):
     """Regression: "azimuthal process에서 pixel position이 정해져도 q값이 얼마인지
     안나오네" -- the "Q [1/A]" readout in Azimuthal Process was built but
@@ -1255,6 +1289,129 @@ def test_polar_check_resets_when_map_format_changes(qapp, tmp_path):
     console.map_format_combo.setCurrentText("Qy/Qz")
     assert not console.polar_check.isChecked()
     assert console.polar_check.isEnabled()
+
+
+# ----------------------------------------------------------------------
+# TrXS parity: ConsoleWidget/console_session.py are shared between GIXS
+# and TrXS (parameterized by ConsoleConfig/_SESSION.mode), so every fix
+# above already reaches TrXS through the same code -- these tests confirm
+# that at the widget level instead of just assuming it from the shared
+# architecture, and lock in the one genuine behavioral difference
+# (TrXS has no Cakecut, and sweeps the full 360deg where GIXS is
+# restricted to 180deg).
+# ----------------------------------------------------------------------
+def test_trxs_has_no_cakecut_widgets(qapp, tmp_path):
+    console = _load_test_frame_trxs(tmp_path)
+    assert console.cakecut_check is None
+    assert console.cakecut_minus_spin is None
+    assert console.cakecut_plus_spin is None
+    # Accumulation is not GIXS-only -- TrXS_gui.m has it too.
+    assert console.accum_check is not None
+
+
+def test_trxs_azi_q_label_and_draw_range_boundaries_work(qapp, tmp_path):
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    console.azi_pixel_spin.setValue(5.0)
+    assert console.azi_q_label.text() == "0"
+
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console._on_qmap_clicked()
+    assert console.azi_q_label.text() not in ("0", "n/a")
+
+    console.azi_range_minus_spin.setValue(-2.0)
+    console.azi_range_plus_spin.setValue(4.0)
+    console._on_azi_draw_clicked()
+    circles = console.image_canvas._overlay_artists
+    assert len(circles) == 2
+    radii = sorted(c.get_radius() for c in circles)
+    assert radii == pytest.approx([3.0, 9.0])
+
+
+def test_trxs_curve_zoom_and_reset_work(qapp):
+    import numpy as np
+
+    from pgixs_python.desktop.console_widget import ConsoleWidget, trxs_config
+
+    console = ConsoleWidget(trxs_config())
+    console._render_curve(np.array([0.0, 1.0, 2.0]), np.array([1.0, 5.0, 3.0]))
+    full_xlim = console.curve_canvas.ax.get_xlim()
+
+    class _FakeScrollEvent:
+        def __init__(self, inaxes, xdata, ydata, button):
+            self.inaxes = inaxes
+            self.xdata = xdata
+            self.ydata = ydata
+            self.button = button
+
+    console.curve_canvas._on_scroll(_FakeScrollEvent(console.curve_canvas.ax, 1.0, 3.0, "up"))
+    zoomed_xlim = console.curve_canvas.ax.get_xlim()
+    assert (zoomed_xlim[1] - zoomed_xlim[0]) < (full_xlim[1] - full_xlim[0])
+
+    console._on_curve_reset_zoom_clicked()
+    assert console.curve_canvas.ax.get_xlim() == pytest.approx(full_xlim)
+
+
+def test_trxs_accumulation_cut_and_overlay_work(qapp, tmp_path):
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+
+    result = cs.console_line_1d({"angle_deg": 90.0, "accumulation": True, "accum_minus": -1.0, "accum_plus": 1.0})
+    assert result["ok"], result.get("message")
+
+    console.line_angle_spin.setValue(90.0)
+    console.accum_check.setChecked(True)
+    console.image_canvas.clear_overlays()
+    console._draw_line_overlay()
+    assert len(console.image_canvas._overlay_artists) == 2
+
+
+def test_trxs_azimuthal_sweeps_full_360_not_restricted_like_gixs(qapp, tmp_path):
+    import numpy as np
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+
+    console.azi_pixel_spin.setValue(5.0)
+    console.azi_range_minus_spin.setValue(-2.0)
+    console.azi_range_plus_spin.setValue(2.0)
+    console._on_azi_plot_clicked()
+    angle = np.asarray(cs.get_session().last_curve["angle"])
+    assert angle.max() > 180.0
+
+
+def test_trxs_polar_toggle_sweeps_full_360_not_restricted_like_gixs(qapp, tmp_path):
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+
+    console.map_format_combo.setCurrentText("Qy/Qz")
+    assert console.polar_check.isEnabled()
+    console.polar_check.setChecked(True)
+    assert console._current_xlabel == "Angle, deg"
+    assert console.image_canvas.ax.get_aspect() == "auto"
+
+    polar_result = cs.console_polar_image({"mapping": "Qy/Qz"})
+    assert polar_result["ok"], polar_result.get("message")
+    assert polar_result["horizontal_range"]["max"] > 180.0
+
+    console.polar_check.setChecked(False)
+    assert console._current_xlabel == "q_y, 1/A"
+    assert console.image_canvas.ax.get_aspect() == 1.0
 
 
 def test_line_overlay_in_q_mode_draws_a_real_curve_not_a_single_point(qapp, tmp_path):
