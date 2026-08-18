@@ -267,6 +267,7 @@ class ConsoleWidget(QWidget):
         self._current_image_extent: tuple[float, float, float, float] | None = None
         self._current_xlabel = ""
         self._current_ylabel = ""
+        self._current_aspect = "equal"
         self._position_mode: str | None = None
         self._zplot_active = False
         self._last_dir = str(Path.home())
@@ -494,6 +495,7 @@ class ConsoleWidget(QWidget):
         layout.addWidget(
             _field("Pixel / Range(-/+)", self.azi_pixel_spin, self.azi_range_minus_spin, self.azi_range_plus_spin, label_width=110)
         )
+        self.azi_pixel_spin.valueChanged.connect(self._update_azi_q_label)
 
         self.azi_q_label = QLineEdit("0")
         self.azi_q_label.setReadOnly(True)
@@ -596,11 +598,19 @@ class ConsoleWidget(QWidget):
         # fires on step/scroll/Enter/focus-loss, not on every keystroke.
         self.color_scale_combo.currentTextChanged.connect(self._apply_display_settings)
         self.colormap_combo.currentTextChanged.connect(self._apply_display_settings)
+        self.polar_check = QCheckBox("Polar (angle vs q)")
+        self.polar_check.setToolTip(
+            "View the current Qxy/Qz or Qy/Qz plot as a polar (angle vs |Q|) "
+            "remap, centered at q=0. Unchecking recovers the Cartesian plot."
+        )
+        self.polar_check.setEnabled(False)
+        self.polar_check.toggled.connect(self._on_polar_toggled)
         controller_layout.addWidget(
             _split_row(
                 _field("ColorScale", self.color_scale_combo, label_width=70),
                 _field("Colormap", self.colormap_combo, label_width=64),
                 _field("Map format", self.map_format_combo, label_width=76),
+                self.polar_check,
             )
         )
 
@@ -670,6 +680,9 @@ class ConsoleWidget(QWidget):
         self.curve_yscale_combo.addItems(["Linear", "Log"])
         self.curve_xscale_combo.currentTextChanged.connect(self._apply_curve_scales)
         self.curve_yscale_combo.currentTextChanged.connect(self._apply_curve_scales)
+        self.curve_reset_zoom_button = QPushButton("Reset Zoom")
+        self.curve_reset_zoom_button.setToolTip("Reset the 1D Result plot to its full data range.")
+        self.curve_reset_zoom_button.clicked.connect(self._on_curve_reset_zoom_clicked)
         self.curve_save_button = QPushButton("Save")
         self.curve_save_button.setToolTip("Save the current 1D Result curve as a CSV.")
         self.curve_save_button.clicked.connect(self._on_curve_save_clicked)
@@ -682,6 +695,7 @@ class ConsoleWidget(QWidget):
         curve_controls_layout.addWidget(QLabel("Y"), 0)
         curve_controls_layout.addWidget(self.curve_yscale_combo, 0)
         curve_controls_layout.addStretch(1)
+        curve_controls_layout.addWidget(self.curve_reset_zoom_button, 0)
         curve_controls_layout.addWidget(self.curve_save_button, 0)
         curve_layout.addWidget(curve_controls)
 
@@ -812,11 +826,14 @@ class ConsoleWidget(QWidget):
         extent = self._current_extent(h_start, h_end, v_row1, v_row_last)
         self._render_image(data, extent, "Y, pixel", "Z, pixel", keep_limits=keep_limits)
 
-    def _render_image(self, data: np.ndarray, extent, xlabel: str, ylabel: str, keep_limits: bool = False) -> None:
+    def _render_image(
+        self, data: np.ndarray, extent, xlabel: str, ylabel: str, keep_limits: bool = False, aspect: str = "equal"
+    ) -> None:
         self._current_image_data = data
         self._current_image_extent = extent
         self._current_xlabel = xlabel
         self._current_ylabel = ylabel
+        self._current_aspect = aspect
         cmin = self.cmin_spin.value()
         cmax = self.cmax_spin.value()
         vmin = cmin if cmax > cmin else None
@@ -832,6 +849,7 @@ class ConsoleWidget(QWidget):
             ylabel=ylabel,
             font_size=int(self.font_sz_spin.value()),
             keep_limits=keep_limits,
+            aspect=self._current_aspect,
         )
         if vmin is None:
             # Reflect back whatever ImageCanvas actually auto-computed
@@ -1128,9 +1146,14 @@ class ConsoleWidget(QWidget):
         self._mark_ok(self.qmap_button, False)
         self._mark_ok(self.grid_remove_button, False)
         self.q_range_label.setText("Q range: not computed yet.")
+        self.azi_q_label.setText("0")
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
+        self.polar_check.blockSignals(True)
+        self.polar_check.setChecked(False)
+        self.polar_check.setEnabled(False)
+        self.polar_check.blockSignals(False)
         self._axis_mode = "pixel"
         self.image_canvas.clear_overlays()
         self._position_mode = None
@@ -1309,6 +1332,7 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
         self._render_pixel_image()
+        self._update_azi_q_label()
         self._set_status("q-Map Cal. complete.", True)
 
     # ------------------------------------------------------------------
@@ -1317,13 +1341,22 @@ class ConsoleWidget(QWidget):
     def _on_map_format_changed(self, mode: str) -> None:
         self._activate()
         session = cs.get_session()
+        # Any format change lands on the Cartesian view -- Polar always
+        # starts back off (its own transform is keyed to whichever mapping
+        # was active when it was turned on, and Qxy/Qz vs Qy/Qz have
+        # different horizontal axes, so a stale polar view would be wrong).
+        self.polar_check.blockSignals(True)
+        self.polar_check.setChecked(False)
+        self.polar_check.blockSignals(False)
         if mode == "Pixel":
+            self.polar_check.setEnabled(False)
             if session.data is None:
                 return
             self._render_pixel_image()
             self._set_status("Pixel view restored.", True)
             return
         if session.qmap is None:
+            self.polar_check.setEnabled(False)
             self._set_status("Run q-Map Cal. first.", False)
             self.map_format_combo.blockSignals(True)
             self.map_format_combo.setCurrentText("Pixel")
@@ -1331,11 +1364,13 @@ class ConsoleWidget(QWidget):
             return
         result = cs.console_qspace_image({"mapping": mode})
         if not result.get("ok"):
+            self.polar_check.setEnabled(False)
             self._set_status(result.get("message", f"{mode} transform failed."), False)
             self.map_format_combo.blockSignals(True)
             self.map_format_combo.setCurrentText("Pixel")
             self.map_format_combo.blockSignals(False)
             return
+        self.polar_check.setEnabled(True)
         self._axis_mode = "q"
         preview = np.asarray(result["preview"], dtype=np.float64)
         hr = result["horizontal_range"]
@@ -1358,6 +1393,53 @@ class ConsoleWidget(QWidget):
         self.image_canvas.reset_view()
         self._set_status(f"{mode} image ready.", True)
 
+    def _on_polar_toggled(self, checked: bool) -> None:
+        self._activate()
+        mode = self.map_format_combo.currentText()
+        if mode == "Pixel":
+            return
+        if not checked:
+            # "Recover" the Cartesian view -- literally just re-running the
+            # same fetch the combo box itself would trigger, since Polar
+            # never mutates session state.
+            self._on_map_format_changed(mode)
+            return
+        result = cs.console_polar_image({"mapping": mode})
+        if not result.get("ok"):
+            self._set_status(result.get("message", "Polar transform failed."), False)
+            self.polar_check.blockSignals(True)
+            self.polar_check.setChecked(False)
+            self.polar_check.blockSignals(False)
+            return
+        # Row 0 of the polar image is the smallest |Q| bin (see
+        # polar_transform_q_grid's ascending r_axis); flip so the largest
+        # |Q| ends up at row 0, matching every other view in this app where
+        # the largest vertical-axis value renders at the top (origin="upper").
+        preview = np.asarray(result["preview"], dtype=np.float64)[::-1, :]
+        hr = result["horizontal_range"]
+        vr = result["vertical_range"]
+        self.yrange_min_spin.blockSignals(True)
+        self.yrange_max_spin.blockSignals(True)
+        self.zrange_min_spin.blockSignals(True)
+        self.zrange_max_spin.blockSignals(True)
+        self.yrange_min_spin.setValue(hr["min"])
+        self.yrange_max_spin.setValue(hr["max"])
+        self.zrange_min_spin.setValue(vr["min"])
+        self.zrange_max_spin.setValue(vr["max"])
+        self.yrange_min_spin.blockSignals(False)
+        self.yrange_max_spin.blockSignals(False)
+        self.zrange_min_spin.blockSignals(False)
+        self.zrange_max_spin.blockSignals(False)
+        extent = self._current_extent(hr["min"], hr["max"], vr["max"], vr["min"])
+        # aspect="auto" (not the "equal" every other view uses): angle
+        # (degrees, spanning 0-360) and |Q| (1/A, spanning maybe 0-0.1)
+        # have completely different natural scales, so forcing equal data
+        # units per pixel would crush the plot into a sliver a few pixels
+        # tall -- this is the actual bug the polar view shipped with.
+        self._render_image(preview, extent, "Angle, deg", "Q, 1/A", aspect="auto")
+        self.image_canvas.reset_view()
+        self._set_status(f"Polar ({mode}) view ready.", True)
+
     # ------------------------------------------------------------------
     # Display settings (live) / Update (reset ranges) / Reset Zoom / Save
     # ------------------------------------------------------------------
@@ -1379,6 +1461,7 @@ class ConsoleWidget(QWidget):
             self._current_xlabel,
             self._current_ylabel,
             keep_limits=False,
+            aspect=self._current_aspect,
         )
         y_min = self.yrange_min_spin.value()
         y_max = self.yrange_max_spin.value()
@@ -1465,6 +1548,9 @@ class ConsoleWidget(QWidget):
             self.curve_xscale_combo.currentText() == "Log",
             self.curve_yscale_combo.currentText() == "Log",
         )
+
+    def _on_curve_reset_zoom_clicked(self) -> None:
+        self.curve_canvas.reset_view()
 
     def _on_curve_save_clicked(self) -> None:
         self._activate()
@@ -1609,7 +1695,37 @@ class ConsoleWidget(QWidget):
     def _on_azi_draw_clicked(self) -> None:
         self.image_canvas.clear_overlays()
         center = self._current_beam_center()
-        self.image_canvas.draw_beam_circle(center, self.azi_pixel_spin.value())
+        pixel = self.azi_pixel_spin.value()
+        # Draw both ring boundaries (pixel + range_minus/plus), not just a
+        # single circle at `pixel` -- a lone center-radius circle never
+        # visually changes when Range(-/+) is edited, which is exactly why
+        # it looked like Range had no effect even though console_azimuthal_1d
+        # was already using it correctly (radius_range = pixel +/- range).
+        r_minus = max(0.0, pixel + self.azi_range_minus_spin.value())
+        r_plus = max(0.0, pixel + self.azi_range_plus_spin.value())
+        self.image_canvas.draw_beam_circle(center, r_minus)
+        self.image_canvas.draw_beam_circle(center, r_plus)
+
+    def _update_azi_q_label(self) -> None:
+        """Show the Q value at the current Azimuthal pixel radius, sampled
+        along the beam-center row (matches MATLAB GIXS_gui.m's
+        `CalcPos_Callback`: `param.Q(round(bpos(2)), round(pix_pos +
+        bpos(1)))`) -- a representative Q for the ring, not a per-angle
+        value, since the ring's whole point is to average over angle."""
+
+        session = cs.get_session()
+        q_map = session.qmap.get("q") if session.qmap is not None else None
+        if q_map is None or session.data is None:
+            self.azi_q_label.setText("0")
+            return
+        beam_y, beam_z = session.calibration["beam_pos"]
+        n_rows, n_cols = q_map.shape
+        # -1 for the 1-based pixel convention used throughout this codebase
+        # (pixel_angle_map, build_radius_bin_map) vs. 0-based numpy indices.
+        row_idx = int(np.clip(round(beam_z) - 1, 0, n_rows - 1))
+        col_idx = int(np.clip(round(beam_y + self.azi_pixel_spin.value()) - 1, 0, n_cols - 1))
+        q_value = float(q_map[row_idx, col_idx])
+        self.azi_q_label.setText(f"{q_value:.4f}" if np.isfinite(q_value) else "n/a")
 
     def _on_azi_plot_clicked(self) -> None:
         self._activate()

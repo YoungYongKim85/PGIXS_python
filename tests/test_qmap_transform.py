@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 
-from pgixs_python.qmap.transform import image_transform_q_gi, image_transform_q_tr
+from pgixs_python.qmap.transform import image_transform_q_gi, image_transform_q_tr, polar_transform_q_grid
 
 
 def _identity_setup():
@@ -86,3 +87,106 @@ def test_image_transform_q_gi_handles_no_valid_pixels():
 
     assert np.all(np.isnan(result.image))
     assert result.image.shape == data.shape
+
+
+def test_polar_transform_q_grid_puts_constant_ring_in_one_row():
+    """A uniform value at a fixed radius (regardless of angle) must land in
+    a single r-bin (one row) no matter which angle-bin (column) it lands
+    in -- the whole point of the polar remap is separating (angle, |Q|)
+    onto independent axes."""
+
+    theta = np.linspace(0.0, 2.0 * np.pi, 720, endpoint=False)
+    h = 5.0 * np.cos(theta)
+    v = 5.0 * np.sin(theta)
+    data = np.full(theta.shape, 7.0, dtype=np.float32)
+
+    result = polar_transform_q_grid(data, h, v, n_angle_bins=36, n_r_bins=10)
+
+    finite_rows = np.any(np.isfinite(result.image), axis=1)
+    assert np.count_nonzero(finite_rows) == 1
+    row = result.image[finite_rows][0]
+    np.testing.assert_allclose(row[np.isfinite(row)], 7.0)
+
+
+def test_polar_transform_q_grid_matches_the_app_wide_clock_convention():
+    """Regression: "angle 방향이 바뀐거 같아... 9시방향이 0도, 12시방향이 90도 3시방향이
+    180도" -- polar must use the same clockwise, 9/12/3-o'clock angle
+    convention as everything else in this codebase (pixel_angle_map, the
+    click-to-angle formula, Cakecut, Azimuthal Process), not the plain-math
+    atan2(v, h) convention (which puts 0deg at 3 o'clock, counterclockwise)."""
+
+    n_angle_bins = 360
+
+    def _angle_of(h: float, v: float) -> float:
+        data = np.array([1.0], dtype=np.float32)
+        result = polar_transform_q_grid(
+            data, np.array([h]), np.array([v]), n_angle_bins=n_angle_bins, n_r_bins=1
+        )
+        (col,) = np.flatnonzero(np.isfinite(result.image[0]))
+        return float(result.horizontal_axis[col])
+
+    assert _angle_of(-1.0, 0.0) == pytest.approx(0.0, abs=1.0)  # 9 o'clock (left) -> 0deg
+    assert _angle_of(0.0, 1.0) == pytest.approx(90.0, abs=1.0)  # 12 o'clock (up) -> 90deg
+    assert _angle_of(1.0, 0.0) == pytest.approx(180.0, abs=1.0)  # 3 o'clock (right) -> 180deg
+    assert _angle_of(0.0, -1.0) == pytest.approx(270.0, abs=1.0)  # 6 o'clock (down) -> 270deg
+
+
+def test_polar_transform_q_grid_separates_two_angles_at_same_radius():
+    """Two different values at the same radius but opposite angles (0deg
+    and 180deg) must land in different columns (angle bins), not get
+    averaged together into one cell."""
+
+    h = np.array([10.0, -10.0], dtype=np.float64)
+    v = np.array([0.0, 0.0], dtype=np.float64)
+    data = np.array([1.0, 9.0], dtype=np.float32)
+
+    result = polar_transform_q_grid(data, h, v, n_angle_bins=4, n_r_bins=4)
+
+    values = result.image[np.isfinite(result.image)]
+    assert sorted(values.tolist()) == [1.0, 9.0]
+
+
+def test_polar_transform_q_grid_axes_span_the_data():
+    h = np.array([3.0, 4.0], dtype=np.float64)  # r = 5 for both (3-4-5 triangle)
+    v = np.array([4.0, 3.0], dtype=np.float64)
+    data = np.array([1.0, 2.0], dtype=np.float32)
+
+    result = polar_transform_q_grid(data, h, v, n_angle_bins=36, n_r_bins=5)
+
+    assert result.horizontal_axis.shape == (36,)
+    assert result.vertical_axis.shape == (5,)
+    assert result.horizontal_axis.min() >= 0.0
+    assert result.horizontal_axis.max() < 360.0
+    assert result.vertical_axis.max() <= 5.0 + 1e-6
+
+
+def test_polar_transform_q_grid_handles_no_valid_pixels():
+    h = np.full((3, 3), np.nan)
+    v = np.full((3, 3), np.nan)
+    data = np.zeros((3, 3), dtype=np.float32)
+
+    result = polar_transform_q_grid(data, h, v, n_angle_bins=8, n_r_bins=4)
+
+    assert result.image.shape == (4, 8)
+    assert np.all(np.isnan(result.image))
+
+
+def test_polar_transform_q_grid_angle_range_restricts_sweep_to_half_circle():
+    """GIXS callers pass angle_range=(0, 180) (grazing incidence only ever
+    scatters above the horizon, v >= 0) -- the returned angle axis must
+    cover just that half, and points below the horizon (v < 0) must be
+    excluded entirely rather than wrapped/clipped into an edge bin."""
+
+    theta = np.linspace(0.0, 2.0 * np.pi, 360, endpoint=False)
+    h = 5.0 * np.cos(theta)
+    v = 5.0 * np.sin(theta)
+    data = np.where(v >= 0, 3.0, 1000.0).astype(np.float32)  # below-horizon points would blow up the mean if leaked in
+
+    result = polar_transform_q_grid(data, h, v, n_angle_bins=18, n_r_bins=4, angle_range=(0.0, 180.0))
+
+    assert result.horizontal_axis.shape == (18,)
+    assert result.horizontal_axis.min() >= 0.0
+    assert result.horizontal_axis.max() <= 180.0
+    finite = np.isfinite(result.image)
+    assert np.any(finite)
+    assert np.allclose(result.image[finite], 3.0)

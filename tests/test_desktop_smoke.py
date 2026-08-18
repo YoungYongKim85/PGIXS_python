@@ -291,6 +291,52 @@ def _load_test_frame(tmp_path):
     return console
 
 
+def test_azi_q_label_updates_after_qmap_cal_and_pixel_change(qapp, tmp_path):
+    """Regression: "azimuthal process에서 pixel position이 정해져도 q값이 얼마인지
+    안나오네" -- the "Q [1/A]" readout in Azimuthal Process was built but
+    never wired to anything, so it always showed the initial placeholder
+    "0" no matter what pixel position or qmap was set."""
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    # Small enough that beam_y + pixel stays inside the 24-column test
+    # frame both before and after the +3 step below -- the default 202px
+    # pixel value clips to the last column on this tiny synthetic frame,
+    # which would make the "before" and "after" Q reads identical for a
+    # reason unrelated to the wiring under test.
+    console.azi_pixel_spin.setValue(5.0)
+    assert console.azi_q_label.text() == "0"
+
+    console._on_qmap_clicked()
+    first_text = console.azi_q_label.text()
+    assert first_text not in ("0", "n/a")
+
+    console.azi_pixel_spin.setValue(console.azi_pixel_spin.value() + 3.0)
+    second_text = console.azi_q_label.text()
+    assert second_text != first_text
+
+
+def test_azi_draw_shows_range_boundaries_not_a_single_circle(qapp, tmp_path):
+    """Regression: "range를 정해져도 반영이 안되는것 같아" -- Draw only ever plotted
+    one circle at the raw pixel value, so editing Range(-/+) never visibly
+    changed the overlay even though console_azimuthal_1d's actual
+    computation already used it correctly. It should draw both ring
+    boundaries (pixel + range_minus, pixel + range_plus)."""
+
+    console = _load_test_frame(tmp_path)
+    console.azi_pixel_spin.setValue(10.0)
+    console.azi_range_minus_spin.setValue(-2.0)
+    console.azi_range_plus_spin.setValue(4.0)
+
+    console._on_azi_draw_clicked()
+
+    circles = console.image_canvas._overlay_artists
+    assert len(circles) == 2
+    radii = sorted(c.get_radius() for c in circles)
+    assert radii == pytest.approx([8.0, 14.0])
+
+
 def test_display_spins_apply_live(qapp, tmp_path):
     """Contrast/Y-Range/Z-Range/Font Sz used to require an explicit Update
     click; now every one of them applies as soon as it changes (spin boxes
@@ -562,6 +608,85 @@ def test_curve_canvas_hover_survives_none_in_data(qapp):
 
     for value in x:
         canvas._on_motion(_FakeEvent(canvas.ax, value))  # must not raise
+
+
+def test_curve_canvas_scroll_zooms_in_and_out_around_cursor(qapp):
+    """Regression: the 1D Result plot had no zoom interaction at all --
+    scroll-wheel over the curve must shrink/grow the view around the
+    cursor position, mirroring ImageCanvas's existing scroll-zoom."""
+
+    import numpy as np
+
+    from pgixs_python.desktop.plot_canvas import CurveCanvas
+
+    class _FakeScrollEvent:
+        def __init__(self, inaxes, xdata, ydata, button):
+            self.inaxes = inaxes
+            self.xdata = xdata
+            self.ydata = ydata
+            self.button = button
+
+    canvas = CurveCanvas()
+    x = np.linspace(0.0, 10.0, 11)
+    y = x**2
+    canvas.render(x, y)
+
+    xlim0, ylim0 = canvas.ax.get_xlim(), canvas.ax.get_ylim()
+    canvas._on_scroll(_FakeScrollEvent(canvas.ax, 5.0, 25.0, "up"))
+    xlim1, ylim1 = canvas.ax.get_xlim(), canvas.ax.get_ylim()
+    assert (xlim1[1] - xlim1[0]) < (xlim0[1] - xlim0[0])
+    assert (ylim1[1] - ylim1[0]) < (ylim0[1] - ylim0[0])
+
+    canvas._on_scroll(_FakeScrollEvent(canvas.ax, 5.0, 25.0, "down"))
+    xlim2, ylim2 = canvas.ax.get_xlim(), canvas.ax.get_ylim()
+    assert (xlim2[1] - xlim2[0]) > (xlim1[1] - xlim1[0])
+    assert (ylim2[1] - ylim2[0]) > (ylim1[1] - ylim1[0])
+
+
+def test_curve_canvas_scroll_zoom_stays_positive_on_log_axis(qapp):
+    """Naive linear interpolation of a log axis's limits can walk a bound
+    through zero/negative, which matplotlib rejects -- _zoomed_limits must
+    do the interpolation in log10 space instead when the axis is log."""
+
+    import numpy as np
+
+    from pgixs_python.desktop.plot_canvas import CurveCanvas
+
+    class _FakeScrollEvent:
+        def __init__(self, inaxes, xdata, ydata, button):
+            self.inaxes = inaxes
+            self.xdata = xdata
+            self.ydata = ydata
+            self.button = button
+
+    canvas = CurveCanvas()
+    x = np.linspace(1.0, 10.0, 10)
+    y = x**2
+    canvas.render(x, y, xlog=True, ylog=True)
+
+    for _ in range(5):
+        canvas._on_scroll(_FakeScrollEvent(canvas.ax, 2.0, 4.0, "up"))
+    xlim, ylim = canvas.ax.get_xlim(), canvas.ax.get_ylim()
+    assert xlim[0] > 0 and xlim[1] > 0
+    assert ylim[0] > 0 and ylim[1] > 0
+
+
+def test_curve_reset_zoom_button_restores_full_view(qapp):
+    import numpy as np
+
+    console = ConsoleWidget(gixs_config())
+    x = np.linspace(0.0, 10.0, 11)
+    y = x**2
+    console.curve_canvas.render(x, y)
+    full_xlim, full_ylim = console.curve_canvas.ax.get_xlim(), console.curve_canvas.ax.get_ylim()
+
+    console.curve_canvas.ax.set_xlim(2.0, 4.0)
+    console.curve_canvas.ax.set_ylim(2.0, 20.0)
+    assert console.curve_canvas.ax.get_xlim() != full_xlim
+
+    console._on_curve_reset_zoom_clicked()
+    assert console.curve_canvas.ax.get_xlim() == pytest.approx(full_xlim)
+    assert console.curve_canvas.ax.get_ylim() == pytest.approx(full_ylim)
 
 
 def test_line_plot_uses_full_resolution_curve_not_json_preview(qapp, tmp_path):
@@ -1042,6 +1167,94 @@ def _load_test_frame_in_q_mode(tmp_path, beam_y=12.0, beam_z=10.0, mapping="Qxy/
     console.map_format_combo.setCurrentText(mapping)
     console.map_format_combo.blockSignals(False)
     return console
+
+
+def test_polar_check_enabled_only_once_a_q_map_view_is_active(qapp, tmp_path):
+    console = _load_test_frame(tmp_path)
+    assert not console.polar_check.isEnabled()
+    assert not console.polar_check.isChecked()
+
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    from pgixs_python.ui_backend import console_session as cs
+
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    assert console.polar_check.isEnabled()
+
+    console.map_format_combo.setCurrentText("Pixel")
+    assert not console.polar_check.isEnabled()
+    assert not console.polar_check.isChecked()
+
+
+def test_polar_toggle_switches_view_and_recovers_cartesian_on_uncheck(qapp, tmp_path):
+    """The actual feature request: from Qxy/Qz, be able to switch to a
+    polar (angle vs |Q|) view and switch back. Checking Polar must change
+    the displayed data/axis labels; unchecking must recover the exact
+    Cartesian view (same data console_qspace_image would produce)."""
+
+    import numpy as np
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    cartesian_data = console._current_image_data.copy()
+    cartesian_xlabel = console._current_xlabel
+
+    console.polar_check.setChecked(True)
+    assert console._current_xlabel == "Angle, deg"
+    assert console._current_image_data.shape != cartesian_data.shape or not np.allclose(
+        console._current_image_data, cartesian_data, equal_nan=True
+    )
+
+    console.polar_check.setChecked(False)
+    assert console._current_xlabel == cartesian_xlabel
+    np.testing.assert_allclose(console._current_image_data, cartesian_data, equal_nan=True)
+
+
+def test_polar_view_uses_auto_aspect_not_equal(qapp, tmp_path):
+    """Regression: "polar view를 보면 그림이 이렇게 찌그러져" (the polar plot renders
+    squashed to a sliver). Root cause was aspect="equal" being hardcoded --
+    angle (0-360deg) and |Q| (maybe 0-0.1 1/A) have wildly different
+    natural scales, so forcing equal data-units-per-pixel crushes the
+    image into a thin strip. Polar must render with aspect="auto"; every
+    other view (Pixel, Cartesian Qxy/Qz, Qy/Qz) must keep aspect="equal"."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    assert console.image_canvas.ax.get_aspect() == 1.0
+
+    console.polar_check.setChecked(True)
+    assert console.image_canvas.ax.get_aspect() == "auto"
+
+    console.polar_check.setChecked(False)
+    assert console.image_canvas.ax.get_aspect() == 1.0
+
+
+def test_polar_check_resets_when_map_format_changes(qapp, tmp_path):
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    console.polar_check.setChecked(True)
+    assert console.polar_check.isChecked()
+
+    console.map_format_combo.setCurrentText("Qy/Qz")
+    assert not console.polar_check.isChecked()
+    assert console.polar_check.isEnabled()
 
 
 def test_line_overlay_in_q_mode_draws_a_real_curve_not_a_single_point(qapp, tmp_path):

@@ -131,3 +131,84 @@ def image_transform_q_tr(
     """Forward-map a TrXS detector image onto a uniform (qy, qz) grid."""
 
     return _forward_map_to_q_grid(data, qy_map, qz_map, beam_pos, pixel_mm, wavelength_a, sdd_mm)
+
+
+def polar_transform_q_grid(
+    data: np.ndarray,
+    horizontal_q_map: np.ndarray,
+    vertical_q_map: np.ndarray,
+    n_angle_bins: int = 360,
+    n_r_bins: int = 300,
+    angle_range: tuple[float, float] = (0.0, 360.0),
+) -> QSpaceImage:
+    """Remap a Cartesian (horizontal, vertical) Q image onto a polar grid
+    centered at the origin (q=0, the beam position in Q-space) -- lets the
+    Qxy/Qz or Qy/Qz Cartesian plot be viewed as a polar (angle vs |Q|) plot.
+
+    Unlike `_forward_map_to_q_grid`'s bilinear splat (which only works
+    because its target axes are *linear* functions of pixel position),
+    polar (r, theta) are nonlinear functions of (horizontal, vertical), so
+    this bins by nearest-cell mean instead: r = hypot(h, v), theta =
+    atan2(v, -h) in [0, 360). This matches this codebase's one and only
+    angle convention everywhere else (`pixel_angle_map`, the click-to-angle
+    formula, Cakecut, the Azimuthal Process): 0deg at 9 o'clock (-horizontal,
+    left), 90deg at 12 o'clock (+vertical, up), 180deg at 3 o'clock
+    (+horizontal, right), increasing clockwise -- not the plain-math
+    atan2(v, h) convention (0deg at 3 o'clock, counterclockwise).
+
+    `angle_range` restricts the swept angles (and bins only that span, not
+    the full circle) -- GIXS geometry only ever has meaningful scattering
+    above the horizon, matching `angular_profile`'s same (0, 180) default
+    for the Azimuthal Process; TrXS uses the full ring, (0, 360).
+
+    The mapping is switched back to Cartesian simply by re-requesting
+    `image_transform_q_gi`/`image_transform_q_tr`'s ordinary grid -- this
+    function does not mutate or replace anything, so "recovering" the
+    original view is just re-rendering it.
+    """
+
+    angle_min, angle_max = sorted((float(angle_range[0]), float(angle_range[1])))
+    angle_bin_width = (angle_max - angle_min) / n_angle_bins
+    angle_axis = (angle_min + (np.arange(n_angle_bins, dtype=np.float64) + 0.5) * angle_bin_width).astype(np.float32)
+
+    horizontal = np.asarray(horizontal_q_map, dtype=np.float64)
+    vertical = np.asarray(vertical_q_map, dtype=np.float64)
+    values = np.asarray(data, dtype=np.float64)
+    finite = np.isfinite(values) & np.isfinite(horizontal) & np.isfinite(vertical)
+
+    if np.any(finite):
+        theta_all = np.degrees(np.arctan2(vertical[finite], -horizontal[finite])) % 360.0
+        finite_idx = np.flatnonzero(finite)
+        in_range = finite_idx[(theta_all >= angle_min) & (theta_all <= angle_max)]
+    else:
+        in_range = np.array([], dtype=np.int64)
+
+    if in_range.size == 0:
+        r_axis = np.arange(n_r_bins, dtype=np.float32)
+        return QSpaceImage(angle_axis, r_axis, np.full((n_r_bins, n_angle_bins), np.nan, dtype=np.float32))
+
+    h = horizontal.ravel()[in_range]
+    v = vertical.ravel()[in_range]
+    val = values.ravel()[in_range]
+
+    r = np.hypot(h, v)
+    theta = np.degrees(np.arctan2(v, -h)) % 360.0
+
+    r_max = float(r.max())
+    r_bin_width = r_max / n_r_bins if r_max > 0 else 1.0
+
+    r_idx = np.clip(np.floor(r / r_bin_width).astype(np.int64), 0, n_r_bins - 1)
+    angle_idx = np.clip(np.floor((theta - angle_min) / angle_bin_width).astype(np.int64), 0, n_angle_bins - 1)
+    flat_idx = r_idx * n_angle_bins + angle_idx
+    n_total = n_r_bins * n_angle_bins
+
+    sums = np.bincount(flat_idx, weights=val, minlength=n_total)
+    counts = np.bincount(flat_idx, minlength=n_total)
+
+    image = np.full(n_total, np.nan, dtype=np.float64)
+    covered = counts > 0
+    image[covered] = sums[covered] / counts[covered]
+    image = image.reshape(n_r_bins, n_angle_bins).astype(np.float32)
+
+    r_axis = ((np.arange(n_r_bins, dtype=np.float64) + 0.5) * r_bin_width).astype(np.float32)
+    return QSpaceImage(angle_axis, r_axis, image)

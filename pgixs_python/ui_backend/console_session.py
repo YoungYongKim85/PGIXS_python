@@ -60,7 +60,7 @@ from pgixs_python.processing.grid_remove import grid_remove
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
 from pgixs_python.processing.normalization import process_normalization
 from pgixs_python.qmap.gixs import qmap_gixs
-from pgixs_python.qmap.transform import image_transform_q_gi, image_transform_q_tr
+from pgixs_python.qmap.transform import image_transform_q_gi, image_transform_q_tr, polar_transform_q_grid
 from pgixs_python.qmap.trxs import qmap_trxs
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
 
@@ -497,6 +497,38 @@ def console_qspace_image(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def console_polar_image(payload: dict[str, Any]) -> dict[str, Any]:
+    """Polar (angle vs |Q|) remap of the current Cartesian Q image,
+    centered at q=0 (the beam) -- the "Polar" toggle next to Map format.
+    Switching back to a plain Qxy/Qz or Qy/Qz view (console_qspace_image)
+    is how the Cartesian view is "recovered"; this function never mutates
+    session state, so nothing needs undoing."""
+
+    if _SESSION.data is None or _SESSION.qmap is None:
+        return {"ok": False, "message": "Run q-Map Cal. first."}
+
+    mapping = str(payload.get("mapping", "Qxy/Qz")).strip()
+    data_for_transform = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    qmap = _SESSION.qmap
+    horizontal_map = qmap.get("qy") if mapping == "Qy/Qz" else qmap.get("qr")
+    if horizontal_map is None or "qz" not in qmap:
+        return {"ok": False, "message": f"{mapping} map is not available."}
+
+    # Same reasoning as console_azimuthal_1d: GIXS's grazing-incidence
+    # geometry only ever scatters above the horizon, so restrict the polar
+    # sweep to a half-circle; TrXS keeps the full ring.
+    angle_range = (0.0, 180.0) if _SESSION.mode == "gixs" else (0.0, 360.0)
+    result = polar_transform_q_grid(data_for_transform, horizontal_map, qmap["qz"], angle_range=angle_range)
+
+    return {
+        "ok": True,
+        "mapping": mapping,
+        "horizontal_range": _finite_range(result.horizontal_axis),
+        "vertical_range": _finite_range(result.vertical_axis),
+        "preview": downsample_2d_for_json(result.image, max_points=1024),
+    }
+
+
 def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.qmap is None or _SESSION.data is None:
         return {"ok": False, "message": "Run q-Map Cal. first."}
@@ -621,6 +653,11 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
     data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
     beam_pos = _SESSION.calibration["beam_pos"]
     radius_range = (pixel + range_minus, pixel + range_plus)
+    # GIXS's grazing-incidence geometry only ever scatters above the
+    # horizon -- the lower half-circle is symmetric-empty, so restrict the
+    # sweep the same way MATLAB GIXS_gui.m does (`theta = 0:0.2:180`).
+    # TrXS's transmission geometry uses the full ring, matching TrXS_gui.m.
+    angle_range = (0.0, 180.0) if _SESSION.mode == "gixs" else (0.0, 360.0)
 
     result = angular_profile(
         data_for_1d,
@@ -628,6 +665,7 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
         radius_range=radius_range,
         n_angle_bins=n_angle_bins,
         use_median=use_median,
+        angle_range=angle_range,
     )
     _SESSION.last_curve = {
         "kind": "azimuthal",
@@ -973,6 +1011,7 @@ __all__ = [
     "console_load_info",
     "console_load_progress",
     "console_normalize",
+    "console_polar_image",
     "console_qmap",
     "console_qspace_image",
     "console_save",

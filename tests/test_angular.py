@@ -64,3 +64,25 @@ def test_angular_profile_reports_low_coverage_for_masked_quadrant():
     result = angular_profile(data, center=center, radius_range=(2.0, 5.0), n_angle_bins=4)
 
     assert result.coverage[0] == 0.0
+
+
+def test_angular_profile_angle_range_restricts_sweep_to_half_circle():
+    """GIXS callers pass angle_range=(0, 180) (grazing incidence only ever
+    scatters above the horizon) -- the returned axis/bins must cover just
+    that half, not the full circle, and pixels outside it must not leak
+    into the average."""
+
+    data = np.full((13, 13), 5.0, dtype=np.float32)
+    center = (7.0, 7.0)
+    cols, rows = np.meshgrid(np.arange(1, 14, dtype=np.float64), np.arange(1, 14, dtype=np.float64))
+    angle = np.mod(np.degrees(np.arctan2(-(rows - center[1]), -(cols - center[0]))), 360.0)
+    data[angle > 180.0] = 1000.0  # would blow up the mean if it leaked in
+
+    result = angular_profile(data, center=center, radius_range=(2.0, 5.0), n_angle_bins=6, angle_range=(0.0, 180.0))
+
+    assert result.angle_axis.shape == (6,)
+    assert result.angle_axis.min() >= 0.0
+    assert result.angle_axis.max() <= 180.0
+    finite = np.isfinite(result.intensity)
+    assert np.any(finite)
+    assert np.allclose(result.intensity[finite], 5.0)

@@ -137,6 +137,89 @@ def test_console_qspace_image_works_for_trxs(tmp_path):
     assert payload["ok"], payload.get("message")
 
 
+def test_console_polar_image_requires_qmap(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+
+    payload = cs.console_polar_image({})
+
+    assert not payload["ok"]
+    assert "q-Map Cal." in payload["message"]
+
+
+def test_console_polar_image_returns_polar_preview(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_polar_image({"mapping": "Qxy/Qz"})
+
+    assert payload["ok"], payload.get("message")
+    assert payload["mapping"] == "Qxy/Qz"
+    # GIXS restricts the sweep to 0-180deg (see the dedicated test below);
+    # the angle axis still exists and is well-formed either way.
+    assert payload["horizontal_range"]["min"] is not None
+    assert payload["horizontal_range"]["max"] < 360.0
+    assert payload["vertical_range"]["max"] > payload["vertical_range"]["min"]
+    assert len(payload["preview"]) > 0
+    # Must actually differ from the Cartesian Qxy/Qz preview -- otherwise
+    # the "Polar" toggle would silently do nothing.
+    cartesian_preview = cs.console_qspace_image({"mapping": "Qxy/Qz"})["preview"]
+    assert payload["preview"] != cartesian_preview
+
+
+def test_console_polar_image_supports_qy_qz_mapping(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_polar_image({"mapping": "Qy/Qz"})
+
+    assert payload["ok"], payload.get("message")
+    assert payload["mapping"] == "Qy/Qz"
+
+
+def test_console_polar_image_gixs_sweeps_only_0_to_180(tmp_path):
+    """Regression: GIXS's grazing-incidence geometry only ever scatters
+    above the horizon -- the Polar view should sweep 0-180deg, matching
+    console_azimuthal_1d's same restriction."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path, mode="gixs")
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_polar_image({"mapping": "Qxy/Qz"})
+
+    assert payload["ok"], payload.get("message")
+    assert payload["horizontal_range"]["min"] >= 0.0
+    assert payload["horizontal_range"]["max"] <= 180.0
+
+
+def test_console_polar_image_trxs_sweeps_full_360(tmp_path):
+    """Regression: TrXS's transmission geometry uses the full ring."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path, mode="trxs")
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})
+
+    payload = cs.console_polar_image({"mapping": "Qy/Qz"})
+
+    assert payload["ok"], payload.get("message")
+    assert payload["horizontal_range"]["min"] >= 0.0
+    assert payload["horizontal_range"]["max"] <= 360.0
+    assert payload["horizontal_range"]["max"] > 180.0
+
+
 def test_console_line_1d_requires_qmap():
     cs.reset_session()
 
@@ -247,6 +330,44 @@ def test_console_azimuthal_1d_returns_curve(tmp_path):
     assert payload["ok"]
     assert len(payload["preview"]["angle"]) == 16
     assert cs.get_session().last_curve["kind"] == "azimuthal"
+
+
+def test_console_azimuthal_1d_gixs_sweeps_only_0_to_180(tmp_path):
+    """Regression: GIXS's grazing-incidence geometry only ever scatters
+    above the horizon (matches MATLAB GIXS_gui.m's `theta = 0:0.2:180`) --
+    the Azimuthal profile should sweep 0-180deg, not the full circle."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path, mode="gixs")
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_azimuthal_1d({"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 16})
+
+    assert payload["ok"]
+    angle = np.asarray(payload["preview"]["angle"], dtype=np.float64)
+    assert angle.min() >= 0.0
+    assert angle.max() <= 180.0
+
+
+def test_console_azimuthal_1d_trxs_sweeps_full_360(tmp_path):
+    """Regression: TrXS's transmission geometry uses the full ring
+    (matches MATLAB TrXS_gui.m's `theta = 0:0.2:360`)."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path, mode="trxs")
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    payload = cs.console_azimuthal_1d({"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 16})
+
+    assert payload["ok"]
+    angle = np.asarray(payload["preview"]["angle"], dtype=np.float64)
+    assert angle.min() >= 0.0
+    assert angle.max() <= 360.0
+    assert angle.max() > 180.0
 
 
 def test_console_grid_remove_requires_loaded_data():

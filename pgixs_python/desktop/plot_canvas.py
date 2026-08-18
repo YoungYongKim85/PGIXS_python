@@ -63,6 +63,7 @@ class ImageCanvas(QWidget):
         title: str = "",
         font_size: int = 10,
         keep_limits: bool = False,
+        aspect: str = "equal",
     ) -> tuple[float, float]:
         """Render `data` and return the (vmin, vmax) actually used -- either
         the caller's own values or the auto-computed ones, so the caller can
@@ -114,7 +115,7 @@ class ImageCanvas(QWidget):
             norm=norm,
             origin="upper",
             extent=extent,
-            aspect="equal",
+            aspect=aspect,
             interpolation="nearest",
         )
         # `figure.colorbar(im, ax=self.ax, ...)` makes constrained_layout
@@ -285,6 +286,7 @@ class CurveCanvas(QWidget):
         self.figure = Figure(figsize=(5, 2.6), constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setMinimumHeight(160)
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.ax = self.figure.add_subplot(111)
         self._data_x: np.ndarray = np.empty(0)
         self._data_y: np.ndarray = np.empty(0)
@@ -293,11 +295,14 @@ class CurveCanvas(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
         self.canvas.mpl_connect("button_press_event", self._on_click)
         self.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.canvas.mpl_connect("figure_leave_event", self._hide_hover)
+        self.canvas.mpl_connect("scroll_event", self._on_scroll)
 
     def render(
         self,
@@ -344,6 +349,16 @@ class CurveCanvas(QWidget):
         # non-positive points from a log axis the same way on first render
         # as on a later live toggle.
         self.set_scales(xlog, ylog)
+        # Same reasoning as ImageCanvas.render(): we replot via ax.clear()
+        # + ax.plot() directly rather than through the toolbar's own
+        # pan/zoom handlers, so its nav stack never otherwise learns about
+        # this new curve -- reset it here so Home/back always return to
+        # *this* curve's full extent instead of a stale previous one.
+        self.toolbar.update()
+        self.toolbar.push_current()
+
+    def reset_view(self) -> None:
+        self.toolbar.home()
 
     def set_scales(self, xlog: bool, ylog: bool) -> None:
         """Toggle X/Y between linear and log without touching the plotted
@@ -373,6 +388,30 @@ class CurveCanvas(QWidget):
         if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
             return
         self.point_clicked.emit(float(event.xdata), float(event.ydata))
+
+    def _on_scroll(self, event) -> None:
+        if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            return
+        factor = 0.8 if event.button == "up" else 1.25
+        self.ax.set_xlim(self._zoomed_limits(self.ax.get_xlim(), event.xdata, factor, self.ax.get_xscale() == "log"))
+        self.ax.set_ylim(self._zoomed_limits(self.ax.get_ylim(), event.ydata, factor, self.ax.get_yscale() == "log"))
+        self.canvas.draw_idle()
+
+    @staticmethod
+    def _zoomed_limits(
+        limits: tuple[float, float], center: float, factor: float, log: bool
+    ) -> tuple[float, float]:
+        """Scale `limits` toward/away from `center` by `factor`, done in
+        log10 space when the axis is log-scaled -- naive linear
+        interpolation on a log axis's limits skews the zoom off-center and
+        can walk a bound through zero/negative, which matplotlib then
+        rejects outright."""
+
+        lo, hi = limits
+        if log and lo > 0 and hi > 0 and center > 0:
+            log_lo, log_hi, log_c = np.log10(lo), np.log10(hi), np.log10(center)
+            return (10 ** (log_c - (log_c - log_lo) * factor), 10 ** (log_c + (log_hi - log_c) * factor))
+        return (center - (center - lo) * factor, center + (hi - center) * factor)
 
     def _on_motion(self, event) -> None:
         if self._hover_marker is None or self._data_x.size == 0:

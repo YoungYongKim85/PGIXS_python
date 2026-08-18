@@ -29,12 +29,19 @@ def angular_profile(
     n_angle_bins: int = 180,
     use_median: bool = False,
     calc_std: bool = False,
+    angle_range: tuple[float, float] = (0.0, 360.0),
 ) -> AngularProfileResult:
     """Ring intensity profile versus angle at a fixed pixel-radius range.
 
     Mirrors the MATLAB `DrawPlot_Callback` polar sampling: for each angle
     bin, average the pixels whose radius from `center` falls inside
     `radius_range`. Angle convention matches `make_sector_mask`.
+
+    `angle_range` restricts the swept angles (and bins only that span, not
+    the full circle) -- GIXS geometry only ever has meaningful scattering
+    above the horizon (matching MATLAB GIXS_gui's `theta = (0:0.2:180)`,
+    a half-circle sweep), while TrXS's transmission geometry uses the full
+    ring (MATLAB TrXS_gui's `theta = (0:0.2:360)`).
     """
 
     image = np.asarray(data, dtype=np.float32)
@@ -51,14 +58,15 @@ def angular_profile(
     radius = np.hypot(cols - float(center[0]), rows - float(center[1]))
 
     r_min, r_max = sorted((float(radius_range[0]), float(radius_range[1])))
-    ring_mask = (radius >= r_min) & (radius <= r_max)
+    angle_min, angle_max = sorted((float(angle_range[0]), float(angle_range[1])))
+    ring_mask = (radius >= r_min) & (radius <= r_max) & (angle >= angle_min) & (angle <= angle_max)
 
     n_bins = max(1, int(n_angle_bins))
-    bin_width = 360.0 / n_bins
-    bin_index = np.minimum(np.floor(angle / bin_width).astype(np.int64), n_bins - 1)
+    bin_width = (angle_max - angle_min) / n_bins
+    bin_index = np.clip(np.floor((angle - angle_min) / bin_width).astype(np.int64), 0, n_bins - 1)
 
     binned = qbin_average(image, bin_index, n_bins, use_median=use_median, calc_std=calc_std, geom_mask=ring_mask)
-    angle_axis = ((np.arange(n_bins, dtype=np.float64) + 0.5) * bin_width).astype(np.float32)
+    angle_axis = (angle_min + (np.arange(n_bins, dtype=np.float64) + 0.5) * bin_width).astype(np.float32)
 
     return AngularProfileResult(
         radius_range=(r_min, r_max),
