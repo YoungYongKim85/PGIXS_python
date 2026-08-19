@@ -105,6 +105,68 @@ def save_standard_calibration_json(file_path: str | Path, calibration: StandardC
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def save_standard_calibration_mat(file_path: str | Path, calibration: StandardCalibration) -> None:
+    """Save a MATLAB-compatible `.mat` copy of an SDD calibration, matching
+    `SDDcal_gui.m`'s `Savepara_Callback` field names exactly (round-trips
+    through `load_standard_calibration` unchanged, same as a real MATLAB
+    `.mat` calibration file already does)."""
+
+    scipy_io = _import_scipy_io()
+    path = Path(file_path)
+    payload: dict[str, Any] = {
+        "pc": np.asarray(calibration.beam_center, dtype=np.float64),
+        "wavelength": float(calibration.wavelength),
+        "pixelsize": float(calibration.pixel_size),
+        "sdd": float(calibration.sdd),
+        "dttypename": calibration.detector,
+        "index_dt": calibration.detector_index,
+    }
+    if calibration.standard_peak is not None:
+        payload["STpeak"] = np.asarray(calibration.standard_peak, dtype=np.float64)
+    if calibration.standard_q_value is not None:
+        payload["STqvalue"] = float(calibration.standard_q_value)
+    if calibration.image_shape is not None:
+        payload["imgdim"] = np.asarray(calibration.image_shape, dtype=np.float64)
+    # SDDDiagnostics (Phase 2's ring-candidate table) contains a list of
+    # per-ring dicts -- scipy.io.savemat can't represent that shape
+    # directly (no heterogeneous struct-array support without extra
+    # wrangling), so it's left out of the .mat copy for now; .json already
+    # carries it in full via _json_safe.
+    scipy_io.savemat(path, payload)
+
+
+def save_standard_calibration_std(file_path: str | Path, calibration: StandardCalibration) -> None:
+    """Save the plain-ASCII `.std` calibration format (MATLAB `stdsave.m`),
+    extended with a photon energy field alongside wavelength in section 3
+    -- this port always has both readily available, unlike the original
+    MATLAB tool. `calibration.beam_center` here is written as-is, so pass
+    a center already in whatever convention the caller wants on disk (see
+    `sddcal_session.sddcal_save`, which shifts it +1 for this file, same
+    as `.mat`, since both represent MATLAB's native 1-based pixel indexing
+    -- `.json` stays 0-based, this app's own internal convention)."""
+
+    path = Path(file_path)
+    peak = calibration.standard_peak
+    radius = float(peak[0]) if peak is not None and peak.size else float("nan")
+    q_value = calibration.standard_q_value if calibration.standard_q_value is not None else float("nan")
+    energy_kev = calibration.energy_kev if calibration.energy_kev is not None else float("nan")
+    center = np.asarray(calibration.beam_center, dtype=np.float64).reshape(-1)
+    lines = [
+        "%1 center coordinate(yc,zc)",
+        f"  {center[0]:.6E} ,   {center[1]:.6E}",
+        "%2. Distances from center to peak  and q value ( h1st, q1st)",
+        f"  {radius:.6E} ,   {q_value:.6E}",
+        "%3. Wave length[A], Energy[keV], and Pixel size[mm]",
+        f"  {calibration.wavelength:.6E}  ,  {energy_kev:.6E}  ,   {calibration.pixel_size:.6E}",
+        "%4. Sample to detector distance[mm]",
+        f"  {calibration.sdd:.6E}",
+        "%5. detector type and name",
+        f"{calibration.detector_index},{calibration.detector}",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def wavelength_to_energy_kev(wavelength: float) -> float:
     """Return photon energy in keV from wavelength in Angstrom."""
 
@@ -115,13 +177,59 @@ def wavelength_to_energy_kev(wavelength: float) -> float:
 
 
 def _load_raw_calibration(path: Path) -> dict[str, Any]:
-    if path.suffix.lower() == ".json":
+    suffix = path.suffix.lower()
+    if suffix == ".json":
         return json.loads(path.read_text(encoding="utf-8"))
-    if path.suffix.lower() != ".mat":
+    if suffix == ".std":
+        return _parse_std_calibration(path)
+    if suffix != ".mat":
         raise ValueError(f"Unsupported calibration file format: {path.suffix}")
     scipy_io = _import_scipy_io()
     loaded = scipy_io.loadmat(path, squeeze_me=True, struct_as_record=False)
     return {key: _mat_to_python(value) for key, value in loaded.items() if not key.startswith("__")}
+
+
+def _parse_std_calibration(path: Path) -> dict[str, Any]:
+    """Parse `stdsave.m`'s plain-ASCII format into the same raw-dict shape
+    the `.mat`/`.json` branches produce. Handles both the original MATLAB
+    layout (section 3: wavelength, pixel size) and this app's own extended
+    layout (section 3: wavelength, energy, pixel size) -- see
+    `save_standard_calibration_std`."""
+
+    lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    value_lines = [line for line in lines if not line.startswith("%")]
+    if len(value_lines) < 5:
+        raise ValueError(f"Malformed .std calibration file (expected 5 value lines): {path}")
+
+    def _values(line: str) -> list[float]:
+        return [float(part.strip()) for part in line.split(",")]
+
+    yc, zc = _values(value_lines[0])
+    radius, q_value = _values(value_lines[1])
+    section3 = _values(value_lines[2])
+    if len(section3) == 3:
+        wavelength, energy_kev, pixel_size = section3
+    else:
+        wavelength, pixel_size = section3
+        energy_kev = None
+    (sdd,) = _values(value_lines[3])
+    detector_parts = value_lines[4].split(",")
+    index_dt = detector_parts[0].strip() if detector_parts else ""
+    dttypename = detector_parts[1].strip() if len(detector_parts) > 1 else ""
+
+    raw: dict[str, Any] = {
+        "pc": [yc, zc],
+        "wavelength": wavelength,
+        "pixelsize": pixel_size,
+        "sdd": sdd,
+        "dttypename": dttypename,
+        "index_dt": index_dt,
+        "STpeak": radius,
+        "STqvalue": q_value,
+    }
+    if energy_kev is not None:
+        raw["Energy"] = energy_kev
+    return raw
 
 
 def _mat_to_python(value: Any) -> Any:

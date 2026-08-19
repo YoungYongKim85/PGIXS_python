@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget
 
 from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config, trxs_config
+from pgixs_python.desktop.sddcal_widget import SDDcalWidget
 
 
 class MainWindow(QMainWindow):
@@ -14,8 +15,13 @@ class MainWindow(QMainWindow):
         self.resize(1480, 940)
 
         self.tabs = QTabWidget()
+        # SDD calibration comes first -- it's the first thing done in a real
+        # experiment (GIXS/TrXS both need its output before Q-space analysis
+        # works at all).
+        self.sddcal = SDDcalWidget()
         self.gixs_console = ConsoleWidget(gixs_config())
         self.trxs_console = ConsoleWidget(trxs_config())
+        self.tabs.addTab(self.sddcal, "SDD Calibration")
         self.tabs.addTab(self.gixs_console, "Console (GIXS)")
         self.tabs.addTab(self.trxs_console, "Console (TrXS)")
         self.setCentralWidget(self.tabs)

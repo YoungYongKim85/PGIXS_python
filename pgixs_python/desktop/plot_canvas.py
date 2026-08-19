@@ -316,6 +316,7 @@ class CurveCanvas(QWidget):
         self._data_y: np.ndarray = np.empty(0)
         self._hover_marker = None
         self._hover_text = None
+        self._overlay_artists: list = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -340,6 +341,7 @@ class CurveCanvas(QWidget):
         ylog: bool = False,
     ) -> None:
         self.ax.clear()
+        self._overlay_artists = []
         # Explicit float64 (not just np.asarray(x)) matters when a caller
         # hands us JSON-style data where masked/non-finite points were
         # serialized as None instead of NaN (e.g. preview.py's
@@ -384,6 +386,36 @@ class CurveCanvas(QWidget):
     def reset_view(self) -> None:
         self.toolbar.home()
 
+    def mark_range(self, x1: float, x2: float, color: str = "b") -> None:
+        """Two dashed vertical bound lines at `x1`/`x2` -- the SDD
+        Calibration tab's range-select-then-fit workflow uses this to show
+        which part of the curve a click-selected pair of points bounds
+        (matches MATLAB `OneDplotpixel_gui.m`'s `getBounds` boundary
+        lines), one color per side for the symmetric +/- fit mode."""
+
+        (line,) = self.ax.plot([x1, x1], self.ax.get_ylim(), linestyle="--", color=color, linewidth=1.5)
+        self._overlay_artists.append(line)
+        (line2,) = self.ax.plot([x2, x2], self.ax.get_ylim(), linestyle="--", color=color, linewidth=1.5)
+        self._overlay_artists.append(line2)
+        self.canvas.draw_idle()
+
+    def overlay_line(self, x: np.ndarray, y: np.ndarray, color: str = "r") -> None:
+        """Draw an arbitrary (x, y) curve on top of the current plot --
+        used to show a Gaussian fit result over the data it was fit to."""
+
+        (line,) = self.ax.plot(x, y, color=color, linewidth=2.0)
+        self._overlay_artists.append(line)
+        self.canvas.draw_idle()
+
+    def clear_overlays(self) -> None:
+        for artist in self._overlay_artists:
+            try:
+                artist.remove()
+            except (ValueError, NotImplementedError):
+                pass
+        self._overlay_artists = []
+        self.canvas.draw_idle()
+
     def set_scales(self, xlog: bool, ylog: bool) -> None:
         """Toggle X/Y between linear and log without touching the plotted
         data -- lets ColorScale-style controls apply live, matching the
@@ -403,6 +435,7 @@ class CurveCanvas(QWidget):
         self._data_y = np.empty(0)
         self._hover_marker = None
         self._hover_text = None
+        self._overlay_artists = []
         self.canvas.draw_idle()
 
     def save_figure(self, path: str) -> None:

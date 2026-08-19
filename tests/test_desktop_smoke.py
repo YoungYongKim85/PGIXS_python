@@ -24,13 +24,18 @@ def qapp():
     yield app
 
 
-def test_main_window_constructs_with_two_tabs(qapp):
+def test_main_window_constructs_with_three_tabs(qapp):
+    """SDD Calibration comes first -- it's the first thing done in a real
+    experiment, and GIXS/TrXS both need its output before Q-space analysis
+    works at all."""
+
     from pgixs_python.desktop.main_window import MainWindow
 
     window = MainWindow()
-    assert window.tabs.count() == 2
-    assert window.tabs.tabText(0) == "Console (GIXS)"
-    assert window.tabs.tabText(1) == "Console (TrXS)"
+    assert window.tabs.count() == 3
+    assert window.tabs.tabText(0) == "SDD Calibration"
+    assert window.tabs.tabText(1) == "Console (GIXS)"
+    assert window.tabs.tabText(2) == "Console (TrXS)"
 
 
 def test_gixs_console_has_incidence_and_footprint_widgets(qapp):
