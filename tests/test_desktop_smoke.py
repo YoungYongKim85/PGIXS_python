@@ -93,6 +93,60 @@ def test_contrast_auto_resets_after_background_subtraction(qapp, tmp_path, monke
     assert (console.cmin_spin.value(), console.cmax_spin.value()) != (500.0, 600.0)
 
 
+def test_contrast_spin_boxes_keep_precision_for_small_subtracted_values(qapp, tmp_path, monkeypatch):
+    """Regression: "background subtraction 후에 이미지의 contrast가 소수점으로
+    되는데, 그게 Contrast 텍스트 박스와 colormap에 제대로 반영이 안돼" --
+    QDoubleSpinBox.setValue() *rounds* to its `decimals` setting, not just
+    display-formats, so the old 3-decimal cmin/cmax spins silently
+    collapsed small background-subtracted contrast values (routinely well
+    under 1.0) toward 0.000, sometimes making cmin == cmax -- which
+    _apply_display_settings then treats as "auto" and throws away the
+    real computed range on the very next live-control change."""
+
+    import h5py
+    import numpy as np
+    from PySide6.QtWidgets import QMessageBox
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+
+    # Raw data clustered tightly around 10.0 and a background right at
+    # 10.0 -- the subtracted result's whole range sits well under 0.001,
+    # exactly the regime the 3-decimal spin boxes used to round away.
+    # _load_test_frame's own frame is irrelevant here -- overwrite it with a
+    # fresh console_load carrying the tight-cluster values instead.
+    frame_path = tmp_path / "frame.h5"
+    raw_data = (10.0 + np.random.default_rng(1).uniform(0.0001, 0.0003, size=(20, 24))).astype(np.float32)
+    with h5py.File(frame_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=raw_data[None, :, :])
+    result = cs.console_load(
+        {"directory": str(tmp_path), "filename": frame_path.name, "mode": "gixs", "detector": "TestDetector", "multishot": False}
+    )
+    assert result["ok"], result.get("message")
+    console._on_load_finished(result)
+
+    bkg_path = tmp_path / "bkg.h5"
+    bkg_data = np.full((20, 24), 10.0, dtype=np.float32)
+    with h5py.File(bkg_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=bkg_data[None, :, :])
+    bkg_result = cs.console_background_load({"directory": str(tmp_path), "filename": bkg_path.name, "multishot": False})
+    assert bkg_result["ok"], bkg_result.get("message")
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    console._on_subtract_clicked()
+
+    cmin, cmax = console.cmin_spin.value(), console.cmax_spin.value()
+    assert cmax > cmin  # distinct, not both rounded down to the same value
+    assert cmax - cmin < 0.01  # actually representing the real, tiny range
+
+    # And a subsequent live-control change (e.g. Colormap) must keep using
+    # that real range, not silently fall back to "auto" because cmin/cmax
+    # read back as equal.
+    console._apply_display_settings()
+    assert (console.cmin_spin.value(), console.cmax_spin.value()) == (cmin, cmax)
+
+
 def test_trxs_circular_mask_draw_start_and_reject_outside_pixel_mode(qapp, tmp_path):
     console = _load_test_frame_trxs(tmp_path)
     assert console.image_canvas._polygon_selector is None
@@ -142,6 +196,45 @@ def test_trxs_circular_mask_polygon_complete_sets_and_clears_mask(qapp, tmp_path
     console._on_circ_mask_clear_clicked()
     assert cs.get_session().circular_mask is None
     assert console.circ_mask_status_label.text() == "Mask: none"
+
+
+def test_circ_sector_overlay_draws_live_as_angle_spins_change(qapp, tmp_path):
+    """Regression: "Draw 버튼이 아닌 이건 바로 라인이 그어지고 진행이 되면 좋을 것
+    같아" -- editing Ang. Avg min/max must redraw the sector boundary rays
+    immediately, with no separate Draw button to click first (mirrors how
+    Contrast/Colormap/etc. already apply live elsewhere in this app)."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    assert not hasattr(console, "circ_draw_button")
+
+    console.circ_angle_min_spin.setValue(90.0)
+    console.circ_angle_max_spin.setValue(180.0)
+
+    assert len(console.image_canvas._overlay_artists) == 2
+
+
+def test_circ_sector_overlay_skips_a_full_360_sweep(qapp, tmp_path):
+    """A full-circle Ang. Avg range has no meaningful boundary -- both rays
+    would land on the same angle, so nothing should draw instead of a
+    misleading stray line."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    assert cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+
+    assert console.circ_angle_min_spin.value() == 0.0
+    assert console.circ_angle_max_spin.value() == 360.0
+    console._update_circ_sector_overlay()
+
+    assert len(console.image_canvas._overlay_artists) == 0
 
 
 def test_gixs_and_trxs_consoles_keep_independent_sessions(qapp):

@@ -48,7 +48,21 @@ from pgixs_python.ui_backend import console_session as cs
 
 # Matplotlib ships 160+ colormaps; a curated shortlist is easier to pick
 # from than the full registry. viridis is first/default.
-_COLORMAPS = ["viridis", "turbo", "hot", "gray", "ocean", "magma", "RdBu", "binary", "gist_earth"]
+_COLORMAPS = [
+    "viridis",
+    "turbo",
+    "hot",
+    "gray",
+    "ocean",
+    "magma",
+    "RdBu",
+    "RdBu_r",
+    "binary",
+    "gist_earth",
+    "nipy_spectral",
+    "twilight",
+    "twilight_shifted",
+]
 
 
 @dataclass
@@ -439,7 +453,18 @@ class ConsoleWidget(QWidget):
             self.circ_min_coverage_spin = _double_spin(0.0, 1.0, 2, 0.80, 0.05)
             self.circ_median_check = QCheckBox("Median")
             self.circ_std_check = QCheckBox("Std")
-            layout.addWidget(_field("Ang. Avg (min/max)", self.circ_angle_min_spin, self.circ_angle_max_spin))
+            ang_avg_field = _field("Ang. Avg (min/max)", self.circ_angle_min_spin, self.circ_angle_max_spin)
+            ang_avg_field.setToolTip(
+                "The sector's boundary rays draw live on the 2D Image Plot as you edit\n"
+                "these -- see which wedge of the detector Circular Average will use.\n"
+                "Nothing to draw for a full 0-360deg sweep."
+            )
+            layout.addWidget(ang_avg_field)
+            # Live, not a button -- redraws the boundary rays the moment
+            # either value changes (spin boxes have setKeyboardTracking(False),
+            # so this fires on step/scroll/Enter/focus-loss, not every keystroke).
+            self.circ_angle_min_spin.valueChanged.connect(self._update_circ_sector_overlay)
+            self.circ_angle_max_spin.valueChanged.connect(self._update_circ_sector_overlay)
             layout.addWidget(_field("Min coverage", self.circ_min_coverage_spin))
             layout.addWidget(_row(self.circ_median_check, self.circ_std_check))
             self.circ_mask_draw_button = QPushButton("Draw Mask")
@@ -652,8 +677,16 @@ class ConsoleWidget(QWidget):
             )
         )
 
-        self.cmin_spin = _double_spin(-1.0e12, 1.0e12, 3, 0.0, 1.0)
-        self.cmax_spin = _double_spin(-1.0e12, 1.0e12, 3, 0.0, 1.0)
+        # QDoubleSpinBox.setValue() *rounds* to `decimals`, not just
+        # display-formats -- 3 decimals silently collapsed background-
+        # subtracted contrast values (routinely << 1, e.g. 0.000123) to
+        # 0.000, and when both cmin and cmax rounded to the same value the
+        # box read back cmax <= cmin, which _apply_display_settings treats
+        # as "auto" and silently threw away the real computed range. 6
+        # decimals keeps small values distinguishable; large raw-count
+        # values just show extra trailing zeros.
+        self.cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        self.cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
         self.yrange_min_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.yrange_max_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.zrange_min_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
@@ -1845,6 +1878,33 @@ class ConsoleWidget(QWidget):
     # ------------------------------------------------------------------
     # Circular Process (TrXS)
     # ------------------------------------------------------------------
+    def _update_circ_sector_overlay(self) -> None:
+        """Redraw the Ang. Avg sector's boundary rays live, in step with
+        circ_angle_min_spin/circ_angle_max_spin -- no separate Draw button,
+        since there's nothing to confirm first (mirrors how Contrast/
+        Colormap/etc. already apply live elsewhere in this app)."""
+
+        self._activate()
+        if self.circ_angle_min_spin is None:
+            return
+        self.image_canvas.clear_overlays()
+        angle_min = self.circ_angle_min_spin.value()
+        angle_max = self.circ_angle_max_spin.value()
+        # A 0-360deg (or any full-turn) sweep has no meaningful boundary to
+        # show -- both rays would land on the same angle, which reads as a
+        # stray line rather than "this is the whole detector".
+        if (angle_max - angle_min) % 360.0 == 0.0:
+            return
+        if self._axis_mode != "pixel":
+            beam_y = self.beam_y_spin.value()
+            beam_z = self.beam_z_spin.value()
+            self._draw_q_space_line(beam_y, beam_z, angle_min, bidirectional=False)
+            self._draw_q_space_line(beam_y, beam_z, angle_max, bidirectional=False)
+        else:
+            center = self._current_beam_center()
+            self.image_canvas.draw_beam_line(center, self._mode_corrected_angle(angle_min), bidirectional=False)
+            self.image_canvas.draw_beam_line(center, self._mode_corrected_angle(angle_max), bidirectional=False)
+
     def _on_circular_clicked(self) -> None:
         self._activate()
         if self.circ_angle_min_spin is None:
