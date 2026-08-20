@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from pgixs_python.processing import (
     DetectorCorrectionInputs,
@@ -7,10 +8,53 @@ from pgixs_python.processing import (
     detector_correction_factor,
     detector_mask_for_type,
     grid_remove,
+    kapton_efficiency,
+    load_attenuation_table,
     mask_zero_to_nan,
     polarization,
+    silicon_efficiency,
     solid_angle,
 )
+
+
+def test_load_attenuation_table_kapton_matches_matlab_source():
+    table = load_attenuation_table("kapton")
+    assert table.shape == (221, 2)
+    np.testing.assert_allclose(table[0], [8.0, 0.12046956], rtol=1e-6)
+    np.testing.assert_allclose(table[-1], [30.0, 9.22952295], rtol=1e-6)
+
+
+def test_load_attenuation_table_silicon_matches_matlab_source():
+    table = load_attenuation_table("silicon")
+    assert table.shape == (221, 2)
+    np.testing.assert_allclose(table[0], [8.0, 6.97258535e-03], rtol=1e-6)
+    np.testing.assert_allclose(table[-1], [30.0, 0.37614752], rtol=1e-6)
+
+
+def test_load_attenuation_table_rejects_unknown_name():
+    with pytest.raises(ValueError):
+        load_attenuation_table("bogus")
+
+
+def test_kapton_and_silicon_efficiency_run_with_real_tables():
+    shape = (20, 20)
+    center = (10.5, 10.5)
+    k0 = 2.0 * np.pi / 1.0
+    y, z = np.meshgrid(np.arange(1, shape[1] + 1, dtype=np.float64), np.arange(1, shape[0] + 1, dtype=np.float64))
+    q_map = np.hypot(y - center[0], z - center[1]).astype(np.float32) * 0.01
+
+    kapton_table = load_attenuation_table("kapton")
+    silicon_table = load_attenuation_table("silicon")
+
+    kapton_eff = kapton_efficiency(q_map, kapton_table, k0, energy_kev=9.5, data_size=shape, beam_position=center, pixel_size_mm=0.075)
+    silicon_eff = silicon_efficiency(q_map, k0, silicon_table, energy_kev=9.5)
+
+    assert kapton_eff.shape == shape
+    assert silicon_eff.shape == shape
+    assert np.all(np.isfinite(kapton_eff))
+    assert np.all(np.isfinite(silicon_eff))
+    assert np.nanmax(kapton_eff) == pytest.approx(1.0, abs=1e-5)
+    assert np.nanmin(silicon_eff) == pytest.approx(1.0, abs=1e-5)
 
 
 def test_apply_detector_mask_preserves_gap_as_nan():

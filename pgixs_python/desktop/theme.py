@@ -12,6 +12,8 @@ figures rather than generic form fields.
 
 from __future__ import annotations
 
+from PySide6.QtGui import QColor, QPalette
+
 WINDOW_BG = "#f4f5f8"
 PANEL_BG = "#ffffff"
 PANEL_ALT_BG = "#fafbfc"
@@ -38,6 +40,60 @@ WARN = "#b3441f"
 # Consolas is the pre-11 Windows fallback; generic monospace covers the rest.
 MONO = '"Cascadia Mono", "Consolas", "JetBrains Mono", monospace'
 
+
+def build_light_palette() -> QPalette:
+    """A fully-specified light QPalette for `QApplication.setPalette()`.
+
+    Setting Window/Base/Text/etc. isn't enough on its own: Fusion's frame
+    and groove shading for QGroupBox/QSplitter/QTabWidget (the bevel around
+    a group box's floating title, a splitter handle's grip) is drawn from
+    the "3D" roles -- Light/Midlight/Mid/Dark/Shadow -- which QPalette's own
+    default constructor leaves at near-black regardless of Window/Base, so
+    any role left unset here still paints black no matter what the rest of
+    the palette or the QSS says.
+    """
+
+    palette = QPalette()
+    window = QColor(WINDOW_BG)
+    base = QColor(PANEL_BG)
+    alt_base = QColor(PANEL_ALT_BG)
+    text = QColor(TEXT)
+    muted = QColor(MUTED)
+    button = QColor(PANEL_ALT_BG)
+    accent = QColor(ACCENT)
+    disabled_text = QColor("#a7acb5")
+
+    palette.setColor(QPalette.Window, window)
+    palette.setColor(QPalette.WindowText, text)
+    palette.setColor(QPalette.Base, base)
+    palette.setColor(QPalette.AlternateBase, alt_base)
+    palette.setColor(QPalette.ToolTipBase, base)
+    palette.setColor(QPalette.ToolTipText, text)
+    palette.setColor(QPalette.Text, text)
+    palette.setColor(QPalette.Button, button)
+    palette.setColor(QPalette.ButtonText, text)
+    palette.setColor(QPalette.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.Link, accent)
+    palette.setColor(QPalette.Highlight, accent)
+    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.PlaceholderText, muted)
+
+    # The "3D" bevel roles -- left at QPalette's own black-ish defaults,
+    # these are what was actually painting the group box / splitter black.
+    palette.setColor(QPalette.Light, QColor("#ffffff"))
+    palette.setColor(QPalette.Midlight, QColor(PANEL_ALT_BG))
+    palette.setColor(QPalette.Mid, QColor(BORDER_STRONG))
+    palette.setColor(QPalette.Dark, QColor("#8b929e"))
+    palette.setColor(QPalette.Shadow, QColor(MUTED))
+
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        palette.setColor(QPalette.Disabled, role, disabled_text)
+    palette.setColor(QPalette.Disabled, QPalette.Base, alt_base)
+    palette.setColor(QPalette.Disabled, QPalette.Window, window)
+
+    return palette
+
+
 STYLESHEET = f"""
 * {{
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -49,19 +105,42 @@ QMainWindow, QWidget#rootBackground {{
     background: {WINDOW_BG};
 }}
 
-QWidget {{
-    background: transparent;
-}}
-
 QScrollArea {{
     border: none;
     background: transparent;
+}}
+
+QTabWidget {{
+    background: {WINDOW_BG};
+}}
+
+/* Explicit, not load-bearing since the universal transparent-background
+   rule that used to apply to every plain QWidget was removed (see git
+   history -- that rule was the actual root cause of a family of black
+   render seams: it forced WA_StyledBackground onto every plain QWidget
+   app-wide, which made Fusion skip its normal erase-to-parent-color step
+   for any pixel the stylesheet itself didn't explicitly paint, and a
+   transparent background paints nothing -- visible only in the live
+   composited window, never in an in-process QWidget.grab(), which is what
+   made it so hard to pin down). Kept here anyway as cheap, harmless
+   insurance. */
+SDDcalWidget, ConsoleWidget, XTransWidget, PenetrationWidget, GIXS2Widget {{
+    background: {WINDOW_BG};
 }}
 
 QTabWidget::pane {{
     border: 1px solid {BORDER};
     border-radius: 6px;
     top: -1px;
+    background: {WINDOW_BG};
+}}
+
+QTabWidget::tab-bar {{
+    background: {WINDOW_BG};
+    alignment: left;
+}}
+
+QTabBar {{
     background: {WINDOW_BG};
 }}
 
@@ -242,6 +321,37 @@ QPushButton[state="ok"] {{
     background: {SUCCESS_BG};
     border: 1px solid {SUCCESS_BORDER};
     color: #1f5c30;
+}}
+
+QTableWidget {{
+    background: {PANEL_BG};
+    alternate-background-color: {PANEL_ALT_BG};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    gridline-color: {BORDER};
+}}
+
+QTableWidget::item {{
+    padding: 3px;
+}}
+
+QHeaderView::section {{
+    background: {PANEL_ALT_BG};
+    color: {MUTED};
+    border: none;
+    border-bottom: 1px solid {BORDER};
+    border-right: 1px solid {BORDER};
+    padding: 4px;
+    font-weight: 600;
+}}
+
+QTableCornerButton::section {{
+    background: {PANEL_ALT_BG};
+    border: none;
+}}
+
+QSplitter {{
+    background: {WINDOW_BG};
 }}
 
 QSplitter::handle {{

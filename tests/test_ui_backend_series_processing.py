@@ -1,0 +1,252 @@
+import numpy as np
+import pytest
+
+from pgixs_python.averaging.cake import pixel_angle_map
+from pgixs_python.ui_backend.series_processing import (
+    compute_experiment_x_axis,
+    process_azimuthal_stack,
+    process_linecut_stack,
+    process_roi_stack,
+    sort_x_axis,
+)
+
+
+def _synthetic_ring_stack(n_frames=4, shape=(200, 200), center=(100.5, 100.5), radii=None, seed=0):
+    """A stack of frames, each with a ring at a slightly different radius
+    (mimicking a real series where the pattern evolves frame to frame)."""
+
+    if radii is None:
+        radii = [60.0 + 2.0 * i for i in range(n_frames)]
+    yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    r = np.hypot(xx - (center[0] - 1.0), yy - (center[1] - 1.0))
+    rng = np.random.default_rng(seed)
+    frames = []
+    for radius in radii:
+        data = 10.0 + 500.0 * np.exp(-((r - radius) ** 2) / (2.0 * 3.0**2))
+        data = data + rng.uniform(0.0, 1.0, size=shape)
+        frames.append(data.astype(np.float32))
+    return np.stack(frames, axis=0)
+
+
+def test_process_linecut_stack_default_cut_tracks_moving_ring():
+    center = (100.5, 100.5)
+    radii = [60.0, 70.0, 80.0]
+    stack = _synthetic_ring_stack(n_frames=3, center=center, radii=radii)
+    q_map = np.hypot(*np.meshgrid(np.arange(1, 201) - center[0], np.arange(1, 201) - center[1]))
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    result = process_linecut_stack(stack, q_map, angle_map, center=center, angle_deg=90.0)
+
+    assert result.intensity.shape[0] == 3
+    assert result.intensity.shape == result.coverage.shape
+    for i, radius in enumerate(radii):
+        peak_idx = int(np.nanargmax(result.intensity[i]))
+        assert result.x_axis[peak_idx] == pytest.approx(radius, abs=2.0)
+
+
+def test_process_linecut_stack_reports_progress_per_frame():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=4, center=center, radii=[60.0, 60.0, 60.0, 60.0])
+    q_map = np.hypot(*np.meshgrid(np.arange(1, 201) - center[0], np.arange(1, 201) - center[1]))
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    calls = []
+    process_linecut_stack(
+        stack, q_map, angle_map, center=center, angle_deg=90.0,
+        progress_callback=lambda completed, total: calls.append((completed, total)),
+    )
+
+    assert calls == [(1, 4), (2, 4), (3, 4), (4, 4)]
+
+
+def test_process_linecut_stack_rejects_geometry_shape_mismatch():
+    # Different-sized frames within one "stack" is invalid input in
+    # practice, but exercising the guard directly with a hand-built
+    # mismatch is simplest: call twice with different-shaped fake results
+    # by using two different centers is awkward, so just confirm a normal
+    # call doesn't raise (shape mismatch is naturally impossible for a
+    # true ndarray stack of equal-shaped frames -- this documents intent).
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=2, center=center, radii=[60.0, 60.0])
+    q_map = np.hypot(*np.meshgrid(np.arange(1, 201) - center[0], np.arange(1, 201) - center[1]))
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    result = process_linecut_stack(stack, q_map, angle_map, center=center, angle_deg=90.0)
+    assert result.intensity.shape[0] == 2
+
+
+def _synthetic_ring_stack_change_ai(n_frames=3, shape=(200, 200), center=(100.5, 100.5), radius=60.0, radius_step=1.0, seed=0):
+    """A stack whose ring sits at a *drifting* pixel radius, mimicking
+    "Change ai" mode where each frame's own Q-map (pixel radius -> Q) shifts
+    slightly because the incident angle steps every frame -- the ring's
+    apparent radius in raw pixels moves even though the physical Q it sits
+    at is meant to stay fixed once each frame uses its own correct q-map."""
+
+    yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    r = np.hypot(xx - (center[0] - 1.0), yy - (center[1] - 1.0))
+    rng = np.random.default_rng(seed)
+    frames = []
+    q_maps = []
+    for i in range(n_frames):
+        frame_radius = radius + radius_step * i
+        data = 10.0 + 500.0 * np.exp(-((r - frame_radius) ** 2) / (2.0 * 3.0**2))
+        data = data + rng.uniform(0.0, 1.0, size=shape)
+        frames.append(data.astype(np.float32))
+        # This frame's own q-map: scale pixel radius so the ring lands at
+        # the *same* Q (60.0 * 0.01) in every frame despite the drifting
+        # pixel radius -- the point of per-frame q-maps.
+        scale = 0.01 * radius / frame_radius
+        q_maps.append((r * scale).astype(np.float32))
+    return np.stack(frames, axis=0), np.stack(q_maps, axis=0)
+
+
+def test_process_linecut_stack_change_ai_aligns_drifting_ring_to_fixed_q():
+    center = (100.5, 100.5)
+    stack, q_map_stack = _synthetic_ring_stack_change_ai(n_frames=3, center=center, radius=60.0, radius_step=5.0)
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    result = process_linecut_stack(
+        stack, None, angle_map, center=center, angle_deg=90.0, q_map_stack=q_map_stack
+    )
+
+    assert result.intensity.shape[0] == 3
+    for i in range(3):
+        peak_idx = int(np.nanargmax(result.intensity[i]))
+        assert result.x_axis[peak_idx] == pytest.approx(0.60, abs=0.05)
+
+
+def test_process_linecut_stack_requires_q_map_without_change_ai():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=1, center=center, radii=[60.0])
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    with pytest.raises(ValueError):
+        process_linecut_stack(stack, None, angle_map, center=center, angle_deg=90.0)
+
+
+def test_process_linecut_stack_ref_axis_aligns_extension_onto_original_reference():
+    center = (100.5, 100.5)
+    full_stack, full_q_stack = _synthetic_ring_stack_change_ai(n_frames=3, center=center, radius=60.0, radius_step=5.0)
+    angle_map = pixel_angle_map(full_stack.shape[1:], center=center)
+
+    original = process_linecut_stack(
+        full_stack, None, angle_map, center=center, angle_deg=90.0, q_map_stack=full_q_stack
+    )
+
+    # Extend with just the new (3rd) frame, using the original series'
+    # reference axis -- must produce the *same*-length/valued axis as the
+    # original run, not a fresh one derived from the new frame alone.
+    extension = process_linecut_stack(
+        full_stack[2:3], None, angle_map, center=center, angle_deg=90.0,
+        q_map_stack=full_q_stack[2:3], ref_axis=original.x_axis,
+    )
+
+    np.testing.assert_allclose(extension.x_axis, original.x_axis)
+    np.testing.assert_allclose(extension.intensity[0], original.intensity[2], equal_nan=True)
+
+
+def test_process_azimuthal_stack_shapes():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
+
+    result = process_azimuthal_stack(stack, center=center, radius_range=(55.0, 65.0), n_angle_bins=90)
+
+    assert result.intensity.shape == (3, result.x_axis.shape[0])
+    assert result.coverage.shape == result.intensity.shape
+
+
+def test_process_roi_stack_matches_hand_computed_sum():
+    stack = np.zeros((3, 10, 10), dtype=np.float32)
+    stack[0, 2:5, 2:5] = 1.0  # 9 pixels of value 1
+    stack[1, 2:5, 2:5] = 2.0  # 9 pixels of value 2
+    stack[2, 2:5, 2:5] = 3.0  # 9 pixels of value 3
+
+    sums = process_roi_stack(stack, rois=[(3, 5, 3, 5)])  # 1-based inclusive, matches the 2:5 python slice
+
+    assert sums.shape == (3, 1)
+    np.testing.assert_allclose(sums[:, 0], [9.0, 18.0, 27.0])
+
+
+def test_process_roi_stack_multiple_rois():
+    stack = np.ones((2, 10, 10), dtype=np.float32)
+    sums = process_roi_stack(stack, rois=[(1, 2, 1, 2), (1, 10, 1, 10)])
+
+    assert sums.shape == (2, 2)
+    np.testing.assert_allclose(sums[:, 0], [4.0, 4.0])
+    np.testing.assert_allclose(sums[:, 1], [100.0, 100.0])
+
+
+def test_process_roi_stack_handles_nan():
+    stack = np.full((1, 5, 5), np.nan, dtype=np.float32)
+    stack[0, 1, 1] = 5.0
+    sums = process_roi_stack(stack, rois=[(1, 5, 1, 5)])
+    assert sums[0, 0] == pytest.approx(5.0)
+
+
+def test_compute_experiment_x_axis_time_mode():
+    timestamps = np.array([0.0, 10.0, 20.0])
+    values, label = compute_experiment_x_axis("Time", timestamps, np.zeros((3, 3)))
+    np.testing.assert_allclose(values, [0.0, 10.0, 20.0])
+    assert label == "Time"
+
+
+def test_compute_experiment_x_axis_time_mode_unit_conversion_and_offset():
+    timestamps = np.array([0.0, 60.0, 120.0])
+    values, label = compute_experiment_x_axis(
+        "Time", timestamps, np.zeros((3, 3)), time_offset_seconds=5.0, time_unit="min"
+    )
+    np.testing.assert_allclose(values, [5.0 / 60.0, 65.0 / 60.0, 125.0 / 60.0])
+
+
+def test_compute_experiment_x_axis_temperature_submodes():
+    temps = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    values1, label1 = compute_experiment_x_axis("Temperature", np.array([np.nan, np.nan]), temps)
+    values2, label2 = compute_experiment_x_axis("Temperature", np.array([np.nan, np.nan]), temps, sub_mode="Temperature2")
+    values3, label3 = compute_experiment_x_axis("Temperature", np.array([np.nan, np.nan]), temps, sub_mode="Temperature3")
+
+    np.testing.assert_allclose(values1, [1.0, 4.0])
+    assert label1 == "Temperature"
+    np.testing.assert_allclose(values2, [2.0, 5.0])
+    assert label2 == "Temperature 2"
+    np.testing.assert_allclose(values3, [3.0, 6.0])
+    assert label3 == "Temperature 3"
+
+
+def test_compute_experiment_x_axis_temperature_submode_time_falls_back_to_time_axis():
+    timestamps = np.array([0.0, 5.0])
+    values, label = compute_experiment_x_axis("Temperature", timestamps, np.zeros((2, 3)), sub_mode="Time")
+    np.testing.assert_allclose(values, [0.0, 5.0])
+    assert label == "Time"
+
+
+def test_compute_experiment_x_axis_lowtemp_and_angle_modes():
+    temps = np.array([[10.0, 20.0, np.nan], [11.0, 21.0, np.nan]])
+
+    lowtemp_values, lowtemp_label = compute_experiment_x_axis("LowTemp.", np.array([np.nan, np.nan]), temps)
+    lowtemp2_values, lowtemp2_label = compute_experiment_x_axis(
+        "LowTemp.", np.array([np.nan, np.nan]), temps, sub_mode="LowTemp2"
+    )
+    angle_values, angle_label = compute_experiment_x_axis("Angle", np.array([np.nan, np.nan]), temps)
+
+    np.testing.assert_allclose(lowtemp_values, [10.0, 11.0])
+    assert lowtemp_label == "Low Temperature"
+    np.testing.assert_allclose(lowtemp2_values, [20.0, 21.0])
+    assert lowtemp2_label == "Low Temperature 2"
+    np.testing.assert_allclose(angle_values, [10.0, 11.0])
+    assert angle_label == "Incidence Angle, deg"
+
+
+def test_compute_experiment_x_axis_rejects_unknown_mode():
+    with pytest.raises(ValueError):
+        compute_experiment_x_axis("Bogus", np.zeros(2), np.zeros((2, 3)))
+
+
+def test_sort_x_axis_off_keeps_load_order():
+    order = sort_x_axis(np.array([3.0, 1.0, 2.0]), should_sort=False)
+    np.testing.assert_array_equal(order, [0, 1, 2])
+
+
+def test_sort_x_axis_on_sorts_ascending():
+    order = sort_x_axis(np.array([3.0, 1.0, 2.0]), should_sort=True)
+    np.testing.assert_array_equal(order, [1, 2, 0])

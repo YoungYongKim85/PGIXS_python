@@ -73,6 +73,40 @@ def build_1d_table(data: OneDExport, include_diagnostics: bool = False) -> tuple
     return np.column_stack(arrays).astype(np.float32), columns
 
 
+def save_series_data(
+    file_path: str | Path,
+    x_axis: np.ndarray,
+    x_label: str,
+    matrix: np.ndarray,
+    column_labels: list[str],
+) -> Path:
+    """Save a GIXS2-style series curve: one shared axis column plus one
+    intensity column per series frame (Save 1D/Save Azi/Save Integ).
+
+    `matrix` is `(n_frames, n_points)` (the shape `series_processing.py`'s
+    `SeriesCurveResult.intensity` and `process_roi_stack` both produce) --
+    transposed here so each frame becomes its own column, matching the
+    MATLAB save layout (one Q/angle/X-axis column, N frame columns).
+    """
+
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    x = _as_1d(x_axis, "x_axis")
+    mat = np.asarray(matrix, dtype=np.float32)
+    if mat.ndim != 2 or mat.shape[1] != x.size:
+        raise ValueError(f"matrix must be (n_frames, {x.size}); got {mat.shape}.")
+    if len(column_labels) != mat.shape[0]:
+        raise ValueError(f"column_labels must have {mat.shape[0]} entries; got {len(column_labels)}.")
+
+    table = np.column_stack([x, mat.T]).astype(np.float32)
+    columns = [x_label, *column_labels]
+    delimiter = "," if path.suffix.lower() == ".csv" else "\t"
+    header = delimiter.join(columns)
+    np.savetxt(path, table, delimiter=delimiter, header=header, comments="", fmt="%.10g")
+    return path
+
+
 def _as_1d(value: np.ndarray, name: str) -> np.ndarray:
     arr = np.asarray(value, dtype=np.float32).reshape(-1)
     if arr.size == 0:

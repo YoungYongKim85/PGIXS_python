@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
+from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
@@ -19,6 +20,15 @@ from matplotlib.widgets import PolygonSelector
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+
+def _resolve_cmap(name: str):
+    import matplotlib.pyplot as plt
+
+    try:
+        return plt.get_cmap(name).copy()
+    except ValueError:
+        return plt.get_cmap("viridis").copy()
 
 
 class ImageCanvas(QWidget):
@@ -109,7 +119,7 @@ class ImageCanvas(QWidget):
 
         norm = LogNorm(vmin=max(vmin, 1e-9), vmax=vmax) if log_scale else Normalize(vmin=vmin, vmax=vmax)
         masked = np.ma.masked_invalid(data)
-        cmap_obj = self._resolve_cmap(cmap)
+        cmap_obj = _resolve_cmap(cmap)
         cmap_obj.set_bad(color="white")
 
         self._image = self.ax.imshow(
@@ -271,15 +281,6 @@ class ImageCanvas(QWidget):
     def save_figure(self, path: str) -> None:
         self.figure.savefig(path, dpi=150, facecolor="white")
 
-    @staticmethod
-    def _resolve_cmap(name: str):
-        import matplotlib.pyplot as plt
-
-        try:
-            return plt.get_cmap(name).copy()
-        except ValueError:
-            return plt.get_cmap("viridis").copy()
-
     def _on_click(self, event) -> None:
         if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
             return
@@ -317,6 +318,7 @@ class CurveCanvas(QWidget):
         self._hover_marker = None
         self._hover_text = None
         self._overlay_artists: list = []
+        self._colorbar = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -329,6 +331,18 @@ class CurveCanvas(QWidget):
         self.canvas.mpl_connect("figure_leave_event", self._hide_hover)
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
 
+    def _reset_axes(self) -> None:
+        """Full figure clear + recreate `self.ax`, rather than
+        `self.ax.clear()` -- a colorbar (added by `render_series`) owns a
+        second axes appended to the figure, and `ax.clear()` alone leaves
+        it behind as a stale orphan on the next plain `render()` call.
+        Same reasoning/approach as `ImageCanvas.render`."""
+
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)
+        self._colorbar = None
+        self._overlay_artists = []
+
     def render(
         self,
         x: np.ndarray,
@@ -340,8 +354,7 @@ class CurveCanvas(QWidget):
         xlog: bool = False,
         ylog: bool = False,
     ) -> None:
-        self.ax.clear()
-        self._overlay_artists = []
+        self._reset_axes()
         # Explicit float64 (not just np.asarray(x)) matters when a caller
         # hands us JSON-style data where masked/non-finite points were
         # serialized as None instead of NaN (e.g. preview.py's
@@ -383,6 +396,86 @@ class CurveCanvas(QWidget):
         self.toolbar.update()
         self.toolbar.push_current()
 
+    def render_series(
+        self,
+        x: np.ndarray,
+        y_matrix: np.ndarray,
+        color_values: np.ndarray,
+        *,
+        xlabel: str = "",
+        ylabel: str = "Intensity, arb. units",
+        colorbar_label: str = "",
+        cmap: str = "viridis",
+        xlog: bool = False,
+        ylog: bool = False,
+        max_curves: int = 200,
+    ) -> None:
+        """Plot every row of `y_matrix` (one curve per series frame) against
+        the shared `x` axis, each colored by its own `color_values[i]` on a
+        continuous colormap with a colorbar -- port of GIXS2_gui.m's
+        `update1Dplot_Callback` (which color-codes by frame index through a
+        raw `jet` colormap and a colorbar re-labeled with the X-axis
+        variable's name/unit). This uses the real `color_values` on a
+        continuous `Normalize` scale instead, so the colorbar's ticks are
+        directly the Time/Temperature/Angle values rather than needing a
+        separate index-to-value tick remap.
+
+        `max_curves` downsamples evenly across the series (matches
+        MATLAB's own `MAX_CURVES` guard) since a real series can run to
+        thousands of frames -- plotting all of them is both unreadable and
+        slow.
+        """
+
+        self._reset_axes()
+        self._data_x = np.asarray(x, dtype=np.float64)
+        y_matrix = np.asarray(y_matrix, dtype=np.float64)
+        color_values = np.asarray(color_values, dtype=np.float64)
+        n_curves = y_matrix.shape[0]
+
+        if n_curves > max_curves:
+            sel = np.unique(np.round(np.linspace(0, n_curves - 1, max_curves)).astype(np.int64))
+        else:
+            sel = np.arange(n_curves)
+
+        finite_colors = color_values[np.isfinite(color_values)]
+        if finite_colors.size:
+            vmin, vmax = float(np.min(finite_colors)), float(np.max(finite_colors))
+        else:
+            vmin, vmax = 0.0, 1.0
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+        norm = Normalize(vmin=vmin, vmax=vmax)
+        cmap_obj = _resolve_cmap(cmap)
+
+        self._data_y = y_matrix[sel[-1]] if sel.size else np.empty(0)
+        for i in sel:
+            color = cmap_obj(norm(color_values[i])) if np.isfinite(color_values[i]) else "#888888"
+            self.ax.plot(self._data_x, y_matrix[i], color=color, linewidth=1.0)
+
+        self.ax.set_xlabel(xlabel, fontsize=10)
+        self.ax.set_ylabel(ylabel, fontsize=10)
+        self.ax.grid(True, alpha=0.25)
+        self.ax.tick_params(labelsize=8)
+        (self._hover_marker,) = self.ax.plot(
+            [], [], marker="+", markersize=10, markeredgewidth=2, color="#ff5a1f", linestyle="None", zorder=5
+        )
+        self._hover_marker.set_visible(False)
+        self._hover_text = self.ax.text(
+            0.98, 0.96, "", transform=self.ax.transAxes, ha="right", va="top", fontsize=8,
+            color="#ff5a1f", bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#ff5a1f", alpha=0.85),
+            visible=False,
+        )
+        self.set_scales(xlog, ylog)
+
+        sm = ScalarMappable(norm=norm, cmap=cmap_obj)
+        sm.set_array([])
+        self._colorbar = self.figure.colorbar(sm, ax=self.ax)
+        self._colorbar.set_label(colorbar_label, fontsize=9)
+        self._colorbar.ax.tick_params(labelsize=8)
+
+        self.toolbar.update()
+        self.toolbar.push_current()
+
     def reset_view(self) -> None:
         self.toolbar.home()
 
@@ -397,6 +490,14 @@ class CurveCanvas(QWidget):
         self._overlay_artists.append(line)
         (line2,) = self.ax.plot([x2, x2], self.ax.get_ylim(), linestyle="--", color=color, linewidth=1.5)
         self._overlay_artists.append(line2)
+        self.canvas.draw_idle()
+
+    def draw_vline(self, x: float, color: str = "r") -> None:
+        """A single dashed vertical marker line spanning the current view
+        -- e.g. the critical-angle marker on the Penetration Depth plot."""
+
+        (line,) = self.ax.plot([x, x], self.ax.get_ylim(), linestyle="--", color=color, linewidth=1.5)
+        self._overlay_artists.append(line)
         self.canvas.draw_idle()
 
     def overlay_line(self, x: np.ndarray, y: np.ndarray, color: str = "r") -> None:
@@ -430,12 +531,11 @@ class CurveCanvas(QWidget):
         self.canvas.draw_idle()
 
     def clear(self) -> None:
-        self.ax.clear()
+        self._reset_axes()
         self._data_x = np.empty(0)
         self._data_y = np.empty(0)
         self._hover_marker = None
         self._hover_text = None
-        self._overlay_artists = []
         self.canvas.draw_idle()
 
     def save_figure(self, path: str) -> None:

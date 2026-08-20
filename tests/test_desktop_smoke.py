@@ -24,18 +24,23 @@ def qapp():
     yield app
 
 
-def test_main_window_constructs_with_three_tabs(qapp):
+def test_main_window_constructs_with_six_tabs(qapp):
     """SDD Calibration comes first -- it's the first thing done in a real
     experiment, and GIXS/TrXS both need its output before Q-space analysis
-    works at all."""
+    works at all. GIXS-series sits right after GIXS (same instrument/
+    geometry); XTrans/Penetration Depth are standalone calculators after
+    TrXS."""
 
     from pgixs_python.desktop.main_window import MainWindow
 
     window = MainWindow()
-    assert window.tabs.count() == 3
+    assert window.tabs.count() == 6
     assert window.tabs.tabText(0) == "SDD Calibration"
-    assert window.tabs.tabText(1) == "Console (GIXS)"
-    assert window.tabs.tabText(2) == "Console (TrXS)"
+    assert window.tabs.tabText(1) == "GIXS"
+    assert window.tabs.tabText(2) == "GIXS-series"
+    assert window.tabs.tabText(3) == "TrXS"
+    assert window.tabs.tabText(4) == "XTrans"
+    assert window.tabs.tabText(5) == "Penetration Depth"
 
 
 def test_gixs_console_has_incidence_and_footprint_widgets(qapp):

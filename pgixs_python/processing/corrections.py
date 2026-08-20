@@ -3,8 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
+
+_DATA_DIR = Path(__file__).parent / "data"
+
+
+@lru_cache(maxsize=None)
+def load_attenuation_table(name: str) -> np.ndarray:
+    """Load a `(energy_kev, attenuation_length_cm)` table -- `"kapton"` or
+    `"silicon"`, matching MATLAB's `KaptonAttLength8-30.mat`/
+    `SiAttLength8-30.mat` (`R` variable), used by `kapton_efficiency`/
+    `silicon_efficiency` for the "Change ai" angle-scanning correction."""
+
+    files = {"kapton": "kapton_attenuation_length.csv", "silicon": "si_attenuation_length.csv"}
+    if name not in files:
+        raise ValueError(f"Unknown attenuation table: {name!r} (expected 'kapton' or 'silicon').")
+    return np.loadtxt(_DATA_DIR / files[name], delimiter=",", skiprows=1)
 
 
 @dataclass

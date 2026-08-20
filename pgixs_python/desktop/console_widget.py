@@ -1,7 +1,7 @@
 """Shared GIXS/TrXS console widget.
 
 One `ConsoleWidget` class, parametrized by `ConsoleConfig`, serves both the
-"Console (GIXS)" and "Console (TrXS)" tabs -- mirroring the `createConsole(cfg)`
+"GIXS" and "TrXS" tabs -- mirroring the `createConsole(cfg)`
 JS factory pattern from the earlier web prototype, which proved out sharing
 ~90% of the structure between the two modes. Every button handler here is a
 thin wrapper: build a payload dict from widget values, call the matching
@@ -298,6 +298,13 @@ class ConsoleWidget(QWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         splitter = QSplitter(Qt.Horizontal)
+        # Fusion paints the handle's own rect with a hard-coded fill that
+        # ignores both QSS "background" and QApplication's QPalette --
+        # shrinking the handle to a hairline is what actually keeps it from
+        # rendering as a thick black bar (see theme.py's QSplitter::handle
+        # rule, which only controls the *color* once the rect is this small).
+        splitter.setHandleWidth(2)
+        splitter.setFrameShape(QFrame.NoFrame)
         root.addWidget(splitter)
 
         splitter.addWidget(self._build_left_panel())
@@ -626,6 +633,8 @@ class ConsoleWidget(QWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Vertical)
+        splitter.setHandleWidth(2)
+        splitter.setFrameShape(QFrame.NoFrame)
         layout.addWidget(splitter)
 
         plot_group = QGroupBox("2D Image Plot")

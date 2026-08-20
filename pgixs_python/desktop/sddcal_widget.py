@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -62,6 +63,10 @@ class SDDcalWidget(QWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         splitter = QSplitter(Qt.Horizontal)
+        # See console_widget.py's matching splitter for why this is needed:
+        # Fusion's handle paint ignores QSS background, so shrink the rect.
+        splitter.setHandleWidth(2)
+        splitter.setFrameShape(QFrame.NoFrame)
         root.addWidget(splitter)
 
         splitter.addWidget(self._build_left_panel())
@@ -204,6 +209,8 @@ class SDDcalWidget(QWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Vertical)
+        splitter.setHandleWidth(2)
+        splitter.setFrameShape(QFrame.NoFrame)
         layout.addWidget(splitter)
 
         plot_group = QGroupBox("2D Image Plot")
