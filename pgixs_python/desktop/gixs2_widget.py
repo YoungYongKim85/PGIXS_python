@@ -330,6 +330,7 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_field("N. ROI", self.n_roi_combo, self.draw_roi_button))
         self.normalize_roi_combo = QComboBox()
         self.normalize_roi_combo.addItems(_NORMALIZE_LIST)
+        self.normalize_roi_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
         self.normalize_roi_combo.currentTextChanged.connect(self._render_integration)
         layout.addWidget(_field("Normalize", self.normalize_roi_combo))
 
