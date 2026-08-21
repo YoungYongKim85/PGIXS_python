@@ -449,6 +449,10 @@ class GIXS2Widget(QWidget):
         oned_ctrl = QHBoxLayout()
         self.oned_scale_combo = QComboBox()
         self.oned_scale_combo.addItems(["Linear", "Logy", "Logxy"])
+        # Same cap as the left panel's Normalize/Mean-Median combos (see
+        # _COMBO_MAX_WIDTH's own docstring) -- alone in its control row, it
+        # would otherwise stretch to fill the row's full width.
+        self.oned_scale_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
         self.oned_scale_combo.currentTextChanged.connect(lambda _t: self._render_1d())
         oned_ctrl.addWidget(_field("Scale", self.oned_scale_combo, label_width=40))
         oned_ctrl_row = _control_row(oned_ctrl)
