@@ -15,8 +15,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolb
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
-from matplotlib.patches import Circle
-from matplotlib.widgets import PolygonSelector
+from matplotlib.patches import Circle, Rectangle
+from matplotlib.widgets import PolygonSelector, RectangleSelector
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -51,6 +51,7 @@ class ImageCanvas(QWidget):
         self._colorbar = None
         self._overlay_artists: list = []
         self._polygon_selector: PolygonSelector | None = None
+        self._rectangle_selector: RectangleSelector | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -248,6 +249,22 @@ class ImageCanvas(QWidget):
         self.ax.set_ylim(ylim)
         self.canvas.draw_idle()
 
+    def draw_roi_box(self, x1: float, x2: float, y1: float, y2: float, color: str, label: str) -> None:
+        """Persistent colored rectangle + label overlay marking one drawn
+        ROI (port of MATLAB `drawROIOverlay`/`ROIdef2_Callback`'s static
+        box) -- `color` is the same one used for this ROI's curve in the
+        Series Integration Viewer, so the box on the image and its curve
+        are visually linked, matching the MATLAB behavior this ports."""
+
+        left, right = sorted((x1, x2))
+        bottom, top = sorted((y1, y2))
+        rect = Rectangle((left, bottom), right - left, top - bottom, fill=False, edgecolor=color, linewidth=1.8)
+        self.ax.add_patch(rect)
+        text = self.ax.text(left, top, f" {label}", color=color, fontsize=9, fontweight="bold", va="bottom", ha="left")
+        self._overlay_artists.append(rect)
+        self._overlay_artists.append(text)
+        self.canvas.draw_idle()
+
     def clear_overlays(self) -> None:
         for artist in self._overlay_artists:
             try:
@@ -256,6 +273,34 @@ class ImageCanvas(QWidget):
                 pass
         self._overlay_artists = []
         self.canvas.draw_idle()
+
+    def start_rectangle_selector(self, on_complete, color: str = "yellow") -> None:
+        """Let the user drag out a single rectangle on the image;
+        `on_complete(x1, y1, x2, y2)` (data coordinates) fires once when the
+        drag finishes. Used for Draw ROI's one-rectangle-per-ROI flow --
+        the caller sets up a fresh selector for each subsequent ROI index,
+        matching MATLAB's sequential `drawrectangle` calls in
+        `ROIdef2_Callback`."""
+
+        self.stop_rectangle_selector()
+
+        def _handle(eclick, erelease) -> None:
+            x1, y1, x2, y2 = eclick.xdata, eclick.ydata, erelease.xdata, erelease.ydata
+            if x1 is None or y1 is None or x2 is None or y2 is None:
+                return
+            self.stop_rectangle_selector()
+            on_complete(x1, y1, x2, y2)
+
+        self._rectangle_selector = RectangleSelector(
+            self.ax, _handle, useblit=False, button=[1],
+            props=dict(facecolor="none", edgecolor=color, linewidth=1.6),
+            interactive=False,
+        )
+
+    def stop_rectangle_selector(self) -> None:
+        if self._rectangle_selector is not None:
+            self._rectangle_selector.disconnect_events()
+            self._rectangle_selector = None
 
     def start_polygon_selector(self, on_complete) -> None:
         """Let the user click out a polygon on the image (double-click, or
@@ -473,6 +518,56 @@ class CurveCanvas(QWidget):
         self._colorbar.set_label(colorbar_label, fontsize=9)
         self._colorbar.ax.tick_params(labelsize=8)
 
+        self.toolbar.update()
+        self.toolbar.push_current()
+
+    def render_multi(
+        self,
+        x: np.ndarray,
+        y_matrix: np.ndarray,
+        labels: list[str],
+        colors: list[str] | None = None,
+        *,
+        xlabel: str = "",
+        ylabel: str = "Intensity, arb. units",
+        xlog: bool = False,
+        ylog: bool = False,
+    ) -> None:
+        """Plot several explicitly-labeled/colored curves at once with a
+        legend -- for GIXS2's ROI Process, where each ROI has its own fixed
+        color (matched to its rectangle overlay on the 2D image, see
+        `ImageCanvas.draw_roi_box`) rather than a continuous colormap by
+        series X-axis value (`render_series`). Port of MATLAB
+        `PlotROI_Callback`'s per-ROI color + legend."""
+
+        self._reset_axes()
+        x = np.asarray(x, dtype=np.float64)
+        y_matrix = np.asarray(y_matrix, dtype=np.float64)
+        n_curves = y_matrix.shape[0]
+        self._data_x = x
+        self._data_y = y_matrix[0] if n_curves else np.empty(0)
+        markers = ["o", "s", "^", "D", "v", "P", "X"]
+        for i in range(n_curves):
+            color = colors[i] if colors is not None and i < len(colors) else None
+            label = labels[i] if i < len(labels) else f"Curve {i + 1}"
+            self.ax.plot(x, y_matrix[i], marker=markers[i % len(markers)], markersize=5, color=color, label=label, linewidth=1.5)
+
+        self.ax.set_xlabel(xlabel, fontsize=10)
+        self.ax.set_ylabel(ylabel, fontsize=10)
+        self.ax.grid(True, alpha=0.25)
+        self.ax.tick_params(labelsize=8)
+        if n_curves > 1:
+            self.ax.legend(fontsize=8, loc="best")
+        (self._hover_marker,) = self.ax.plot(
+            [], [], marker="+", markersize=10, markeredgewidth=2, color="#ff5a1f", linestyle="None", zorder=5
+        )
+        self._hover_marker.set_visible(False)
+        self._hover_text = self.ax.text(
+            0.98, 0.96, "", transform=self.ax.transAxes, ha="right", va="top", fontsize=8,
+            color="#ff5a1f", bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#ff5a1f", alpha=0.85),
+            visible=False,
+        )
+        self.set_scales(xlog, ylog)
         self.toolbar.update()
         self.toolbar.push_current()
 

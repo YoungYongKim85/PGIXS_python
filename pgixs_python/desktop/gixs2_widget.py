@@ -52,6 +52,12 @@ _SUB_MODE_ITEMS = {
     "Time": ["Time"],
 }
 _NORMALIZE_LIST = ["None", "IC", "BC"]
+# One color per ROI index (N. ROI tops out at 5) -- used for both the ROI's
+# rectangle overlay on the 2D image and its curve in the Series Integration
+# Viewer, so a box and its curve are visually linked at a glance. Port of
+# MATLAB PlotROI_Callback's roiColors, swapped for a set that stays legible
+# against this app's own light theme (MATLAB's 'y'/'w' entries wash out).
+_ROI_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4"]
 
 
 def _control_row(layout: QHBoxLayout) -> QWidget:
@@ -89,9 +95,7 @@ class GIXS2Widget(QWidget):
         super().__init__(parent)
         self._last_dir = str(Path.home())
         self._series_files: list[str] = []
-        self._roi_click_mode = False
-        self._roi_first_corner: tuple[float, float] | None = None
-        self._pending_rois: list[tuple[int, int, int, int]] = []
+        self._roi_dialog: QDialog | None = None
         self._load_thread = None
         self._exec_1d_thread = None
         self._current_image_data: np.ndarray | None = None
@@ -252,7 +256,9 @@ class GIXS2Widget(QWidget):
         self.n_roi_combo = QComboBox()
         self.n_roi_combo.addItems(["1", "2", "3", "4", "5"])
         self.draw_roi_button = QPushButton("Draw ROI")
-        self.draw_roi_button.setToolTip("Click two opposite corners on the 2D image per ROI.")
+        self.draw_roi_button.setToolTip(
+            "Opens a separate window (matching MATLAB) -- drag out one rectangle per ROI, each in its own color."
+        )
         self.draw_roi_button.clicked.connect(self._on_draw_roi_clicked)
         layout.addWidget(_field("N. ROI", self.n_roi_combo, self.draw_roi_button))
         self.normalize_roi_combo = QComboBox()
@@ -312,7 +318,6 @@ class GIXS2Widget(QWidget):
         image_group = QGroupBox("2D Image Plot Viewer")
         image_layout = QVBoxLayout(image_group)
         self.image_canvas = ImageCanvas()
-        self.image_canvas.pixel_clicked.connect(self._on_image_clicked)
         image_layout.addWidget(self.image_canvas)
         image_ctrl = QHBoxLayout()
         self.image_scale_combo = QComboBox()
@@ -685,9 +690,11 @@ class GIXS2Widget(QWidget):
             self.image_cmax_spin.blockSignals(False)
         # ImageCanvas.render() just fully rebuilt the figure/axes (see its
         # own docstring on why), which silently drops any previously-drawn
-        # overlay -- redraw the current 1D Plot Process geometry on top of
-        # the fresh image so it doesn't disappear on every re-render.
+        # overlay -- redraw the current 1D Plot Process geometry and any
+        # defined ROI boxes on top of the fresh image so neither disappears
+        # on every re-render.
         self._draw_1d_overlay()
+        self._draw_roi_overlay()
 
     def _image_extent(self, shape: tuple[int, int]) -> tuple[float, float, float, float]:
         """(left, right, bottom, top) for `ImageCanvas.render`'s `extent`,
@@ -1033,14 +1040,13 @@ class GIXS2Widget(QWidget):
         self._render_integration()
 
     # ------------------------------------------------------------------
-    # ROI
+    # ROI -- port of MATLAB `ROIdef2_Callback`: a separate "Draw ROI"
+    # window shows the averaged image, and rectangles are drawn one ROI at
+    # a time (drag, not two clicks), each in its own fixed color -- the
+    # same color then marks that ROI's box on the main 2D image and its
+    # curve in the Series Integration Viewer, so a box and its curve are
+    # visually linked (`_ROI_COLORS`).
     # ------------------------------------------------------------------
-    def _on_draw_roi_clicked(self) -> None:
-        self._pending_rois = []
-        self._roi_first_corner = None
-        self._roi_click_mode = True
-        self._set_status(f"Click two corners on the 2D image for each of {self.n_roi_combo.currentText()} ROI(s).", True)
-
     def _display_xy_to_raw_pixel(self, x: float, y: float) -> tuple[float, float]:
         """Convert a click's displayed (x, y) back to a raw (col, row) pixel
         index into the stack array -- identity when the axis is still raw
@@ -1053,32 +1059,96 @@ class GIXS2Widget(QWidget):
         beam_y, beam_z = gs.get_session().calibration["beam_pos"]
         return x + beam_y, beam_z - y
 
-    def _on_image_clicked(self, x: float, y: float) -> None:
-        if not self._roi_click_mode:
-            return
-        col, row = self._display_xy_to_raw_pixel(x, y)
-        if self._roi_first_corner is None:
-            self._roi_first_corner = (col, row)
-            self._set_status("Click the opposite corner.", True)
-            return
+    def _raw_pixel_to_display_xy(self, col: float, row: float) -> tuple[float, float]:
+        """Inverse of `_display_xy_to_raw_pixel` -- a raw (col, row) pixel
+        index to the currently-displayed (x, y), for redrawing a stored
+        ROI's box after the axis has (or hasn't) been beam-centered."""
 
-        c1_click, r1_click = self._roi_first_corner
-        r1, r2 = sorted((int(round(r1_click)), int(round(row))))
-        c1, c2 = sorted((int(round(c1_click)), int(round(col))))
-        self._pending_rois.append((r1, r2, c1, c2))
-        self._roi_first_corner = None
+        if not self._pixel_centered:
+            return col, row
+        beam_y, beam_z = gs.get_session().calibration["beam_pos"]
+        return col - beam_y, beam_z - row
+
+    def _draw_roi_overlay(self) -> None:
+        """Redraw every defined ROI's colored box on the main 2D Image Plot
+        Viewer -- called after Exec ROI succeeds and again at the tail of
+        `_render_image` (which just fully rebuilt the figure/axes, wiping
+        any previous overlay, same as `_draw_1d_overlay`)."""
+
+        session = gs.get_session()
+        if not session.roi_list or session.data is None:
+            return
+        for i, (r1, r2, c1, c2) in enumerate(session.roi_list):
+            x1, y1 = self._raw_pixel_to_display_xy(c1, r1)
+            x2, y2 = self._raw_pixel_to_display_xy(c2, r2)
+            self.image_canvas.draw_roi_box(x1, x2, y1, y2, _ROI_COLORS[i % len(_ROI_COLORS)], f"ROI {i + 1}")
+
+    def _on_draw_roi_clicked(self) -> None:
+        session = gs.get_session()
+        if session.data is None:
+            self._set_status("Load a series first.", False)
+            return
 
         n_roi = int(self.n_roi_combo.currentText())
-        if len(self._pending_rois) >= n_roi:
-            self._roi_click_mode = False
-            result = gs.gixs2_roi_exec({"rois": self._pending_rois})
-            if not result.get("ok"):
-                self._set_status(result.get("message", "Exec ROI failed."), False)
+        pending_rois: list[tuple[int, int, int, int]] = []
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Draw ROI")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.resize(720, 760)
+        layout = QVBoxLayout(dialog)
+        canvas = ImageCanvas()
+        layout.addWidget(canvas)
+        status_label = _muted("")
+        layout.addWidget(status_label)
+
+        extent = self._image_extent(session.data.shape)
+        canvas.render(
+            session.data, cmap=self.image_colormap_combo.currentText(),
+            log_scale=self.image_scale_combo.currentText() == "Log",
+            extent=extent, xlabel="Y, pixel", ylabel="Z, pixel",
+        )
+
+        def advance(index: int) -> None:
+            if index >= n_roi:
+                dialog.accept()
                 return
-            self._render_integration()
-            self._set_status(f"ROI series: {result['n_frames']} frames x {result['n_roi']} ROI(s).", True)
-        else:
-            self._set_status(f"ROI {len(self._pending_rois)}/{n_roi} set. Click the next ROI's first corner.", True)
+            color = _ROI_COLORS[index % len(_ROI_COLORS)]
+            status_label.setText(f"ROI {index + 1} / {n_roi}: drag a rectangle.")
+
+            def on_complete(x1: float, y1: float, x2: float, y2: float) -> None:
+                col1, row1 = self._display_xy_to_raw_pixel(x1, y1)
+                col2, row2 = self._display_xy_to_raw_pixel(x2, y2)
+                r1, r2 = sorted((int(round(row1)), int(round(row2))))
+                c1, c2 = sorted((int(round(col1)), int(round(col2))))
+                pending_rois.append((r1, r2, c1, c2))
+                canvas.draw_roi_box(x1, x2, y1, y2, color, f"ROI {index + 1}")
+                advance(index + 1)
+
+            canvas.start_rectangle_selector(on_complete, color=color)
+
+        advance(0)
+        self._roi_dialog = dialog
+        accepted = dialog.exec() == QDialog.Accepted
+        canvas.stop_rectangle_selector()
+        self._roi_dialog = None
+
+        if not accepted or len(pending_rois) < n_roi:
+            self._set_status("ROI drawing cancelled.", False)
+            return
+
+        result = gs.gixs2_roi_exec({"rois": pending_rois})
+        if not result.get("ok"):
+            self._set_status(result.get("message", "Exec ROI failed."), False)
+            return
+        # _draw_1d_overlay() clears every overlay before redrawing its own
+        # geometry -- pairing it with _draw_roi_overlay() here (rather than
+        # calling the ROI overlay alone) avoids stacking this run's boxes
+        # on top of a previous run's without ever clearing them.
+        self._draw_1d_overlay()
+        self._draw_roi_overlay()
+        self._render_integration()
+        self._set_status(f"ROI series: {result['n_frames']} frames x {result['n_roi']} ROI(s).", True)
 
     # ------------------------------------------------------------------
     # X-Axis / Auto Refresh
@@ -1132,8 +1202,19 @@ class GIXS2Widget(QWidget):
             return
         auto_met = session.auto_met
         if auto_met == "roi" and session.last_roi is not None:
-            y = np.nansum(session.last_roi, axis=1)
-            ylabel = "Sum(ROI), arb. units"
+            # Port of MATLAB PlotROI_Callback: each ROI is its own curve in
+            # its own color (matching its box on the 2D image), not one
+            # combined sum -- see render_multi.
+            if session.last_roi.shape[0] != session.x_axis_values.shape[0]:
+                return
+            n_roi = session.last_roi.shape[1]
+            labels = [f"ROI {i + 1}" for i in range(n_roi)]
+            colors = [_ROI_COLORS[i % len(_ROI_COLORS)] for i in range(n_roi)]
+            self.integ_canvas.render_multi(
+                session.x_axis_values, session.last_roi.T, labels, colors,
+                xlabel=session.x_axis_label, ylabel="Sum(ROI), arb. units",
+            )
+            return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None:
             y = np.nansum(session.last_azimuthal["intensity"], axis=1)
             ylabel = "Integrated Azimuthal, arb. units"

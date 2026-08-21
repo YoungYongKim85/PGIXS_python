@@ -5,6 +5,8 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from types import SimpleNamespace
+
 import h5py
 import numpy as np
 import pytest
@@ -14,7 +16,8 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
 
-from pgixs_python.desktop.gixs2_widget import GIXS2Widget
+from pgixs_python.desktop.gixs2_widget import _ROI_COLORS, GIXS2Widget
+from pgixs_python.desktop.plot_canvas import ImageCanvas
 from pgixs_python.ui_backend import gixs2_session as gs
 
 
@@ -80,6 +83,24 @@ def _exec_1d_sync(widget):
     result = gs.gixs2_linecut_exec(payload)
     widget._on_exec_1d_finished(result)
     return result
+
+
+def _simulate_roi_drawing(widget, monkeypatch, rectangles):
+    """Drive "Draw ROI"'s separate dialog through its sequential
+    RectangleSelector flow (one drag per ROI, in display coordinates)
+    without a real Qt event loop or mouse simulation -- `rectangles` is
+    `[(x1, y1, x2, y2), ...]`, one tuple per ROI in order. Mirrors this
+    file's existing QDialog.exec monkeypatch convention (see
+    test_gixs2_widget_set_table_lists_files_and_imports_only_checked)."""
+
+    def fake_exec(self):
+        canvas = self.findChildren(ImageCanvas)[0]
+        for x1, y1, x2, y2 in rectangles:
+            selector = canvas._rectangle_selector
+            selector.onselect(SimpleNamespace(xdata=x1, ydata=y1), SimpleNamespace(xdata=x2, ydata=y2))
+        return QDialog.Accepted
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
 
 
 def test_gixs2_widget_constructs(qapp):
@@ -272,12 +293,12 @@ def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch
     assert not widget._pixel_centered
 
 
-def test_gixs2_widget_roi_click_converts_centered_click_to_raw_pixel(qapp, tmp_path, monkeypatch):
+def test_gixs2_widget_draw_roi_converts_centered_drag_to_raw_pixel(qapp, tmp_path, monkeypatch):
     """ROI rectangles are stored/consumed as raw array indices
-    (`process_roi_stack`) -- once Load Info has recentered the display,
-    a click's displayed (x, y) must be converted back to raw pixel
-    row/col before building the ROI tuple, or ROI selection silently
-    grabs the wrong region of the detector."""
+    (`process_roi_stack`) -- once Load Info has recentered the display, a
+    drag's displayed (x, y) must be converted back to raw pixel row/col
+    before building the ROI tuple, or ROI selection silently grabs the
+    wrong region of the detector."""
 
     gs.reset_session()
     widget = GIXS2Widget()
@@ -302,13 +323,12 @@ def test_gixs2_widget_roi_click_converts_centered_click_to_raw_pixel(qapp, tmp_p
     assert widget._pixel_centered
 
     widget.n_roi_combo.setCurrentText("1")
-    widget._on_draw_roi_clicked()
     # Beam center is (100, 100) -> displayed (0, 0) is raw pixel (100, 100).
-    # Click displayed (-10, -10) then (10, 10): raw col = x + 100, raw row = 100 - y.
-    widget._on_image_clicked(-10.0, -10.0)
-    widget._on_image_clicked(10.0, 10.0)
+    # Drag displayed (-10, -10) to (10, 10): raw col = x + 100, raw row = 100 - y.
+    _simulate_roi_drawing(widget, monkeypatch, [(-10.0, -10.0, 10.0, 10.0)])
 
-    assert not widget._roi_click_mode
+    widget._on_draw_roi_clicked()
+
     session = gs.get_session()
     assert session.roi_list == [(90, 110, 90, 110)]
 
@@ -700,22 +720,93 @@ def test_gixs2_widget_change_ai_checkbox_wires_into_qcal(qapp, tmp_path):
     assert session.qmap is None
 
 
-def test_gixs2_widget_roi_click_flow(qapp, tmp_path):
+def test_gixs2_widget_draw_roi_flow(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=2)
     widget.n_roi_combo.setCurrentText("1")
+    _simulate_roi_drawing(widget, monkeypatch, [(10.0, 10.0, 20.0, 20.0)])
 
     widget._on_draw_roi_clicked()
-    assert widget._roi_click_mode
 
-    widget._on_image_clicked(10.0, 10.0)
-    assert widget._roi_first_corner is not None
-    widget._on_image_clicked(20.0, 20.0)
-
-    assert not widget._roi_click_mode
     assert "ROI series" in widget.status_label.text()
     assert gs.get_session().last_roi is not None
+
+
+def test_gixs2_widget_draw_roi_requires_data_loaded(qapp):
+    gs.reset_session()
+    widget = GIXS2Widget()
+
+    widget._on_draw_roi_clicked()
+
+    assert widget.status_label.property("role") == "status-error"
+
+
+def test_gixs2_widget_draw_roi_cancelled_does_not_run_exec(qapp, tmp_path, monkeypatch):
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+    widget.n_roi_combo.setCurrentText("2")
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Rejected)
+
+    widget._on_draw_roi_clicked()
+
+    assert "cancel" in widget.status_label.text().lower()
+    assert gs.get_session().last_roi is None
+
+
+def test_gixs2_widget_draw_roi_draws_matching_colored_box_and_curve(qapp, tmp_path, monkeypatch):
+    """Port of MATLAB's `ROIdef2_Callback`/`drawROIOverlay`/`PlotROI_Callback`:
+    each ROI gets its own fixed color, used both for its rectangle overlay
+    on the 2D image and its curve in the Series Integration Viewer, so a
+    box and its curve are visually linked."""
+
+    import matplotlib.colors
+    from matplotlib.patches import Rectangle
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=3)
+    assert gs.gixs2_set_x_axis({})["ok"]
+    widget.n_roi_combo.setCurrentText("2")
+    _simulate_roi_drawing(widget, monkeypatch, [(10.0, 10.0, 20.0, 20.0), (30.0, 30.0, 40.0, 40.0)])
+
+    widget._on_draw_roi_clicked()
+
+    assert "ROI series" in widget.status_label.text()
+    assert len(gs.get_session().roi_list) == 2
+
+    boxes = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Rectangle)]
+    assert len(boxes) == 2
+    assert boxes[0].get_edgecolor()[:3] == pytest.approx(matplotlib.colors.to_rgb(_ROI_COLORS[0]))
+    assert boxes[1].get_edgecolor()[:3] == pytest.approx(matplotlib.colors.to_rgb(_ROI_COLORS[1]))
+
+    lines = [ln for ln in widget.integ_canvas.ax.get_lines() if ln is not widget.integ_canvas._hover_marker]
+    assert len(lines) == 2
+    assert lines[0].get_color() == _ROI_COLORS[0]
+    assert lines[1].get_color() == _ROI_COLORS[1]
+    assert widget.integ_canvas.ax.get_legend() is not None
+
+
+def test_gixs2_widget_draw_roi_overlay_survives_image_rerender(qapp, tmp_path, monkeypatch):
+    """`_render_image` fully rebuilds the figure/axes on every call (see
+    ImageCanvas.render's own docstring), which would otherwise silently
+    drop the ROI boxes -- confirm they get redrawn."""
+
+    from matplotlib.patches import Rectangle
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+    widget.n_roi_combo.setCurrentText("1")
+    _simulate_roi_drawing(widget, monkeypatch, [(10.0, 10.0, 20.0, 20.0)])
+    widget._on_draw_roi_clicked()
+
+    widget._current_image_data = None
+    widget._render_image()
+
+    boxes = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Rectangle)]
+    assert len(boxes) == 1
 
 
 def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path):
