@@ -486,9 +486,17 @@ class GIXS2Widget(QWidget):
         self.integ_canvas = CurveCanvas()
         self.integ_canvas.canvas.setMinimumHeight(280)
         integ_layout.addWidget(self.integ_canvas)
+        self.integ_scale_combo = QComboBox()
+        self.integ_scale_combo.addItems(["Linear", "Logy", "Logxy"])
+        # Same fixed width as the 1D Plot Viewer's own Scale combo (see its
+        # own comment) -- the two are the same kind of control, just on
+        # different viewers.
+        self.integ_scale_combo.setFixedWidth(180)
+        self.integ_scale_combo.currentTextChanged.connect(lambda _t: self._render_integration())
         self.replot_button = QPushButton("Re-Plot Series")
         self.replot_button.clicked.connect(self._render_integration)
         integ_ctrl = QHBoxLayout()
+        integ_ctrl.addWidget(_field("Scale", self.integ_scale_combo, label_width=40))
         integ_ctrl.addWidget(self.replot_button)
         integ_ctrl_row = _control_row(integ_ctrl)
         integ_layout.addWidget(integ_ctrl_row)
@@ -1405,6 +1413,9 @@ class GIXS2Widget(QWidget):
         session = gs.get_session()
         if session.x_axis_values is None:
             return
+        scale = self.integ_scale_combo.currentText()
+        xlog = scale == "Logxy"
+        ylog = scale in ("Logy", "Logxy")
         auto_met = session.auto_met
         if auto_met == "roi" and session.last_roi is not None:
             # Port of MATLAB PlotROI_Callback: each ROI is its own curve in
@@ -1419,6 +1430,7 @@ class GIXS2Widget(QWidget):
             self.integ_canvas.render_multi(
                 session.x_axis_values, matrix.T, labels, colors,
                 xlabel=session.x_axis_label, ylabel="Sum(ROI), arb. units",
+                xlog=xlog, ylog=ylog,
             )
             return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None:
@@ -1433,7 +1445,9 @@ class GIXS2Widget(QWidget):
             return
         if y.shape[0] != session.x_axis_values.shape[0]:
             return
-        self.integ_canvas.render(session.x_axis_values, y, xlabel=session.x_axis_label, ylabel=ylabel)
+        self.integ_canvas.render(
+            session.x_axis_values, y, xlabel=session.x_axis_label, ylabel=ylabel, xlog=xlog, ylog=ylog
+        )
 
     # ------------------------------------------------------------------
     # Save

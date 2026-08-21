@@ -600,7 +600,14 @@ def test_gixs2_widget_1d_plot_colorbar_uses_x_axis_label_after_set_x_axis(qapp, 
     assert widget.oned_canvas._colorbar.ax.get_ylabel() == session.x_axis_label
 
 
-def test_gixs2_widget_1d_scale_combo_toggles_log_axes(qapp, tmp_path):
+def test_gixs2_widget_1d_scale_combo_toggles_log_axes(qapp, tmp_path, monkeypatch):
+    """Also covers the newly-added Series Integration Viewer Scale combo
+    (both its "sum" render path, exercised here via Exec Cut, and its
+    "roi" render_multi path, exercised via Draw ROI) -- reuses this one
+    widget rather than a `GIXS2Widget()` per scenario (see
+    test_gixs2_widget_exec_1d_shows_progress_dialog_for_every_geometry_mode's
+    own docstring on why)."""
+
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
@@ -613,11 +620,35 @@ def test_gixs2_widget_1d_scale_combo_toggles_log_axes(qapp, tmp_path):
 
     assert widget.oned_canvas.ax.get_xscale() == "linear"
     assert widget.oned_canvas.ax.get_yscale() == "linear"
+    assert widget.integ_canvas.ax.get_xscale() == "linear"
+    assert widget.integ_canvas.ax.get_yscale() == "linear"
 
     widget.oned_scale_combo.setCurrentText("Logxy")
 
     assert widget.oned_canvas.ax.get_xscale() == "log"
     assert widget.oned_canvas.ax.get_yscale() == "log"
+    # The 1D Plot Viewer's own Scale combo doesn't touch the Series
+    # Integration Viewer -- that has its own, independent Scale combo.
+    assert widget.integ_canvas.ax.get_xscale() == "linear"
+    assert widget.integ_canvas.ax.get_yscale() == "linear"
+
+    widget.integ_scale_combo.setCurrentText("Logxy")
+
+    assert widget.integ_canvas.ax.get_xscale() == "log"
+    assert widget.integ_canvas.ax.get_yscale() == "log"
+
+    # And the render_multi (ROI) path honors it too.
+    widget.n_roi_combo.setCurrentText("1")
+    _simulate_roi_drawing(widget, monkeypatch, [(10.0, 10.0, 20.0, 20.0)])
+    widget._on_draw_roi_clicked()
+
+    assert widget.integ_canvas.ax.get_xscale() == "log"
+    assert widget.integ_canvas.ax.get_yscale() == "log"
+
+    widget.integ_scale_combo.setCurrentText("Linear")
+
+    assert widget.integ_canvas.ax.get_xscale() == "linear"
+    assert widget.integ_canvas.ax.get_yscale() == "linear"
 
 
 def test_gixs2_widget_azimuthal_plot_uses_series_colormap_with_colorbar(qapp, tmp_path):
