@@ -922,3 +922,124 @@ def test_gixs2_widget_set_table_select_all_and_deselect_all(qapp, tmp_path, monk
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     widget._on_set_table_clicked()
+
+
+def test_gixs2_widget_azimuthal_position_button_click_sets_pix_and_arms_overlay(qapp, tmp_path):
+    """Port of console_widget.py's own Position button for the Azimuthal
+    `pix` field: arm the click-on-image mode, then a click on the 2D Image
+    Plot Viewer sets `azi_pix_spin` to the clicked point's radius from the
+    beam center. `azi_pix_spin` is itself wired to `_arm_azi_overlay` (see
+    the Azimuthal Process UI construction), so the click also makes the
+    ring appear live."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+    session.corrected = True
+
+    widget._arm_position_mode("azimuthal")
+    assert widget._position_mode == "azimuthal"
+    assert len(widget.image_canvas._overlay_artists) == 0  # position mode alone draws nothing
+
+    widget._on_image_clicked(140.5, 100.5)  # 40 px right of the beam center
+
+    assert widget.azi_pix_spin.value() == pytest.approx(40.0, abs=0.01)
+    assert widget._show_azi_overlay is True
+    assert len(widget.image_canvas._overlay_artists) == 2
+
+    # Ignored while the toolbar's own pan/zoom mode is active, matching
+    # console_widget.py's own guard.
+    widget.image_canvas.toolbar.mode = "pan/zoom"
+    widget._on_image_clicked(999.0, 999.0)
+    assert widget.azi_pix_spin.value() == pytest.approx(40.0, abs=0.01)
+
+
+def test_gixs2_widget_azimuthal_overlay_hidden_until_armed_then_tracks_range_live(qapp, tmp_path):
+    """Port of console_widget.py's own `_on_azi_draw_clicked`: two circles
+    at pix+Range(-) and pix+Range(+), hidden until the user actually
+    engages the Azimuthal Process controls or clicks Draw (same "armed"
+    guard used for the 1D Plot Process overlay -- see `_show_azi_overlay`'s
+    own docstring), and tracking further pix/Range edits live without
+    accumulating extra circles."""
+
+    from matplotlib.patches import Circle
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+
+    widget.azi_pix_spin.setValue(60.0)
+    widget.azi_minus_spin.setValue(-5.0)
+    widget.azi_plus_spin.setValue(5.0)
+    # Armed, but not calibrated yet -- same two-gate guard as _show_1d_overlay.
+    assert len(widget.image_canvas._overlay_artists) == 0
+
+    session.corrected = True
+    widget._arm_azi_overlay()
+
+    circles = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Circle)]
+    assert len(circles) == 2
+    assert sorted(c.radius for c in circles) == pytest.approx([55.0, 65.0])
+
+    widget.azi_plus_spin.setValue(10.0)
+    circles = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Circle)]
+    assert len(circles) == 2
+    assert sorted(c.radius for c in circles) == pytest.approx([55.0, 70.0])
+
+    # Survives a full image re-render (ImageCanvas.render rebuilds the
+    # whole figure -- see _redraw_overlays' own docstring).
+    widget._render_image()
+    circles = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Circle)]
+    assert len(circles) == 2
+    assert sorted(c.radius for c in circles) == pytest.approx([55.0, 70.0])
+
+
+def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qapp, tmp_path):
+    """The Normalize combo previously only affected Save output
+    (gixs2_session.py's private `_normalized_matrix`, only called from
+    gixs2_save_1d/gixs2_save_azimuthal) -- confirm switching it to IC/BC
+    now actually changes the on-screen curve too, via the newly-public
+    `gixs2_normalized_matrix`."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    widget._on_qcal_clicked()
+    widget.phi_spin.setValue(90.0)
+    _exec_1d_sync(widget)
+    widget.azi_pix_spin.setValue(60.0)
+    widget.azi_minus_spin.setValue(-5.0)
+    widget.azi_plus_spin.setValue(5.0)
+    widget._on_exec_azi_clicked()
+
+    def first_curve_y(canvas):
+        lines = [ln for ln in canvas.ax.get_lines() if ln is not canvas._hover_marker]
+        return lines[0].get_ydata().copy()
+
+    none_1d = first_curve_y(widget.oned_canvas)
+    none_azi = first_curve_y(widget.azi_canvas)
+
+    widget.normalize_1d_combo.setCurrentText("IC")
+    ic_1d = first_curve_y(widget.oned_canvas)
+    assert not np.allclose(ic_1d, none_1d)
+
+    widget.normalize_1d_combo.setCurrentText("BC")
+    bc_1d = first_curve_y(widget.oned_canvas)
+    assert not np.allclose(bc_1d, ic_1d)
+
+    widget.normalize_azi_combo.setCurrentText("IC")
+    ic_azi = first_curve_y(widget.azi_canvas)
+    assert not np.allclose(ic_azi, none_azi)
+
+    widget.normalize_azi_combo.setCurrentText("None")
+    back_azi = first_curve_y(widget.azi_canvas)
+    np.testing.assert_allclose(back_azi, none_azi)

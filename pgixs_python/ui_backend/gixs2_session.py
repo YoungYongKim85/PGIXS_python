@@ -734,7 +734,12 @@ def gixs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
 # ----------------------------------------------------------------------
 # Save
 # ----------------------------------------------------------------------
-def _normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
+def gixs2_normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
+    """Apply the None/IC/BC per-frame normalization used throughout GIXS2
+    -- shared by Save 1D/Azi (below) and by the live 1D/Azimuthal Plot
+    Viewer renders in gixs2_widget.py, so the on-screen curves and the
+    saved file always agree."""
+
     if method == "None" or _SESSION.counts is None:
         return matrix
     column = 0 if method == "IC" else 1
@@ -774,7 +779,7 @@ def gixs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a save directory."}
 
     method = str(payload.get("normalize", "None"))
-    matrix = _normalized_matrix(_SESSION.last_1d["intensity"], method)
+    matrix = gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method)
     path = _save_path(directory, "_1D.csv")
     try:
         save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", matrix, _column_labels())
@@ -791,7 +796,7 @@ def gixs2_save_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a save directory."}
 
     method = str(payload.get("normalize", "None"))
-    matrix = _normalized_matrix(_SESSION.last_azimuthal["intensity"], method)
+    matrix = gixs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method)
     path = _save_path(directory, "_Azi.csv")
     try:
         save_series_data(path, _SESSION.last_azimuthal["x_axis"], "Angle_deg", matrix, _column_labels())

@@ -10,6 +10,7 @@ plotted against the chosen experiment X-axis.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +113,12 @@ class GIXS2Widget(QWidget):
         # (reported: a white line through the beam center showed up right
         # after Load Info, before the user ever asked to see a cut).
         self._show_1d_overlay = False
+        # Same guard as `_show_1d_overlay`, for the Azimuthal Process ring.
+        self._show_azi_overlay = False
+        # Set by the Position button (mirrors console_widget.py's own
+        # `_position_mode`); the next click on the 2D image then sets
+        # `azi_pix_spin` from the clicked point instead of panning/zooming.
+        self._position_mode: str | None = None
         self._progress_dialog: QProgressDialog | None = None
         self._progress_timer: QTimer | None = None
 
@@ -247,10 +254,18 @@ class GIXS2Widget(QWidget):
 
         layout.addWidget(_divider("Azimuthal Process"))
         self.azi_pix_spin = _double_spin(0.0, 1.0e6, 1, 202.0, 1.0)
-        layout.addWidget(_field("pix", self.azi_pix_spin))
+        self.azi_position_button = QPushButton("Position")
+        self.azi_position_button.setToolTip("Click a point on the 2D Image Plot Viewer to set pix (the radius from the beam center).")
+        self.azi_position_button.clicked.connect(lambda: self._arm_position_mode("azimuthal"))
+        layout.addWidget(_field("pix", self.azi_pix_spin, self.azi_position_button))
         self.azi_minus_spin = _double_spin(-1.0e5, 1.0e5, 1, -1.0, 1.0)
         self.azi_plus_spin = _double_spin(-1.0e5, 1.0e5, 1, 1.0, 1.0)
-        layout.addWidget(_field("Range (-/+)", self.azi_minus_spin, self.azi_plus_spin))
+        self.azi_draw_button = QPushButton("Draw")
+        self.azi_draw_button.setToolTip("Show the pix +/- Range(-/+) ring on the 2D image; keeps updating live as pix/Range change.")
+        self.azi_draw_button.clicked.connect(self._arm_azi_overlay)
+        layout.addWidget(_field("Range (-/+)", self.azi_minus_spin, self.azi_plus_spin, self.azi_draw_button, label_width=88))
+        for control in (self.azi_pix_spin, self.azi_minus_spin, self.azi_plus_spin):
+            control.valueChanged.connect(lambda _v: self._arm_azi_overlay())
         self.azi_mean_median_combo = QComboBox()
         self.azi_mean_median_combo.addItems(["Mean", "Median"])
         layout.addWidget(_field("Mean/Median", self.azi_mean_median_combo))
@@ -328,6 +343,7 @@ class GIXS2Widget(QWidget):
         image_group = QGroupBox("2D Image Plot Viewer")
         image_layout = QVBoxLayout(image_group)
         self.image_canvas = ImageCanvas()
+        self.image_canvas.pixel_clicked.connect(self._on_image_clicked)
         image_layout.addWidget(self.image_canvas)
         image_ctrl = QHBoxLayout()
         self.image_scale_combo = QComboBox()
@@ -493,6 +509,8 @@ class GIXS2Widget(QWidget):
         # to the previous dataset too -- don't carry the overlay over onto
         # this new one until they touch those controls again.
         self._show_1d_overlay = False
+        self._show_azi_overlay = False
+        self._position_mode = None
         self._render_image()
         self._mark_ok(self.load_button, True)
         # New raw data invalidates whatever q-Cal/Grid Remove/series import
@@ -707,8 +725,7 @@ class GIXS2Widget(QWidget):
         # overlay -- redraw the current 1D Plot Process geometry and any
         # defined ROI boxes on top of the fresh image so neither disappears
         # on every re-render.
-        self._draw_1d_overlay()
-        self._draw_roi_overlay()
+        self._redraw_overlays()
 
     def _image_extent(self, shape: tuple[int, int]) -> tuple[float, float, float, float]:
         """(left, right, bottom, top) for `ImageCanvas.render`'s `extent`,
@@ -764,13 +781,25 @@ class GIXS2Widget(QWidget):
         offset_z = -raw_offset_z if self._pixel_centered else raw_offset_z
         return (beam_y + offset_y, beam_z + offset_z)
 
+    def _redraw_overlays(self) -> None:
+        """Full resync of every overlay layer, in order: 1D Plot Process
+        geometry (clears first -- see its own docstring), the Azimuthal
+        Process ring, then ROI boxes on top. Shared by `_render_image`'s
+        tail (after a full figure rebuild wipes everything) and by each
+        overlay's own "arm" handler (so touching one control's overlay
+        doesn't wipe the others)."""
+
+        self._draw_1d_overlay()
+        self._draw_azi_overlay()
+        self._draw_roi_overlay()
+
     def _arm_1d_overlay(self) -> None:
         """Mark that the user has actually engaged with the 1D Plot
         Process (touched a control or run Exec Cut) and redraw -- see
         `_show_1d_overlay`'s own docstring in `__init__`."""
 
         self._show_1d_overlay = True
-        self._draw_1d_overlay()
+        self._redraw_overlays()
 
     def _draw_1d_overlay(self) -> None:
         """Show the currently-selected 1D Plot Process geometry (plain
@@ -830,6 +859,55 @@ class GIXS2Widget(QWidget):
 
         center = self._pos_move_display_offset()
         self.image_canvas.draw_beam_line(center, self._mode_corrected_angle(angle))
+
+    # ------------------------------------------------------------------
+    # Azimuthal Process geometry overlay -- port of console_widget.py's own
+    # `_on_azi_draw_clicked`/Position button, using the same "armed" guard
+    # pattern as `_show_1d_overlay`/`_arm_1d_overlay` above so the ring
+    # doesn't auto-appear just because calibration happens to be in place.
+    # ------------------------------------------------------------------
+    def _arm_azi_overlay(self) -> None:
+        self._show_azi_overlay = True
+        self._redraw_overlays()
+
+    def _draw_azi_overlay(self) -> None:
+        """Additive -- unlike `_draw_1d_overlay`, does not clear first, so
+        it can be layered on top of the 1D/ROI overlays by `_redraw_overlays`
+        without wiping them. Always called by way of that helper."""
+
+        session = gs.get_session()
+        if session.data is None:
+            return
+        if not (self._pixel_centered or session.corrected):
+            return
+        if not self._show_azi_overlay:
+            return
+        center = self._current_beam_center()
+        pixel = self.azi_pix_spin.value()
+        r_minus = max(0.0, pixel + self.azi_minus_spin.value())
+        r_plus = max(0.0, pixel + self.azi_plus_spin.value())
+        self.image_canvas.draw_beam_circle(center, r_minus)
+        self.image_canvas.draw_beam_circle(center, r_plus)
+
+    # ------------------------------------------------------------------
+    # Click-to-position (Azimuthal pix) -- port of console_widget.py's own
+    # `_arm_position_mode`/`_on_image_clicked` azimuthal branch.
+    # ------------------------------------------------------------------
+    def _arm_position_mode(self, mode: str) -> None:
+        self._position_mode = mode
+        if mode == "azimuthal":
+            self._set_status("Click a point on the 2D image to set the azimuthal pix.", True)
+
+    def _on_image_clicked(self, x: float, y: float) -> None:
+        if self._position_mode is None:
+            return
+        if self.image_canvas.toolbar.mode:
+            return
+        if self._position_mode == "azimuthal":
+            beam_y, beam_z = self._current_beam_center()
+            radius = math.hypot(x - beam_y, y - beam_z)
+            self.azi_pix_spin.setValue(radius)
+            self._set_status(f"Azimuthal position clicked at ({x:.1f}, {y:.1f}) -> pix {radius:.1f}.", True)
 
     # ------------------------------------------------------------------
     # Play (Frame Viewer) -- port of FrameImage.m: a separate slider-driven
@@ -1002,7 +1080,7 @@ class GIXS2Widget(QWidget):
         session = gs.get_session()
         if session.last_1d is None:
             return
-        matrix = session.last_1d["intensity"]
+        matrix = gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         scale = self.oned_scale_combo.currentText()
         xlog = scale == "Logxy"
@@ -1039,6 +1117,7 @@ class GIXS2Widget(QWidget):
         return np.arange(1, n_frames + 1, dtype=np.float64), "Frame, #"
 
     def _on_exec_azi_clicked(self) -> None:
+        self._arm_azi_overlay()
         payload = {
             "pixel": self.azi_pix_spin.value(),
             "range_minus": self.azi_minus_spin.value(),
@@ -1060,7 +1139,7 @@ class GIXS2Widget(QWidget):
         session = gs.get_session()
         if session.last_azimuthal is None:
             return
-        matrix = session.last_azimuthal["intensity"]
+        matrix = gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         self.azi_canvas.render_series(
             session.last_azimuthal["x_axis"], matrix, color_values,
@@ -1170,12 +1249,10 @@ class GIXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Exec ROI failed."), False)
             return
-        # _draw_1d_overlay() clears every overlay before redrawing its own
-        # geometry -- pairing it with _draw_roi_overlay() here (rather than
-        # calling the ROI overlay alone) avoids stacking this run's boxes
-        # on top of a previous run's without ever clearing them.
-        self._draw_1d_overlay()
-        self._draw_roi_overlay()
+        # _redraw_overlays() clears every overlay before redrawing 1D/Azi/ROI
+        # in order -- avoids stacking this run's ROI boxes on top of a
+        # previous run's without ever clearing them.
+        self._redraw_overlays()
         self._render_integration()
         self._set_status(f"ROI series: {result['n_frames']} frames x {result['n_roi']} ROI(s).", True)
 
@@ -1245,10 +1322,12 @@ class GIXS2Widget(QWidget):
             )
             return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None:
-            y = np.nansum(session.last_azimuthal["intensity"], axis=1)
+            matrix = gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
+            y = np.nansum(matrix, axis=1)
             ylabel = "Integrated Azimuthal, arb. units"
         elif session.last_1d is not None:
-            y = np.nansum(session.last_1d["intensity"], axis=1)
+            matrix = gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+            y = np.nansum(matrix, axis=1)
             ylabel = "Integrated 1D, arb. units"
         else:
             return
