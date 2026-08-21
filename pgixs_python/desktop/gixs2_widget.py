@@ -105,6 +105,13 @@ class GIXS2Widget(QWidget):
         # then on the 2D image's pixel axis re-centers on the beam
         # position instead of reading raw detector row/column indices.
         self._pixel_centered = False
+        # Set True the first time the user actually touches a 1D Plot
+        # Process control (angle/Cakecut/Accum) or runs Exec Cut -- guards
+        # _draw_1d_overlay so the line/wedge/band doesn't auto-appear the
+        # moment Load Info/q-Cal happens to leave calibration in place
+        # (reported: a white line through the beam center showed up right
+        # after Load Info, before the user ever asked to see a cut).
+        self._show_1d_overlay = False
         self._progress_dialog: QProgressDialog | None = None
         self._progress_timer: QTimer | None = None
 
@@ -214,14 +221,17 @@ class GIXS2Widget(QWidget):
         self.accum_check.toggled.connect(lambda checked: self.cakecut_check.setChecked(False) if checked else None)
         # Whichever geometry (angle / cakecut wedge / accumulation band) is
         # currently selected shows live as a line/wedge/band overlay on the
-        # 2D image, matching the single-frame GIXS console's own behavior.
+        # 2D image, matching the single-frame GIXS console's own behavior --
+        # but only once the user has actually touched one of these controls
+        # (see _arm_1d_overlay), not just because Load Info/q-Cal happened
+        # to run and left calibration in place.
         for control in (
             self.phi_spin, self.accum_minus_spin, self.accum_plus_spin,
             self.cakecut_minus_spin, self.cakecut_plus_spin, self.z_pos_move_spin, self.y_pos_move_spin,
         ):
-            control.valueChanged.connect(lambda _v: self._draw_1d_overlay())
-        self.cakecut_check.toggled.connect(lambda _c: self._draw_1d_overlay())
-        self.accum_check.toggled.connect(lambda _c: self._draw_1d_overlay())
+            control.valueChanged.connect(lambda _v: self._arm_1d_overlay())
+        self.cakecut_check.toggled.connect(lambda _c: self._arm_1d_overlay())
+        self.accum_check.toggled.connect(lambda _c: self._arm_1d_overlay())
 
         self.exec_1d_button = QPushButton("Exec Cut")
         self.exec_1d_button.clicked.connect(self._on_exec_1d_clicked)
@@ -479,6 +489,10 @@ class GIXS2Widget(QWidget):
         # loaded for the *previous* dataset -- back to raw pixel indices
         # until Load Info is run again, matching console_widget.py.
         self._pixel_centered = False
+        # And whatever 1D Plot Process geometry the user had set up applied
+        # to the previous dataset too -- don't carry the overlay over onto
+        # this new one until they touch those controls again.
+        self._show_1d_overlay = False
         self._render_image()
         self._mark_ok(self.load_button, True)
         # New raw data invalidates whatever q-Cal/Grid Remove/series import
@@ -750,6 +764,14 @@ class GIXS2Widget(QWidget):
         offset_z = -raw_offset_z if self._pixel_centered else raw_offset_z
         return (beam_y + offset_y, beam_z + offset_z)
 
+    def _arm_1d_overlay(self) -> None:
+        """Mark that the user has actually engaged with the 1D Plot
+        Process (touched a control or run Exec Cut) and redraw -- see
+        `_show_1d_overlay`'s own docstring in `__init__`."""
+
+        self._show_1d_overlay = True
+        self._draw_1d_overlay()
+
     def _draw_1d_overlay(self) -> None:
         """Show the currently-selected 1D Plot Process geometry (plain
         angle cut / Cakecut wedge / Accumulation band) as a line overlay on
@@ -766,6 +788,12 @@ class GIXS2Widget(QWidget):
         # show a confident-looking marker that has nothing to do with this
         # detector frame's real beam position. Wait for real calibration.
         if not (self._pixel_centered or session.corrected):
+            return
+        # And even once calibrated, don't show it until the user has
+        # actually asked to see a cut (touched a 1D Plot Process control or
+        # run Exec Cut) -- otherwise Load Info/q-Cal alone would make the
+        # line pop up unasked-for, which is what was reported.
+        if not self._show_1d_overlay:
             return
 
         angle = self.phi_spin.value()
@@ -936,6 +964,7 @@ class GIXS2Widget(QWidget):
         # per-frame cut loop on a background thread with a progress dialog
         # (same QThread + polling pattern series loading already uses)
         # instead of freezing the UI for however long that takes.
+        self._arm_1d_overlay()
         payload = {
             "angle_deg": self.phi_spin.value(),
             "cakecut": self.cakecut_check.isChecked(),

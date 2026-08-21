@@ -277,6 +277,19 @@ def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch
     beam_y, beam_z = gs.get_session().calibration["beam_pos"]
     centered_extent = list(widget.image_canvas._image.get_extent())
     assert centered_extent == pytest.approx([1 - beam_y, 200 - beam_y, beam_z - 200, beam_z - 1])
+    # Regression: a white line through the beam center appeared right
+    # after Load Info re-centered the axis, before the user ever asked to
+    # see a 1D Plot Process cut -- q-Cal (which also satisfies the
+    # calibration gate) must not auto-show it either; only actually
+    # touching a 1D control should.
+    assert len(widget.image_canvas._overlay_artists) == 0
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": (beam_y, beam_z), "sdd_mm": 300.0, "energy_kev": 9.5})
+    widget._on_qcal_clicked()
+    assert session.corrected
+    assert len(widget.image_canvas._overlay_artists) == 0
+    widget.phi_spin.setValue(45.0)
+    assert len(widget.image_canvas._overlay_artists) == 1
 
     # A fresh LOAD DATA invalidates it again, back to raw pixel indices.
     # "TestDetector" hits the unknown-detector fallback (no mask applied)
@@ -291,6 +304,8 @@ def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch
     )
     widget._on_load_clicked()
     assert not widget._pixel_centered
+    assert not widget._show_1d_overlay
+    assert len(widget.image_canvas._overlay_artists) == 0
 
 
 def test_gixs2_widget_draw_roi_converts_centered_drag_to_raw_pixel(qapp, tmp_path, monkeypatch):
@@ -465,11 +480,14 @@ def test_gixs2_widget_1d_overlay_hidden_before_calibration(qapp, tmp_path):
 
 def _mark_calibrated(widget) -> None:
     """Simulate Load Info/q-Cal having run (without needing real
-    calibration math) for overlay tests that only care about the
-    geometry-drawing logic once calibration exists."""
+    calibration math) *and* the user having engaged with the 1D Plot
+    Process, for overlay tests that only care about the geometry-drawing
+    logic once both gates are satisfied.
+    `test_gixs2_widget_load_info_recenters_pixel_axis` covers the second
+    gate (hidden until the user touches a 1D control) on its own."""
 
     gs.get_session().corrected = True
-    widget._draw_1d_overlay()
+    widget._arm_1d_overlay()
 
 
 def test_gixs2_widget_1d_overlay_draws_plain_line_and_updates_live(qapp, tmp_path):
