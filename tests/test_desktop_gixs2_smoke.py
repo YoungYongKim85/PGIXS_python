@@ -75,6 +75,7 @@ def _exec_1d_sync(widget):
         "accumulation": widget.accum_check.isChecked(),
         "accum_minus": widget.accum_minus_spin.value(),
         "accum_plus": widget.accum_plus_spin.value(),
+        "parallel": widget.exec_1d_parallel_check.isChecked(),
     }
     result = gs.gixs2_linecut_exec(payload)
     widget._on_exec_1d_finished(result)
@@ -370,6 +371,58 @@ def test_gixs2_widget_exec_1d_runs_in_background_with_progress_dialog(qapp, tmp_
     assert captured["payload"]["angle_deg"] == widget.phi_spin.value()
     assert not widget.exec_1d_button.isEnabled()
     assert widget._progress_dialog is not None
+
+
+def test_gixs2_widget_exec_1d_shows_progress_dialog_for_every_geometry_mode(qapp, tmp_path, monkeypatch):
+    """The background thread + progress dialog wraps Exec Cut itself, not
+    any one geometry branch -- confirm it shows up whether the active mode
+    is a plain angle cut, Cakecut, or Accumulation. Reuses one widget
+    across all three modes (rather than one `GIXS2Widget()` per mode) --
+    each instance owns 4 matplotlib canvases/toolbars, and this suite
+    already constructs plenty of those elsewhere."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+
+    captured = {}
+
+    def fake_run_in_background(fn, payload, callback):
+        captured["payload"] = payload
+
+    monkeypatch.setattr("pgixs_python.desktop.gixs2_widget.run_in_background", fake_run_in_background)
+
+    for mode in ("angle", "cakecut", "accum"):
+        widget.cakecut_check.setChecked(mode == "cakecut")
+        widget.accum_check.setChecked(mode == "accum")
+        widget._stop_progress_dialog()
+        widget.exec_1d_button.setEnabled(True)
+        captured.clear()
+
+        widget._on_exec_1d_clicked()
+
+        assert captured["payload"]["cakecut"] == (mode == "cakecut")
+        assert captured["payload"]["accumulation"] == (mode == "accum")
+        assert widget._progress_dialog is not None
+
+    widget._stop_progress_dialog()
+
+
+def test_gixs2_widget_exec_1d_parallel_checkbox_wires_into_payload(qapp, tmp_path, monkeypatch):
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+    widget.exec_1d_parallel_check.setChecked(True)
+
+    captured = {}
+    monkeypatch.setattr(
+        "pgixs_python.desktop.gixs2_widget.run_in_background",
+        lambda fn, payload, callback: captured.setdefault("payload", payload),
+    )
+
+    widget._on_exec_1d_clicked()
+
+    assert captured["payload"]["parallel"] is True
 
 
 def test_gixs2_widget_1d_overlay_hidden_before_calibration(qapp, tmp_path):

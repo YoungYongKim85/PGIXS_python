@@ -225,6 +225,11 @@ class GIXS2Widget(QWidget):
         self.normalize_1d_combo.addItems(_NORMALIZE_LIST)
         self.normalize_1d_combo.currentTextChanged.connect(self._render_1d)
         layout.addWidget(_row(self.exec_1d_button, self.normalize_1d_combo))
+        self.exec_1d_parallel_check = QCheckBox("Parallel")
+        self.exec_1d_parallel_check.setToolTip(
+            "Compute each frame's cut concurrently on several threads instead of one at a time -- applies to plain angle, Accum, and Cakecut alike."
+        )
+        layout.addWidget(self.exec_1d_parallel_check)
 
         layout.addWidget(_divider("Azimuthal Process"))
         self.azi_pix_spin = _double_spin(0.0, 1.0e6, 1, 202.0, 1.0)
@@ -934,6 +939,7 @@ class GIXS2Widget(QWidget):
             "accumulation": self.accum_check.isChecked(),
             "accum_minus": self.accum_minus_spin.value(),
             "accum_plus": self.accum_plus_spin.value(),
+            "parallel": self.exec_1d_parallel_check.isChecked(),
         }
         self.exec_1d_button.setEnabled(False)
         self._start_progress_dialog("Running 1D cut...", window_title="Exec Cut")

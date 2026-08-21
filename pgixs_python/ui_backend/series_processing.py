@@ -17,13 +17,15 @@ geometry (a per-frame q-map, via `q_map_stack`); `process_azimuthal_stack`/
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 
 from pgixs_python.averaging.angular import angular_profile
-from pgixs_python.averaging.cake import accumulation_average, cake_average
+from pgixs_python.averaging.cake import CakeAverageResult, accumulation_average, cake_average
 
 
 @dataclass
@@ -68,6 +70,8 @@ def process_linecut_stack(
     q_map_stack: np.ndarray | None = None,
     ref_axis: np.ndarray | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    parallel: bool = False,
+    max_workers: int | None = None,
 ) -> SeriesCurveResult:
     """1D Plot Process across a whole series -- same dispatch as
     `console_session.console_line_1d` (plain angle cut / Cakecut wedge /
@@ -77,6 +81,14 @@ def process_linecut_stack(
     every frame -- lets a caller drive a progress dialog for a real series
     (hundreds to thousands of frames), same convention as
     `load_h5_series`'s own `progress_callback`.
+
+    `parallel=True` runs each frame's own `cake_average`/
+    `accumulation_average` call on a `ThreadPoolExecutor` (same toggle
+    convention as `load_h5_series`'s own `parallel` option) -- only that
+    per-frame compute step is parallelized; the reference-axis selection/
+    alignment pass below still runs single-threaded, in frame order, over
+    the completed results, so the output is bit-for-bit identical to the
+    serial path regardless of completion order.
 
     `q_map_stack`, an optional `(n_frames, rows, cols)` array, is "Change
     ai" mode (port of `processGIXSLinecutStack.m`'s `ChangeAngle` path):
@@ -106,36 +118,56 @@ def process_linecut_stack(
     change_ai = q_map_stack is not None
     if not change_ai and q_map is None:
         raise ValueError("q_map is required unless q_map_stack is given.")
-    x_axis: np.ndarray | None = np.asarray(ref_axis, dtype=np.float32) if ref_axis is not None else None
-    intensity_rows: list[np.ndarray] = []
-    coverage_rows: list[np.ndarray] = []
 
-    for i in range(n_frames):
+    def _run_frame(i: int) -> CakeAverageResult:
         frame = stack[i]
         frame_q_map = q_map_stack[i] if change_ai else q_map
         if accumulation:
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
-            result = accumulation_average(
+            return accumulation_average(
                 frame, frame_q_map, center=center, angle_deg=angle_deg,
                 perp_offset=perp_offset, band_minus=accum_minus, band_plus=accum_plus, use_median=use_median,
             )
-        elif cakecut:
-            result = cake_average(
+        if cakecut:
+            return cake_average(
                 frame, frame_q_map, angle_map, center=center, reference_angle=angle_deg,
                 angle_range=(range_minus, range_plus), use_median=use_median,
             )
-        elif axis_aligned and (y_pos_move != 0.0 or z_pos_move != 0.0):
+        if axis_aligned and (y_pos_move != 0.0 or z_pos_move != 0.0):
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
-            result = accumulation_average(
+            return accumulation_average(
                 frame, frame_q_map, center=center, angle_deg=angle_deg,
                 perp_offset=perp_offset, band_minus=0.0, band_plus=0.0, use_median=use_median,
             )
-        else:
-            result = cake_average(
-                frame, frame_q_map, angle_map, center=center, reference_angle=angle_deg,
-                angle_range=(-1.0, 1.0), use_median=use_median,
-            )
+        return cake_average(
+            frame, frame_q_map, angle_map, center=center, reference_angle=angle_deg,
+            angle_range=(-1.0, 1.0), use_median=use_median,
+        )
 
+    results: list[CakeAverageResult] = [None] * n_frames  # type: ignore[list-item]
+    if parallel and n_frames > 1:
+        progress_lock = threading.Lock()
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_run_frame, i): i for i in range(n_frames)}
+            for future in as_completed(futures):
+                i = futures[future]
+                results[i] = future.result()
+                if progress_callback is not None:
+                    with progress_lock:
+                        completed += 1
+                        progress_callback(completed, n_frames)
+    else:
+        for i in range(n_frames):
+            results[i] = _run_frame(i)
+            if progress_callback is not None:
+                progress_callback(i + 1, n_frames)
+
+    x_axis: np.ndarray | None = np.asarray(ref_axis, dtype=np.float32) if ref_axis is not None else None
+    intensity_rows: list[np.ndarray] = []
+    coverage_rows: list[np.ndarray] = []
+
+    for i, result in enumerate(results):
         if not result.is_valid:
             if change_ai:
                 # Matches alignLineToRef's own tolerance for a dropped
@@ -162,9 +194,6 @@ def process_linecut_stack(
         else:
             intensity_rows.append(result.intensity)
             coverage_rows.append(result.coverage)
-
-        if progress_callback is not None:
-            progress_callback(i + 1, n_frames)
 
     if x_axis is None:
         raise ValueError("No pixels selected for this line/cake-cut geometry in any frame.")

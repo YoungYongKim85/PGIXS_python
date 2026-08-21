@@ -605,6 +605,7 @@ def gixs2_linecut_exec(payload: dict[str, Any]) -> dict[str, Any]:
         accumulation = bool(payload.get("accumulation", False))
         accum_minus = float(payload.get("accum_minus", -1.0))
         accum_plus = float(payload.get("accum_plus", 1.0))
+        parallel = bool(payload.get("parallel", False))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid line parameters: {exc}"}
 
@@ -612,7 +613,7 @@ def gixs2_linecut_exec(payload: dict[str, Any]) -> dict[str, Any]:
     kwargs = dict(
         angle_deg=angle_deg, cakecut=cakecut, range_minus=range_minus, range_plus=range_plus, use_median=use_median,
         y_pos_move=y_pos_move, z_pos_move=z_pos_move, accumulation=accumulation,
-        accum_minus=accum_minus, accum_plus=accum_plus,
+        accum_minus=accum_minus, accum_plus=accum_plus, parallel=parallel,
     )
     def _report(completed: int, total: int) -> None:
         _set_load_progress(completed, total, "1D cut")
@@ -749,6 +750,22 @@ def _column_labels() -> list[str]:
     return [f"frame{i + 1}" for i in range(_SESSION.stack.shape[0])]
 
 
+def _save_path(directory: str, suffix: str) -> Path:
+    """`{directory}/{prefix}/{prefix}{suffix}` -- every Save button gets
+    its own subfolder named after the series (the same prefix shown in the
+    Filename field), rather than dropping same-named exports from
+    different series/detectors loosely into one shared directory.
+
+    `source_path` (set by the single-frame LOAD DATA step) is the usual
+    source for the prefix; `file_paths[0]` (set by Set/Table Import too)
+    is the fallback for a session that went straight to Import with a
+    hand-typed Filename and never ran LOAD DATA."""
+
+    name_source = _SESSION.source_path or (str(_SESSION.file_paths[0]) if _SESSION.file_paths else "")
+    prefix = _normalize_series_prefix(Path(name_source).name) if name_source else "series"
+    return Path(directory) / prefix / f"{prefix}{suffix}"
+
+
 def gixs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.last_1d is None:
         return {"ok": False, "message": "Run Exec Cut first."}
@@ -758,7 +775,7 @@ def gixs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
 
     method = str(payload.get("normalize", "None"))
     matrix = _normalized_matrix(_SESSION.last_1d["intensity"], method)
-    path = Path(directory) / f"{Path(_SESSION.source_path).stem}_1D.dat"
+    path = _save_path(directory, "_1D.csv")
     try:
         save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", matrix, _column_labels())
     except Exception as exc:  # noqa: BLE001
@@ -775,7 +792,7 @@ def gixs2_save_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
 
     method = str(payload.get("normalize", "None"))
     matrix = _normalized_matrix(_SESSION.last_azimuthal["intensity"], method)
-    path = Path(directory) / f"{Path(_SESSION.source_path).stem}_Azi.dat"
+    path = _save_path(directory, "_Azi.csv")
     try:
         save_series_data(path, _SESSION.last_azimuthal["x_axis"], "Angle_deg", matrix, _column_labels())
     except Exception as exc:  # noqa: BLE001
@@ -813,7 +830,7 @@ def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
             matrix = np.nansum(_SESSION.last_1d["intensity"], axis=1, keepdims=True).T
         columns = ["Integrated_1D"]
 
-    path = Path(directory) / f"{Path(_SESSION.source_path).stem}_Integ.dat"
+    path = _save_path(directory, "_Integ.csv")
     try:
         save_series_data(path, _SESSION.x_axis_values, _SESSION.x_axis_label, matrix, columns)
     except Exception as exc:  # noqa: BLE001
@@ -828,7 +845,7 @@ def gixs2_save_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
     if not directory:
         return {"ok": False, "message": "Choose a save directory."}
 
-    path = Path(directory) / f"{Path(_SESSION.source_path).stem}_XAxis.dat"
+    path = _save_path(directory, "_XAxis.csv")
     try:
         save_series_data(path, _SESSION.x_axis_values, _SESSION.x_axis_label, _SESSION.x_axis_values[np.newaxis, :], ["value"])
     except Exception as exc:  # noqa: BLE001

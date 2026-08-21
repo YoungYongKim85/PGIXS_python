@@ -409,6 +409,34 @@ def test_gixs2_save_1d_writes_a_file(tmp_path):
     assert Path(result["path"]).exists()
 
 
+def test_gixs2_save_creates_a_series_named_subfolder_as_csv(tmp_path):
+    """Every Save button creates a `{prefix}/` subfolder (named after the
+    series, matching the Filename field) inside the chosen directory, and
+    writes .csv (not .dat) -- covers Save 1D/Azi/Integ/X-Axis together
+    since they all now go through the same `_save_path` helper."""
+
+    center = (100.5, 100.5)
+    files, _ = _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 65.0, 70.0], prefix="RUN01")
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+    assert gs.gixs2_qcal({})["ok"]
+    assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
+    assert gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})["ok"]
+    assert gs.gixs2_set_x_axis({})["ok"]
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    for save_fn in (gs.gixs2_save_1d, gs.gixs2_save_azimuthal, gs.gixs2_save_integration, gs.gixs2_save_x_axis):
+        result = save_fn({"directory": str(out_dir)})
+        assert result["ok"], result.get("message")
+        saved_path = Path(result["path"])
+        assert saved_path.exists()
+        assert saved_path.suffix == ".csv"
+        assert saved_path.parent == out_dir / "RUN01"
+        assert saved_path.parent.is_dir()
+
+
 def test_gixs2_save_integration_uses_active_auto_met(tmp_path):
     center = (100.5, 100.5)
     _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])

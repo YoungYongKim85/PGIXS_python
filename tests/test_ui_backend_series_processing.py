@@ -60,6 +60,39 @@ def test_process_linecut_stack_reports_progress_per_frame():
     assert calls == [(1, 4), (2, 4), (3, 4), (4, 4)]
 
 
+def test_process_linecut_stack_parallel_matches_serial():
+    center = (100.5, 100.5)
+    radii = [58.0, 63.0, 71.0, 66.0, 60.0, 75.0]
+    stack = _synthetic_ring_stack(n_frames=6, center=center, radii=radii)
+    q_map = np.hypot(*np.meshgrid(np.arange(1, 201) - center[0], np.arange(1, 201) - center[1]))
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    serial = process_linecut_stack(stack, q_map, angle_map, center=center, angle_deg=90.0, parallel=False)
+    parallel = process_linecut_stack(stack, q_map, angle_map, center=center, angle_deg=90.0, parallel=True)
+
+    np.testing.assert_array_equal(serial.x_axis, parallel.x_axis)
+    np.testing.assert_array_equal(serial.intensity, parallel.intensity)
+    np.testing.assert_array_equal(serial.coverage, parallel.coverage)
+
+
+def test_process_linecut_stack_parallel_reports_progress_exactly_once_per_frame():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=8, center=center, radii=[60.0 + i for i in range(8)])
+    q_map = np.hypot(*np.meshgrid(np.arange(1, 201) - center[0], np.arange(1, 201) - center[1]))
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    calls = []
+    process_linecut_stack(
+        stack, q_map, angle_map, center=center, angle_deg=90.0, parallel=True,
+        progress_callback=lambda completed, total: calls.append((completed, total)),
+    )
+
+    # Completion order isn't guaranteed under threading, but every "total"
+    # must be 8 and "completed" must count 1..8 exactly once each.
+    assert [total for _, total in calls] == [8] * 8
+    assert sorted(completed for completed, _ in calls) == list(range(1, 9))
+
+
 def test_process_linecut_stack_rejects_geometry_shape_mismatch():
     # Different-sized frames within one "stack" is invalid input in
     # practice, but exercising the guard directly with a hand-built
