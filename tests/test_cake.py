@@ -57,6 +57,45 @@ def test_cake_average_full_relative_range():
     assert result.selected_pixel_count == 9
 
 
+def test_cake_average_thread_safe_no_warning_race():
+    """Cakecut's whole reduction chain (cake_average -> build_radius_bin_map
+    -> radius_average -> qbin_average) never calls np.nanmean/np.nanmedian
+    on a possibly-empty/all-NaN slice in the first place -- every bin's
+    values are pre-filtered to only its actually-present finite pixels
+    (np.bincount-based sums, or values[mask] before np.mean/np.median), so
+    there is no warnings.catch_warnings()-style suppression to race on
+    (unlike accumulation_average's old implementation -- see
+    test_accumulation_average_thread_safe_no_warning_race). Verified here
+    with a wedge that deliberately has a zero-coverage radius bin (a
+    detector gap masked out mid-wedge), run concurrently with
+    warnings.simplefilter("error") active globally."""
+
+    rng = np.random.default_rng(0)
+    shape = (120, 120)
+    center = (60.5, 60.5)
+    data = rng.uniform(1.0, 100.0, size=shape).astype(np.float32)
+    yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    q_map = (np.hypot(xx - (center[0] - 1.0), yy - (center[1] - 1.0)) * 0.01).astype(np.float32)
+    angle_map = pixel_angle_map(shape, center)
+    r = np.hypot(xx - (center[0] - 1.0), yy - (center[1] - 1.0))
+    data[(r > 15) & (r < 25)] = np.nan  # a gap ring mid-wedge -> a zero-coverage bin
+
+    def run(_i):
+        return cake_average(data, q_map, angle_map, center=center, reference_angle=0.0, angle_range=(-2.0, 2.0))
+
+    baseline = run(0)
+    assert baseline.is_valid
+    assert np.nanmin(baseline.coverage) == 0.0  # confirms the empty-bin path is actually exercised
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(run, range(40)))
+
+    for result in results:
+        np.testing.assert_array_equal(result.intensity, baseline.intensity)
+
+
 def _synthetic_frame(rng, rows=40, cols=50):
     data = rng.uniform(1, 100, size=(rows, cols)).astype(np.float32)
     beam_y, beam_z = 20.0, 25.0
