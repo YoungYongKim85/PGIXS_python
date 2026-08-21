@@ -100,8 +100,13 @@ def save_series_data(
         raise ValueError(f"column_labels must have {mat.shape[0]} entries; got {len(column_labels)}.")
 
     table = np.column_stack([x, mat.T]).astype(np.float32)
-    columns = [x_label, *column_labels]
     delimiter = "," if path.suffix.lower() == ".csv" else "\t"
+    # A label containing the delimiter itself (e.g. the X-axis label
+    # "Time, s") would silently split into an extra header field once
+    # written out -- np.savetxt's header is a plain joined string with no
+    # quoting, so every column after it reads one column short (reported:
+    # ROI1..ROI5 each shifted one column left of their actual data).
+    columns = [label.replace(delimiter, " ") if delimiter in label else label for label in (x_label, *column_labels)]
     header = delimiter.join(columns)
     np.savetxt(path, table, delimiter=delimiter, header=header, comments="", fmt="%.10g")
     return path

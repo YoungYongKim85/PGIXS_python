@@ -812,7 +812,9 @@ def test_gixs2_widget_draw_roi_draws_matching_colored_box_and_curve(qapp, tmp_pa
     """Port of MATLAB's `ROIdef2_Callback`/`drawROIOverlay`/`PlotROI_Callback`:
     each ROI gets its own fixed color, used both for its rectangle overlay
     on the 2D image and its curve in the Series Integration Viewer, so a
-    box and its curve are visually linked."""
+    box and its curve are visually linked. Also covers the ROI Normalize
+    combo actually applying live (see below), reusing this same widget
+    rather than constructing another."""
 
     import matplotlib.colors
     from matplotlib.patches import Rectangle
@@ -839,6 +841,28 @@ def test_gixs2_widget_draw_roi_draws_matching_colored_box_and_curve(qapp, tmp_pa
     assert lines[0].get_color() == _ROI_COLORS[0]
     assert lines[1].get_color() == _ROI_COLORS[1]
     assert widget.integ_canvas.ax.get_legend() is not None
+
+    # The ROI Normalize combo previously existed with no effect at all --
+    # confirm switching it to IC/BC now actually changes the Series
+    # Integration Viewer's curves (render_multi rebuilds the axes on every
+    # call, so re-fetch the lines after each change rather than reusing
+    # the stale `lines` references above).
+    def first_curve_y():
+        current = [ln for ln in widget.integ_canvas.ax.get_lines() if ln is not widget.integ_canvas._hover_marker]
+        return current[0].get_ydata().copy()
+
+    none_y = first_curve_y()
+
+    widget.normalize_roi_combo.setCurrentText("IC")
+    ic_y = first_curve_y()
+    assert not np.allclose(ic_y, none_y)
+
+    widget.normalize_roi_combo.setCurrentText("BC")
+    bc_y = first_curve_y()
+    assert not np.allclose(bc_y, ic_y)
+
+    widget.normalize_roi_combo.setCurrentText("None")
+    np.testing.assert_allclose(first_curve_y(), none_y)
 
 
 def test_gixs2_widget_draw_roi_overlay_survives_image_rerender(qapp, tmp_path, monkeypatch):
@@ -1049,10 +1073,10 @@ def test_gixs2_widget_overlay_exclusivity_and_display_controls_clear_process_ove
        matches that (see `_active_overlay`'s own docstring).
 
     2. Scale/Colormap/Contrast are pure display changes on the 2D Image
-       Plot Viewer, not a new cut/process request -- confirm they clear
-       whatever 1D/Azimuthal process overlay was on screen (touching the
-       relevant control again brings it back), while a saved ROI box -- not
-       a transient cut preview -- is unaffected.
+       Plot Viewer, not a new cut/process/ROI request -- confirm they clear
+       everything drawn on the image (1D/Azimuthal process overlay, ROI
+       boxes alike) back to the plain image, and that redrawing ROI/
+       touching a process control again brings each back.
     """
 
     from matplotlib.patches import Circle, Rectangle
@@ -1086,12 +1110,17 @@ def test_gixs2_widget_overlay_exclusivity_and_display_controls_clear_process_ove
 
     widget.image_colormap_combo.setCurrentText("magma")
 
-    boxes = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Rectangle)]
-    assert len(boxes) == 1  # ROI survives a pure display change
-    assert len(widget.image_canvas._overlay_artists) == 2  # the 1D line does not
+    # Reported: ROI boxes should clear on a display-only change too, not
+    # just the 1D/Azimuthal process overlay -- back to the plain image.
+    assert len(widget.image_canvas._overlay_artists) == 0
 
+    # Any subsequent full redraw (touching a process control, Draw ROI,
+    # Load Info, ...) brings everything currently defined back at once --
+    # `session.roi_list` was never cleared, only its on-screen drawing.
     widget._arm_1d_overlay()
-    assert len(widget.image_canvas._overlay_artists) == 3  # back, alongside the ROI
+    assert len(widget.image_canvas._overlay_artists) == 3
+    boxes = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Rectangle)]
+    assert len(boxes) == 1
 
 
 def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qapp, tmp_path):

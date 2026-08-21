@@ -398,6 +398,29 @@ def test_gixs2_roi_exec_matches_hand_computed_sum(tmp_path):
     assert session.auto_met == "roi"
 
 
+def test_gixs2_save_integration_applies_roi_normalization(tmp_path):
+    """Save Integ.'s ROI branch previously always wrote the raw sum,
+    ignoring whatever the ROI Normalize combo/payload said -- confirm it
+    now applies None/IC/BC via the shared `gixs2_normalized_matrix`."""
+
+    _load_series(tmp_path, n_frames=2)
+    session = gs.get_session()
+    session.stack = np.ones((2, 10, 10), dtype=np.float32)
+    session.corrected_stack = None
+    assert gs.gixs2_roi_exec({"rois": [(1, 2, 1, 2)]})["ok"]
+    assert gs.gixs2_set_x_axis({})["ok"]
+
+    result_none = gs.gixs2_save_integration({"directory": str(tmp_path), "normalize": "None"})
+    assert result_none["ok"], result_none.get("message")
+    none_content = Path(result_none["path"]).read_text()
+
+    result_ic = gs.gixs2_save_integration({"directory": str(tmp_path), "normalize": "IC"})
+    assert result_ic["ok"], result_ic.get("message")
+    ic_content = Path(result_ic["path"]).read_text()
+
+    assert none_content != ic_content
+
+
 def test_gixs2_set_x_axis_temperature_mode(tmp_path):
     _load_series(tmp_path, n_frames=3)
     result = gs.gixs2_set_x_axis({"sub_mode": "", "order": False})

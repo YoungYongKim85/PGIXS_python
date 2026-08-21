@@ -293,6 +293,7 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_field("N. ROI", self.n_roi_combo, self.draw_roi_button))
         self.normalize_roi_combo = QComboBox()
         self.normalize_roi_combo.addItems(_NORMALIZE_LIST)
+        self.normalize_roi_combo.currentTextChanged.connect(self._render_integration)
         layout.addWidget(_field("Normalize", self.normalize_roi_combo))
 
         layout.addWidget(_divider("X-Axis / Auto"))
@@ -313,7 +314,9 @@ class GIXS2Widget(QWidget):
         self.save_azi_button.clicked.connect(lambda: self._save(gs.gixs2_save_azimuthal, self.normalize_azi_combo.currentText()))
         layout.addWidget(_row(self.save_1d_button, self.save_azi_button))
         self.save_integ_button = QPushButton("Save Integ.")
-        self.save_integ_button.clicked.connect(lambda: self._save(gs.gixs2_save_integration))
+        self.save_integ_button.clicked.connect(
+            lambda: self._save(gs.gixs2_save_integration, self.normalize_roi_combo.currentText())
+        )
         self.save_xaxis_button = QPushButton("Save X-Axis")
         self.save_xaxis_button.clicked.connect(lambda: self._save(gs.gixs2_save_x_axis))
         layout.addWidget(_row(self.save_integ_button, self.save_xaxis_button))
@@ -377,9 +380,10 @@ class GIXS2Widget(QWidget):
         # directly, so the combo's emitted text never lands in either
         # parameter position. `redraw_overlays=False` for all four
         # Scale/Colormap/Contrast controls: these are pure display changes,
-        # not a new cut/process request, so any process-cut overlay still
-        # on screen is cleared rather than carried over -- touching the
-        # relevant 1D/Azimuthal control again brings it back.
+        # not a new cut/process/ROI request, so whatever was drawn on the
+        # image (1D/Azimuthal process overlay, ROI boxes) is cleared rather
+        # than carried over, back to the plain image -- touching the
+        # relevant control again (or Draw ROI again) brings it back.
         self.image_scale_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
         self.image_colormap_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
         # Scale/Colormap/Contrast/Play all on one row -- keeps the whole
@@ -731,16 +735,15 @@ class GIXS2Widget(QWidget):
             self.image_cmax_spin.blockSignals(False)
         # ImageCanvas.render() just fully rebuilt the figure/axes (see its
         # own docstring on why), which silently drops any previously-drawn
-        # overlay. For most callers (new data, Load Info, q-Cal, Exec...)
-        # redraw whatever's still relevant so it doesn't disappear; a pure
-        # Scale/Colormap/Contrast change instead passes
-        # redraw_overlays=False so the process-cut overlay actually goes
-        # away (only ROI, a saved region rather than a cut preview, still
-        # comes back) -- see those controls' own wiring comment.
+        # overlay -- including ROI boxes. For most callers (new data, Load
+        # Info, q-Cal, Exec...) redraw whatever's still relevant so it
+        # doesn't disappear; a pure Scale/Colormap/Contrast change instead
+        # passes redraw_overlays=False so the plain image comes back with
+        # nothing drawn on it at all (reported: ROI boxes should clear the
+        # same way the 1D/Azimuthal process overlay already does on these
+        # controls) -- see those controls' own wiring comment.
         if redraw_overlays:
             self._redraw_overlays()
-        else:
-            self._draw_roi_overlay()
 
     def _image_extent(self, shape: tuple[int, int]) -> tuple[float, float, float, float]:
         """(left, right, bottom, top) for `ImageCanvas.render`'s `extent`,
@@ -1346,8 +1349,9 @@ class GIXS2Widget(QWidget):
             n_roi = session.last_roi.shape[1]
             labels = [f"ROI {i + 1}" for i in range(n_roi)]
             colors = [_ROI_COLORS[i % len(_ROI_COLORS)] for i in range(n_roi)]
+            matrix = gs.gixs2_normalized_matrix(session.last_roi, self.normalize_roi_combo.currentText())
             self.integ_canvas.render_multi(
-                session.x_axis_values, session.last_roi.T, labels, colors,
+                session.x_axis_values, matrix.T, labels, colors,
                 xlabel=session.x_axis_label, ylabel="Sum(ROI), arb. units",
             )
             return

@@ -1,6 +1,7 @@
 import numpy as np
 
 from pgixs_python.export import OneDExport, build_1d_table, save_1d_data
+from pgixs_python.export.data_export import save_series_data
 
 
 def test_build_1d_table_defaults_to_q_intensity_std():
@@ -47,3 +48,28 @@ def test_save_1d_data_csv(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert text.splitlines()[0] == "q,intensity"
     assert "," in text.splitlines()[1]
+
+
+def test_save_series_data_x_label_containing_delimiter_does_not_shift_columns(tmp_path):
+    """Regression: GIXS2's X-axis label is built as e.g. "Time, s" (see
+    series_processing.py's `_time_axis`) -- writing that verbatim into a
+    comma-delimited CSV header split it into two fields ("Time" and " s"),
+    silently shifting every ROI/frame column one place to the right of its
+    actual data (reported: ROI1..ROI5 headers no longer lined up with their
+    columns)."""
+
+    out = tmp_path / "series.csv"
+
+    save_series_data(
+        out,
+        x_axis=np.array([10.0, 20.0, 30.0], dtype=np.float32),
+        x_label="Time, s",
+        matrix=np.arange(15, dtype=np.float32).reshape(5, 3),
+        column_labels=["ROI1", "ROI2", "ROI3", "ROI4", "ROI5"],
+    )
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+    header = lines[0].split(",")
+    assert header == ["Time  s", "ROI1", "ROI2", "ROI3", "ROI4", "ROI5"]
+    for line in lines[1:]:
+        assert len(line.split(",")) == len(header)

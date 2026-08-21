@@ -826,7 +826,8 @@ def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
         if _SESSION.last_roi is None:
             return {"ok": False, "message": "Run Exec ROI first."}
         columns = [f"ROI{i + 1}" for i in range(_SESSION.last_roi.shape[1])]
-        matrix = _SESSION.last_roi.T
+        method = str(payload.get("normalize", "None"))
+        matrix = gixs2_normalized_matrix(_SESSION.last_roi, method).T
     elif _SESSION.auto_met == "azimuthal":
         if _SESSION.last_azimuthal is None:
             return {"ok": False, "message": "Run Exec Azi first."}
