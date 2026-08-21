@@ -60,6 +60,13 @@ _NORMALIZE_LIST = ["None", "IC", "BC"]
 # against this app's own light theme (MATLAB's 'y'/'w' entries wash out).
 _ROI_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4"]
 
+# Shared cap for every Normalize/Mean-Median combo box in the 1D Plot
+# Process and Azimuthal Process sections -- without it, a combo box alone
+# on its own row (e.g. Mean/Median) stretches to fill the whole row width,
+# while one sharing a row with an Exec button only gets what's left over,
+# so otherwise-equivalent dropdowns ended up visibly different widths.
+_COMBO_MAX_WIDTH = 180
+
 
 def _control_row(layout: QHBoxLayout) -> QWidget:
     """Wrap a viewer's control-row QHBoxLayout in a plain container widget
@@ -265,6 +272,11 @@ class GIXS2Widget(QWidget):
         self.exec_1d_button.clicked.connect(self._on_exec_1d_clicked)
         self.normalize_1d_combo = QComboBox()
         self.normalize_1d_combo.addItems(_NORMALIZE_LIST)
+        # Capped at the same width as every other combo box in the 1D
+        # Plot Process/Azimuthal Process sections (see _COMBO_MAX_WIDTH's
+        # own docstring) so they don't drift apart depending on whichever
+        # button/label happens to share their row.
+        self.normalize_1d_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
         self.normalize_1d_combo.currentTextChanged.connect(self._render_1d)
         layout.addWidget(_row(self.exec_1d_button, self.normalize_1d_combo))
         self.exec_1d_parallel_check = QCheckBox("Parallel")
@@ -295,12 +307,14 @@ class GIXS2Widget(QWidget):
             control.valueChanged.connect(lambda _v: self._arm_azi_overlay())
         self.azi_mean_median_combo = QComboBox()
         self.azi_mean_median_combo.addItems(["Mean", "Median"])
+        self.azi_mean_median_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
         layout.addWidget(_field("Mean/Median", self.azi_mean_median_combo, label_width=88))
 
         self.exec_azi_button = QPushButton("Exec Azi")
         self.exec_azi_button.clicked.connect(self._on_exec_azi_clicked)
         self.normalize_azi_combo = QComboBox()
         self.normalize_azi_combo.addItems(_NORMALIZE_LIST)
+        self.normalize_azi_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
         self.normalize_azi_combo.currentTextChanged.connect(self._render_azimuthal)
         layout.addWidget(_row(self.exec_azi_button, self.normalize_azi_combo))
 
