@@ -207,9 +207,13 @@ def process_azimuthal_stack(
     n_angle_bins: int = 180,
     use_median: bool = False,
     angle_range: tuple[float, float] = (0.0, 180.0),
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> SeriesCurveResult:
     """Azimuthal Process across a whole series -- same as
-    `console_session.console_azimuthal_1d`, run once per frame."""
+    `console_session.console_azimuthal_1d`, run once per frame.
+
+    `progress_callback(completed, total)`, when given, is called after
+    every frame -- same convention as `process_linecut_stack`'s own."""
 
     n_frames = stack.shape[0]
     x_axis: np.ndarray | None = None
@@ -230,6 +234,8 @@ def process_azimuthal_stack(
             )
         intensity_rows.append(result.intensity)
         coverage_rows.append(result.coverage)
+        if progress_callback is not None:
+            progress_callback(i + 1, n_frames)
 
     assert x_axis is not None
     return SeriesCurveResult(x_axis=x_axis, intensity=np.vstack(intensity_rows), coverage=np.vstack(coverage_rows))

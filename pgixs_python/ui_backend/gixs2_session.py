@@ -664,10 +664,17 @@ def gixs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
     beam_pos = _SESSION.calibration["beam_pos"]
     radius_range = (pixel + range_minus, pixel + range_plus)
     kwargs = dict(radius_range=radius_range, n_angle_bins=n_angle_bins, use_median=use_median, angle_range=(0.0, 180.0))
+
+    def _report(completed: int, total: int) -> None:
+        _set_load_progress(completed, total, "Azimuthal")
+
+    _SESSION.load_progress = None
     try:
-        result = process_azimuthal_stack(_data_for_processing(), center=beam_pos, **kwargs)
+        result = process_azimuthal_stack(_data_for_processing(), center=beam_pos, progress_callback=_report, **kwargs)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
+    finally:
+        _SESSION.load_progress = None
 
     _SESSION.last_azimuthal = {
         "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage, "params": kwargs,

@@ -85,6 +85,23 @@ def _exec_1d_sync(widget):
     return result
 
 
+def _exec_azi_sync(widget):
+    """Same rationale as `_exec_1d_sync` -- `_on_exec_azi_clicked` now runs
+    `gixs2_azimuthal_exec` on a background QThread too (with its own
+    progress dialog). `test_gixs2_widget_exec_azi_runs_in_background_with_progress_dialog`
+    below covers the actual threading/progress-dialog behavior."""
+
+    payload = {
+        "pixel": widget.azi_pix_spin.value(),
+        "range_minus": widget.azi_minus_spin.value(),
+        "range_plus": widget.azi_plus_spin.value(),
+        "mean_or_median": widget.azi_mean_median_combo.currentText(),
+    }
+    result = gs.gixs2_azimuthal_exec(payload)
+    widget._on_exec_azi_finished(result)
+    return result
+
+
 def _simulate_roi_drawing(widget, monkeypatch, rectangles):
     """Drive "Draw ROI"'s separate dialog through its sequential
     RectangleSelector flow (one drag per ROI, in display coordinates)
@@ -304,7 +321,7 @@ def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch
     )
     widget._on_load_clicked()
     assert not widget._pixel_centered
-    assert not widget._show_1d_overlay
+    assert widget._active_overlay is None
     assert len(widget.image_canvas._overlay_artists) == 0
 
 
@@ -383,10 +400,15 @@ def test_gixs2_widget_qcal_and_exec_1d_end_to_end(qapp, tmp_path):
     assert len(widget.oned_canvas._data_x) > 0
 
 
-def test_gixs2_widget_exec_1d_runs_in_background_with_progress_dialog(qapp, tmp_path, monkeypatch):
-    """Exec Cut runs the per-frame 1D-cut loop on a background QThread
-    (same pattern as series loading) and shows a progress dialog while it
-    runs, rather than freezing the UI for however long a real series takes."""
+def test_gixs2_widget_exec_1d_and_azi_run_in_background_with_progress_dialog(qapp, tmp_path, monkeypatch):
+    """Exec Cut and Exec Azi each run their per-frame loop on a background
+    QThread (same pattern as series loading) and show a progress dialog
+    while they run, rather than freezing the UI for however long a real
+    series takes -- Exec Azi previously ran `gixs2_azimuthal_exec` inline
+    with no progress feedback at all. Reuses one widget for both checks
+    (rather than a `GIXS2Widget()` each) -- see
+    test_gixs2_widget_exec_1d_shows_progress_dialog_for_every_geometry_mode's
+    own docstring on why this suite favors reuse."""
 
     gs.reset_session()
     widget = GIXS2Widget()
@@ -406,6 +428,19 @@ def test_gixs2_widget_exec_1d_runs_in_background_with_progress_dialog(qapp, tmp_
     assert captured["payload"]["angle_deg"] == widget.phi_spin.value()
     assert not widget.exec_1d_button.isEnabled()
     assert widget._progress_dialog is not None
+
+    widget._stop_progress_dialog()
+    widget.exec_1d_button.setEnabled(True)
+    captured.clear()
+
+    widget._on_exec_azi_clicked()
+
+    assert captured["fn"] is gs.gixs2_azimuthal_exec
+    assert captured["payload"]["pixel"] == widget.azi_pix_spin.value()
+    assert not widget.exec_azi_button.isEnabled()
+    assert widget._progress_dialog is not None
+
+    widget._stop_progress_dialog()
 
 
 def test_gixs2_widget_exec_1d_shows_progress_dialog_for_every_geometry_mode(qapp, tmp_path, monkeypatch):
@@ -594,7 +629,7 @@ def test_gixs2_widget_azimuthal_plot_uses_series_colormap_with_colorbar(qapp, tm
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
-    widget._on_exec_azi_clicked()
+    _exec_azi_sync(widget)
 
     # Same live X-axis recompute as the 1D Plot Viewer -- see
     # test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar.
@@ -626,7 +661,7 @@ def test_gixs2_widget_azimuthal_plot_colorbar_uses_x_axis_label_after_set_x_axis
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
-    widget._on_exec_azi_clicked()
+    _exec_azi_sync(widget)
 
     widget._on_set_x_axis_clicked()
 
@@ -646,7 +681,7 @@ def test_gixs2_widget_set_x_axis_refreshes_both_1d_and_azimuthal_colorbars(qapp,
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
-    widget._on_exec_azi_clicked()
+    _exec_azi_sync(widget)
 
     widget._on_set_x_axis_clicked()
 
@@ -947,7 +982,7 @@ def test_gixs2_widget_azimuthal_position_button_click_sets_pix_and_arms_overlay(
     widget._on_image_clicked(140.5, 100.5)  # 40 px right of the beam center
 
     assert widget.azi_pix_spin.value() == pytest.approx(40.0, abs=0.01)
-    assert widget._show_azi_overlay is True
+    assert widget._active_overlay == "azimuthal"
     assert len(widget.image_canvas._overlay_artists) == 2
 
     # Ignored while the toolbar's own pan/zoom mode is active, matching
@@ -961,7 +996,7 @@ def test_gixs2_widget_azimuthal_overlay_hidden_until_armed_then_tracks_range_liv
     """Port of console_widget.py's own `_on_azi_draw_clicked`: two circles
     at pix+Range(-) and pix+Range(+), hidden until the user actually
     engages the Azimuthal Process controls or clicks Draw (same "armed"
-    guard used for the 1D Plot Process overlay -- see `_show_azi_overlay`'s
+    guard used for the 1D Plot Process overlay -- see `_active_overlay`'s
     own docstring), and tracking further pix/Range edits live without
     accumulating extra circles."""
 
@@ -977,7 +1012,7 @@ def test_gixs2_widget_azimuthal_overlay_hidden_until_armed_then_tracks_range_liv
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
-    # Armed, but not calibrated yet -- same two-gate guard as _show_1d_overlay.
+    # Armed, but not calibrated yet -- same two-gate guard as `_arm_1d_overlay`.
     assert len(widget.image_canvas._overlay_artists) == 0
 
     session.corrected = True
@@ -1000,6 +1035,65 @@ def test_gixs2_widget_azimuthal_overlay_hidden_until_armed_then_tracks_range_liv
     assert sorted(c.radius for c in circles) == pytest.approx([55.0, 70.0])
 
 
+def test_gixs2_widget_overlay_exclusivity_and_display_controls_clear_process_overlay(qapp, tmp_path, monkeypatch):
+    """Two related regressions on one widget (reused across both checks --
+    see test_gixs2_widget_exec_1d_shows_progress_dialog_for_every_geometry_mode's
+    own docstring on why this suite favors reuse over one `GIXS2Widget()`
+    per scenario):
+
+    1. Doing Azimuthal Process work used to leave whatever 1D Plot Process
+       line/wedge/band was already on screen still drawn underneath the new
+       ring instead of replacing it. console_widget.py's own Line/Azimuthal
+       Draw buttons each clear the image before drawing their own geometry
+       -- only one process-cut overlay is ever shown at a time; GIXS2 now
+       matches that (see `_active_overlay`'s own docstring).
+
+    2. Scale/Colormap/Contrast are pure display changes on the 2D Image
+       Plot Viewer, not a new cut/process request -- confirm they clear
+       whatever 1D/Azimuthal process overlay was on screen (touching the
+       relevant control again brings it back), while a saved ROI box -- not
+       a transient cut preview -- is unaffected.
+    """
+
+    from matplotlib.patches import Circle, Rectangle
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+    gs.get_session().corrected = True
+
+    widget.phi_spin.setValue(45.0)
+    assert widget._active_overlay == "1d"
+    assert len(widget.image_canvas._overlay_artists) == 1
+
+    widget.azi_pix_spin.setValue(60.0)
+    assert widget._active_overlay == "azimuthal"
+    artists = widget.image_canvas._overlay_artists
+    assert len(artists) == 2
+    assert all(isinstance(a, Circle) for a in artists)  # the 1D line is gone
+
+    widget.phi_spin.setValue(90.0)
+    assert widget._active_overlay == "1d"
+    assert len(widget.image_canvas._overlay_artists) == 1
+    assert not any(isinstance(a, Circle) for a in widget.image_canvas._overlay_artists)
+
+    widget.n_roi_combo.setCurrentText("1")
+    _simulate_roi_drawing(widget, monkeypatch, [(10.0, 10.0, 20.0, 20.0)])
+    widget._on_draw_roi_clicked()
+
+    widget._arm_1d_overlay()
+    assert len(widget.image_canvas._overlay_artists) == 3  # 1D line + ROI rect + ROI label
+
+    widget.image_colormap_combo.setCurrentText("magma")
+
+    boxes = [a for a in widget.image_canvas._overlay_artists if isinstance(a, Rectangle)]
+    assert len(boxes) == 1  # ROI survives a pure display change
+    assert len(widget.image_canvas._overlay_artists) == 2  # the 1D line does not
+
+    widget._arm_1d_overlay()
+    assert len(widget.image_canvas._overlay_artists) == 3  # back, alongside the ROI
+
+
 def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qapp, tmp_path):
     """The Normalize combo previously only affected Save output
     (gixs2_session.py's private `_normalized_matrix`, only called from
@@ -1019,7 +1113,7 @@ def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qa
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
-    widget._on_exec_azi_clicked()
+    _exec_azi_sync(widget)
 
     def first_curve_y(canvas):
         lines = [ln for ln in canvas.ax.get_lines() if ln is not canvas._hover_marker]

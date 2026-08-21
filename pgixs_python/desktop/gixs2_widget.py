@@ -99,6 +99,7 @@ class GIXS2Widget(QWidget):
         self._roi_dialog: QDialog | None = None
         self._load_thread = None
         self._exec_1d_thread = None
+        self._exec_azi_thread = None
         self._current_image_data: np.ndarray | None = None
         self._play_dialog: QDialog | None = None
         # Set True once Load Info succeeds, matching console_widget.py's
@@ -106,15 +107,19 @@ class GIXS2Widget(QWidget):
         # then on the 2D image's pixel axis re-centers on the beam
         # position instead of reading raw detector row/column indices.
         self._pixel_centered = False
-        # Set True the first time the user actually touches a 1D Plot
-        # Process control (angle/Cakecut/Accum) or runs Exec Cut -- guards
-        # _draw_1d_overlay so the line/wedge/band doesn't auto-appear the
-        # moment Load Info/q-Cal happens to leave calibration in place
-        # (reported: a white line through the beam center showed up right
-        # after Load Info, before the user ever asked to see a cut).
-        self._show_1d_overlay = False
-        # Same guard as `_show_1d_overlay`, for the Azimuthal Process ring.
-        self._show_azi_overlay = False
+        # None until the user actually touches a 1D Plot Process control
+        # (angle/Cakecut/Accum) or an Azimuthal Process control (Position/
+        # Draw/pix/Range), then "1d" or "azimuthal" -- guards
+        # `_redraw_overlays` two ways: (1) neither cut preview auto-appears
+        # just because Load Info/q-Cal happens to leave calibration in
+        # place (reported: a white line through the beam center showed up
+        # right after Load Info, before the user ever asked to see a cut);
+        # (2) only ONE process-cut overlay is ever shown at a time, matching
+        # console_widget.py's own Line/Azimuthal Draw buttons (each clears
+        # the image and draws only its own geometry) -- switching to
+        # Azimuthal work clears a 1D line/wedge/band still on screen,
+        # instead of the two piling up together.
+        self._active_overlay: str | None = None
         # Set by the Position button (mirrors console_widget.py's own
         # `_position_mode`); the next click on the 2D image then sets
         # `azi_pix_spin` from the clicked point instead of panning/zooming.
@@ -360,18 +365,23 @@ class GIXS2Widget(QWidget):
         # point to nudge from instead of two blank zeros.
         self.image_cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
         self.image_cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        self.image_cmin_spin.valueChanged.connect(lambda _v: self._render_image())
-        self.image_cmax_spin.valueChanged.connect(lambda _v: self._render_image())
+        self.image_cmin_spin.valueChanged.connect(lambda _v: self._render_image(redraw_overlays=False))
+        self.image_cmax_spin.valueChanged.connect(lambda _v: self._render_image(redraw_overlays=False))
         self.play_button = QPushButton("Play")
         self.play_button.setToolTip(
             "Step through every loaded frame one by one, all rendered with the current contrast/colormap locked, for visual comparison."
         )
         self.play_button.clicked.connect(self._on_play_clicked)
-        # `_render_image` now takes an optional `force_reset` bool -- route
-        # through a lambda rather than connecting the slot directly, so the
-        # combo's emitted text never lands in that parameter position.
-        self.image_scale_combo.currentTextChanged.connect(lambda _text: self._render_image())
-        self.image_colormap_combo.currentTextChanged.connect(lambda _text: self._render_image())
+        # `_render_image` takes optional `force_reset`/`redraw_overlays`
+        # bools -- route through a lambda rather than connecting the slot
+        # directly, so the combo's emitted text never lands in either
+        # parameter position. `redraw_overlays=False` for all four
+        # Scale/Colormap/Contrast controls: these are pure display changes,
+        # not a new cut/process request, so any process-cut overlay still
+        # on screen is cleared rather than carried over -- touching the
+        # relevant 1D/Azimuthal control again brings it back.
+        self.image_scale_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
+        self.image_colormap_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
         # Scale/Colormap/Contrast/Play all on one row -- keeps the whole
         # display-controls block to a single line instead of stacking it
         # across two, so the image itself gets more vertical room.
@@ -505,11 +515,10 @@ class GIXS2Widget(QWidget):
         # loaded for the *previous* dataset -- back to raw pixel indices
         # until Load Info is run again, matching console_widget.py.
         self._pixel_centered = False
-        # And whatever 1D Plot Process geometry the user had set up applied
-        # to the previous dataset too -- don't carry the overlay over onto
+        # And whatever process-cut geometry the user had set up applied to
+        # the previous dataset too -- don't carry the overlay over onto
         # this new one until they touch those controls again.
-        self._show_1d_overlay = False
-        self._show_azi_overlay = False
+        self._active_overlay = None
         self._position_mode = None
         self._render_image()
         self._mark_ok(self.load_button, True)
@@ -679,7 +688,7 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # 2D image render
     # ------------------------------------------------------------------
-    def _render_image(self, force_reset: bool = False) -> None:
+    def _render_image(self, force_reset: bool = False, redraw_overlays: bool = True) -> None:
         session = gs.get_session()
         if session.data is None:
             return
@@ -722,10 +731,16 @@ class GIXS2Widget(QWidget):
             self.image_cmax_spin.blockSignals(False)
         # ImageCanvas.render() just fully rebuilt the figure/axes (see its
         # own docstring on why), which silently drops any previously-drawn
-        # overlay -- redraw the current 1D Plot Process geometry and any
-        # defined ROI boxes on top of the fresh image so neither disappears
-        # on every re-render.
-        self._redraw_overlays()
+        # overlay. For most callers (new data, Load Info, q-Cal, Exec...)
+        # redraw whatever's still relevant so it doesn't disappear; a pure
+        # Scale/Colormap/Contrast change instead passes
+        # redraw_overlays=False so the process-cut overlay actually goes
+        # away (only ROI, a saved region rather than a cut preview, still
+        # comes back) -- see those controls' own wiring comment.
+        if redraw_overlays:
+            self._redraw_overlays()
+        else:
+            self._draw_roi_overlay()
 
     def _image_extent(self, shape: tuple[int, int]) -> tuple[float, float, float, float]:
         """(left, right, bottom, top) for `ImageCanvas.render`'s `extent`,
@@ -782,13 +797,17 @@ class GIXS2Widget(QWidget):
         return (beam_y + offset_y, beam_z + offset_z)
 
     def _redraw_overlays(self) -> None:
-        """Full resync of every overlay layer, in order: 1D Plot Process
-        geometry (clears first -- see its own docstring), the Azimuthal
-        Process ring, then ROI boxes on top. Shared by `_render_image`'s
-        tail (after a full figure rebuild wipes everything) and by each
-        overlay's own "arm" handler (so touching one control's overlay
-        doesn't wipe the others)."""
+        """Full resync of every overlay layer: clear everything once, then
+        draw whichever process-cut geometry is currently active (1D Plot
+        Process OR Azimuthal Process, never both -- see `_active_overlay`'s
+        own docstring in `__init__`, matching console_widget.py's own
+        Line/Azimuthal Draw buttons), then ROI boxes on top -- ROI is a
+        saved region rather than an in-progress cut preview, so it's always
+        shown independent of which process overlay is active. Shared by
+        `_render_image`'s tail (after a full figure rebuild wipes
+        everything) and by each overlay's own "arm" handler."""
 
+        self.image_canvas.clear_overlays()
         self._draw_1d_overlay()
         self._draw_azi_overlay()
         self._draw_roi_overlay()
@@ -796,18 +815,19 @@ class GIXS2Widget(QWidget):
     def _arm_1d_overlay(self) -> None:
         """Mark that the user has actually engaged with the 1D Plot
         Process (touched a control or run Exec Cut) and redraw -- see
-        `_show_1d_overlay`'s own docstring in `__init__`."""
+        `_active_overlay`'s own docstring in `__init__`."""
 
-        self._show_1d_overlay = True
+        self._active_overlay = "1d"
         self._redraw_overlays()
 
     def _draw_1d_overlay(self) -> None:
         """Show the currently-selected 1D Plot Process geometry (plain
         angle cut / Cakecut wedge / Accumulation band) as a line overlay on
         the 2D image, live as any of its controls change -- matches the
-        single-frame GIXS console's own behavior, requested for GIXS2 too."""
+        single-frame GIXS console's own behavior, requested for GIXS2 too.
+        Additive (does not clear first) -- always called by way of
+        `_redraw_overlays`, which clears once up front."""
 
-        self.image_canvas.clear_overlays()
         session = gs.get_session()
         if session.data is None:
             return
@@ -818,11 +838,11 @@ class GIXS2Widget(QWidget):
         # detector frame's real beam position. Wait for real calibration.
         if not (self._pixel_centered or session.corrected):
             return
-        # And even once calibrated, don't show it until the user has
-        # actually asked to see a cut (touched a 1D Plot Process control or
-        # run Exec Cut) -- otherwise Load Info/q-Cal alone would make the
-        # line pop up unasked-for, which is what was reported.
-        if not self._show_1d_overlay:
+        # And even once calibrated, only show it while it's the active
+        # overlay -- neither unasked-for right after Load Info/q-Cal, nor
+        # still lingering after the user has since moved on to Azimuthal
+        # Process work.
+        if self._active_overlay != "1d":
             return
 
         angle = self.phi_spin.value()
@@ -863,24 +883,23 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # Azimuthal Process geometry overlay -- port of console_widget.py's own
     # `_on_azi_draw_clicked`/Position button, using the same "armed" guard
-    # pattern as `_show_1d_overlay`/`_arm_1d_overlay` above so the ring
-    # doesn't auto-appear just because calibration happens to be in place.
+    # pattern as `_arm_1d_overlay` above so the ring doesn't auto-appear
+    # just because calibration happens to be in place.
     # ------------------------------------------------------------------
     def _arm_azi_overlay(self) -> None:
-        self._show_azi_overlay = True
+        self._active_overlay = "azimuthal"
         self._redraw_overlays()
 
     def _draw_azi_overlay(self) -> None:
-        """Additive -- unlike `_draw_1d_overlay`, does not clear first, so
-        it can be layered on top of the 1D/ROI overlays by `_redraw_overlays`
-        without wiping them. Always called by way of that helper."""
+        """Additive (does not clear first) -- always called by way of
+        `_redraw_overlays`, which clears once up front."""
 
         session = gs.get_session()
         if session.data is None:
             return
         if not (self._pixel_centered or session.corrected):
             return
-        if not self._show_azi_overlay:
+        if self._active_overlay != "azimuthal":
             return
         center = self._current_beam_center()
         pixel = self.azi_pix_spin.value()
@@ -1117,6 +1136,11 @@ class GIXS2Widget(QWidget):
         return np.arange(1, n_frames + 1, dtype=np.float64), "Frame, #"
 
     def _on_exec_azi_clicked(self) -> None:
+        # Same background-thread + progress-dialog pattern as Exec Cut
+        # (_on_exec_1d_clicked) -- a real series can be hundreds to
+        # thousands of frames, so run the per-frame azimuthal loop off the
+        # UI thread instead of freezing the window for however long that
+        # takes.
         self._arm_azi_overlay()
         payload = {
             "pixel": self.azi_pix_spin.value(),
@@ -1124,7 +1148,13 @@ class GIXS2Widget(QWidget):
             "range_plus": self.azi_plus_spin.value(),
             "mean_or_median": self.azi_mean_median_combo.currentText(),
         }
-        result = gs.gixs2_azimuthal_exec(payload)
+        self.exec_azi_button.setEnabled(False)
+        self._start_progress_dialog("Running azimuthal profile...", window_title="Exec Azi")
+        self._exec_azi_thread = run_in_background(gs.gixs2_azimuthal_exec, payload, self._on_exec_azi_finished)
+
+    def _on_exec_azi_finished(self, result: dict[str, Any]) -> None:
+        self._stop_progress_dialog()
+        self.exec_azi_button.setEnabled(True)
         if not result.get("ok"):
             self._set_status(result.get("message", "Exec Azi failed."), False)
             return

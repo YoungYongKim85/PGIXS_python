@@ -189,6 +189,19 @@ def test_process_azimuthal_stack_shapes():
     assert result.coverage.shape == result.intensity.shape
 
 
+def test_process_azimuthal_stack_reports_progress_per_frame():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=4, center=center, radii=[60.0, 60.0, 60.0, 60.0])
+
+    calls = []
+    process_azimuthal_stack(
+        stack, center=center, radius_range=(55.0, 65.0), n_angle_bins=90,
+        progress_callback=lambda completed, total: calls.append((completed, total)),
+    )
+
+    assert calls == [(1, 4), (2, 4), (3, 4), (4, 4)]
+
+
 def test_process_roi_stack_matches_hand_computed_sum():
     stack = np.zeros((3, 10, 10), dtype=np.float32)
     stack[0, 2:5, 2:5] = 1.0  # 9 pixels of value 1

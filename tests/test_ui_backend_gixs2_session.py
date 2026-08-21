@@ -346,6 +346,45 @@ def test_gixs2_azimuthal_exec_end_to_end(tmp_path):
     assert session.auto_met == "azimuthal"
 
 
+def test_gixs2_azimuthal_exec_reports_and_clears_load_progress(tmp_path):
+    """Same treatment as Exec Cut (see
+    test_gixs2_linecut_exec_reports_and_clears_load_progress) -- Exec Azi
+    previously ran with no progress feedback at all."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 70.0, 80.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+
+    seen = []
+    original_process = gs.process_azimuthal_stack
+
+    def spying_process_azimuthal_stack(*args, **kwargs):
+        real_callback = kwargs.get("progress_callback")
+
+        def spy(completed, total):
+            if real_callback is not None:
+                real_callback(completed, total)
+            seen.append(gs.gixs2_load_progress())
+
+        kwargs["progress_callback"] = spy
+        return original_process(*args, **kwargs)
+
+    gs.process_azimuthal_stack = spying_process_azimuthal_stack
+    try:
+        result = gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
+    finally:
+        gs.process_azimuthal_stack = original_process
+
+    assert result["ok"], result.get("message")
+    assert seen == [
+        {"ok": True, "active": True, "current": 1, "total": 3, "label": "Azimuthal"},
+        {"ok": True, "active": True, "current": 2, "total": 3, "label": "Azimuthal"},
+        {"ok": True, "active": True, "current": 3, "total": 3, "label": "Azimuthal"},
+    ]
+    assert gs.gixs2_load_progress() == {"ok": True, "active": False}
+
+
 def test_gixs2_roi_exec_matches_hand_computed_sum(tmp_path):
     _load_series(tmp_path, n_frames=2)
     session = gs.get_session()
