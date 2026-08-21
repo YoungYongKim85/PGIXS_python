@@ -229,20 +229,50 @@ def process_roi_stack(stack: np.ndarray, rois: list[tuple[int, int, int, int]]) 
 
 
 _TIME_UNIT_DIVISORS = {"second": 1.0, "min": 60.0, "hour": 3600.0}
+_TIME_UNIT_ABBREV = {"second": "s", "min": "min", "hour": "h"}
 
 
-def _time_axis(timestamps: np.ndarray, time_offset_seconds: float, time_divisor: float) -> tuple[np.ndarray, str]:
+def average_exposure_seconds(timestamps: np.ndarray) -> float:
+    """Average interval between consecutive frame timestamps -- stands in
+    for each frame's own exposure duration, which isn't a field the H5
+    metadata actually records. A back-to-back series' frame-to-frame
+    interval is essentially its exposure time; averaging across the whole
+    series (rather than trusting just the first interval) is more robust
+    against the first frame's own timing being atypical (shutter warm-up,
+    a longer/shorter first exposure, clock jitter) -- exactly the case
+    where a single data point "may not know the real exposure time"."""
+
     ts = np.asarray(timestamps, dtype=np.float64)
+    finite = np.sort(ts[np.isfinite(ts)])
+    if finite.size < 2:
+        return 0.0
+    diffs = np.diff(finite)
+    diffs = diffs[diffs > 0]
+    if diffs.size == 0:
+        return 0.0
+    return float(np.mean(diffs))
+
+
+def _time_axis(
+    timestamps: np.ndarray, time_offset_seconds: float | None, time_divisor: float, time_unit: str
+) -> tuple[np.ndarray, str]:
+    ts = np.asarray(timestamps, dtype=np.float64)
+    # `None` means "not explicitly set" -- auto-derive it from this
+    # series' own average frame-to-frame interval (port of GIXS2_gui.m's
+    # manually-typed `GX2.hExptime` field, made automatic here since the
+    # series' own timestamps already carry this information).
+    offset = average_exposure_seconds(ts) if time_offset_seconds is None else time_offset_seconds
     if ts.size and np.all(np.isfinite(ts)):
         # `timestamps` is expected already baseline-relative (load_h5_series's
         # own `reference_timestamp` param, seeded from the first frame) --
         # matches MATLAB's `timestamps - timestamps(1)` done once at compute
         # time; doing it at load time instead keeps this function simple.
-        axis = (ts + time_offset_seconds) / time_divisor
+        axis = (ts + offset) / time_divisor
     else:
         n = ts.size
-        axis = (np.arange(n, dtype=np.float64) * time_offset_seconds + time_offset_seconds) / time_divisor
-    return axis, "Time"
+        axis = (np.arange(n, dtype=np.float64) * offset + offset) / time_divisor
+    label = f"Time, {_TIME_UNIT_ABBREV.get(time_unit, time_unit)}"
+    return axis, label
 
 
 def compute_experiment_x_axis(
@@ -251,7 +281,7 @@ def compute_experiment_x_axis(
     temperatures: np.ndarray,
     *,
     sub_mode: str = "",
-    time_offset_seconds: float = 0.0,
+    time_offset_seconds: float | None = None,
     time_unit: str = "second",
 ) -> tuple[np.ndarray, str]:
     """Port of `computePGIXSExperimentXAxis.m`'s GIXS branch: build the
@@ -268,12 +298,18 @@ def compute_experiment_x_axis(
     exists after the "Change ai" q-Cal correction (deferred to Phase 2);
     using the per-file logged angle here is the natural Phase-1-available
     equivalent for an angle-series experiment).
+
+    `time_offset_seconds=None` (the default) auto-derives the per-frame
+    exposure-time offset from the series' own average frame-to-frame
+    timestamp interval (see `average_exposure_seconds`) rather than
+    requiring it as a manually-typed value (MATLAB's `GX2.hExptime` field) --
+    pass an explicit float to override that.
     """
 
     time_divisor = _TIME_UNIT_DIVISORS.get(time_unit, 1.0)
 
     if exp_mode == "Time" or sub_mode == "Time":
-        return _time_axis(timestamps, time_offset_seconds, time_divisor)
+        return _time_axis(timestamps, time_offset_seconds, time_divisor, time_unit)
 
     temps = np.asarray(temperatures, dtype=np.float64)
     n_frames = temps.shape[0] if temps.ndim == 2 else 0

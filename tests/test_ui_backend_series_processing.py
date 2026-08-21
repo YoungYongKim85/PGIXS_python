@@ -3,6 +3,7 @@ import pytest
 
 from pgixs_python.averaging.cake import pixel_angle_map
 from pgixs_python.ui_backend.series_processing import (
+    average_exposure_seconds,
     compute_experiment_x_axis,
     process_azimuthal_stack,
     process_linecut_stack,
@@ -183,19 +184,39 @@ def test_process_roi_stack_handles_nan():
     assert sums[0, 0] == pytest.approx(5.0)
 
 
-def test_compute_experiment_x_axis_time_mode():
+def test_average_exposure_seconds_uses_mean_frame_to_frame_interval():
+    # Deliberately uneven intervals (10, 12, 8) -- averages to 10, not just
+    # the first interval, matching "don't trust a single data point".
+    timestamps = np.array([0.0, 10.0, 22.0, 30.0])
+    assert average_exposure_seconds(timestamps) == pytest.approx(10.0)
+
+
+def test_average_exposure_seconds_ignores_non_finite_and_needs_two_points():
+    assert average_exposure_seconds(np.array([5.0])) == 0.0
+    assert average_exposure_seconds(np.array([])) == 0.0
+    assert average_exposure_seconds(np.array([np.nan, np.nan])) == 0.0
+    assert average_exposure_seconds(np.array([0.0, np.nan, 10.0])) == pytest.approx(10.0)
+
+
+def test_compute_experiment_x_axis_time_mode_auto_computes_exposure_offset():
+    # No time_offset_seconds given -- auto-derived from the series' own
+    # average frame interval (10s here), not left at 0, since the first
+    # frame's own exposure duration isn't directly known from a single
+    # timestamp. Also confirms the unit now shows up in the label.
     timestamps = np.array([0.0, 10.0, 20.0])
     values, label = compute_experiment_x_axis("Time", timestamps, np.zeros((3, 3)))
-    np.testing.assert_allclose(values, [0.0, 10.0, 20.0])
-    assert label == "Time"
+    np.testing.assert_allclose(values, [10.0, 20.0, 30.0])
+    assert label == "Time, s"
 
 
 def test_compute_experiment_x_axis_time_mode_unit_conversion_and_offset():
+    # An explicit time_offset_seconds overrides the auto-derived one.
     timestamps = np.array([0.0, 60.0, 120.0])
     values, label = compute_experiment_x_axis(
         "Time", timestamps, np.zeros((3, 3)), time_offset_seconds=5.0, time_unit="min"
     )
     np.testing.assert_allclose(values, [5.0 / 60.0, 65.0 / 60.0, 125.0 / 60.0])
+    assert label == "Time, min"
 
 
 def test_compute_experiment_x_axis_temperature_submodes():
@@ -216,8 +237,8 @@ def test_compute_experiment_x_axis_temperature_submodes():
 def test_compute_experiment_x_axis_temperature_submode_time_falls_back_to_time_axis():
     timestamps = np.array([0.0, 5.0])
     values, label = compute_experiment_x_axis("Temperature", timestamps, np.zeros((2, 3)), sub_mode="Time")
-    np.testing.assert_allclose(values, [0.0, 5.0])
-    assert label == "Time"
+    np.testing.assert_allclose(values, [5.0, 10.0])
+    assert label == "Time, s"
 
 
 def test_compute_experiment_x_axis_lowtemp_and_angle_modes():

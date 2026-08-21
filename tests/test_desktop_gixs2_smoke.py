@@ -453,7 +453,7 @@ def test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar(qapp, tmp_path)
     # MATLAB's own inline `getExperimentXAxis` call, no separate Set
     # X-Axis click needed first.
     assert widget.oned_canvas._colorbar is not None
-    assert widget.oned_canvas._colorbar.ax.get_ylabel() == "Time"
+    assert widget.oned_canvas._colorbar.ax.get_ylabel() == "Time, s"
     plotted_lines = [ln for ln in widget.oned_canvas.ax.get_lines() if ln is not widget.oned_canvas._hover_marker]
     assert len(plotted_lines) == 3
 
@@ -508,7 +508,7 @@ def test_gixs2_widget_azimuthal_plot_uses_series_colormap_with_colorbar(qapp, tm
     # Same live X-axis recompute as the 1D Plot Viewer -- see
     # test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar.
     assert widget.azi_canvas._colorbar is not None
-    assert widget.azi_canvas._colorbar.ax.get_ylabel() == "Time"
+    assert widget.azi_canvas._colorbar.ax.get_ylabel() == "Time, s"
     plotted_lines = [ln for ln in widget.azi_canvas.ax.get_lines() if ln is not widget.azi_canvas._hover_marker]
     assert len(plotted_lines) == 3
 
@@ -679,6 +679,10 @@ def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path):
 
     assert "X-Axis set" in widget.status_label.text()
     assert len(widget.integ_canvas._data_x) == 3
+    # Series Integration Viewer's x-axis label comes straight from
+    # session.x_axis_label -- carries the unit (here "s") too, same as
+    # the 1D/Azimuthal Plot Viewers' colorbars.
+    assert widget.integ_canvas.ax.get_xlabel() == "Time, s"
 
 
 def test_gixs2_widget_auto_refresh_no_new_files(qapp, tmp_path):

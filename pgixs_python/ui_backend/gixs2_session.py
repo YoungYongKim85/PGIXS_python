@@ -708,7 +708,12 @@ def gixs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
 
     sub_mode = str(payload.get("sub_mode", ""))
     should_sort = bool(payload.get("order", False))
-    time_offset_seconds = float(payload.get("time_offset_seconds", 0.0))
+    # None (the default -- not simply absent-from-payload) tells
+    # compute_experiment_x_axis to auto-derive the exposure-time offset
+    # from this series' own average frame-to-frame timestamp interval;
+    # only an explicit payload value overrides that.
+    raw_offset = payload.get("time_offset_seconds")
+    time_offset_seconds = None if raw_offset is None else float(raw_offset)
     time_unit = str(payload.get("time_unit", "second"))
 
     try:
