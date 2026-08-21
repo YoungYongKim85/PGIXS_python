@@ -745,7 +745,15 @@ class GIXS2Widget(QWidget):
         single-frame GIXS console's own behavior, requested for GIXS2 too."""
 
         self.image_canvas.clear_overlays()
-        if gs.get_session().data is None:
+        session = gs.get_session()
+        if session.data is None:
+            return
+        # Before Load Info or q-Cal has actually run, `calibration["beam_pos"]`
+        # is still the session dataclass's own placeholder default -- drawing
+        # a "beam center" line through it right after a fresh LOAD DATA would
+        # show a confident-looking marker that has nothing to do with this
+        # detector frame's real beam position. Wait for real calibration.
+        if not (self._pixel_centered or session.corrected):
             return
 
         angle = self.phi_spin.value()

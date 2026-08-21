@@ -372,10 +372,38 @@ def test_gixs2_widget_exec_1d_runs_in_background_with_progress_dialog(qapp, tmp_
     assert widget._progress_dialog is not None
 
 
+def test_gixs2_widget_1d_overlay_hidden_before_calibration(qapp, tmp_path):
+    """Before Load Info or q-Cal has actually run, `calibration["beam_pos"]`
+    is still the session dataclass's own placeholder default -- drawing a
+    "beam center" line through it right after a fresh LOAD DATA would show
+    a confident-looking marker with no relation to this frame's real beam
+    position, so the overlay must stay hidden until real calibration
+    exists."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+
+    assert len(widget.image_canvas._overlay_artists) == 0
+
+    widget.phi_spin.setValue(45.0)
+    assert len(widget.image_canvas._overlay_artists) == 0
+
+
+def _mark_calibrated(widget) -> None:
+    """Simulate Load Info/q-Cal having run (without needing real
+    calibration math) for overlay tests that only care about the
+    geometry-drawing logic once calibration exists."""
+
+    gs.get_session().corrected = True
+    widget._draw_1d_overlay()
+
+
 def test_gixs2_widget_1d_overlay_draws_plain_line_and_updates_live(qapp, tmp_path):
     gs.reset_session()
     widget = GIXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=1)
+    _mark_calibrated(widget)
 
     assert len(widget.image_canvas._overlay_artists) == 1
 
@@ -387,6 +415,7 @@ def test_gixs2_widget_1d_overlay_draws_cakecut_wedge(qapp, tmp_path):
     gs.reset_session()
     widget = GIXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=1)
+    _mark_calibrated(widget)
 
     widget.cakecut_check.setChecked(True)
 
@@ -398,6 +427,7 @@ def test_gixs2_widget_1d_overlay_draws_accumulation_band(qapp, tmp_path):
     gs.reset_session()
     widget = GIXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=1)
+    _mark_calibrated(widget)
 
     widget.accum_check.setChecked(True)
 
