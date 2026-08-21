@@ -396,6 +396,15 @@ class GIXS2Widget(QWidget):
         self.image_scale_combo.addItems(["Linear", "Log"])
         self.image_colormap_combo = QComboBox()
         self.image_colormap_combo.addItems(_COLORMAPS)
+        # Left to their own sizeHint, Scale ("Linear"/"Log") and Colormap
+        # (some entries as long as "twilight_shifted") end up very
+        # different widths sitting right next to each other on this row --
+        # fix both to the same width so they line up (a maximum alone
+        # wouldn't widen Scale's naturally-short sizeHint to match; the
+        # closed box still elides a long colormap name with "..." if
+        # needed, and the dropdown list itself always shows the full name).
+        self.image_scale_combo.setFixedWidth(160)
+        self.image_colormap_combo.setFixedWidth(160)
         default_index = self.image_colormap_combo.findText("viridis")
         if default_index >= 0:
             self.image_colormap_combo.setCurrentIndex(default_index)
