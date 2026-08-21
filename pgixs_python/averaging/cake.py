@@ -2,13 +2,38 @@
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
 from pgixs_python.averaging.angular import find_coverage_drop_bins
 from pgixs_python.averaging.radial import RadiusAverageResult, build_radius_bin_map, radius_average
+
+
+def _reduce_ignoring_empty_slices(band: np.ndarray, axis: int, reducer: Callable[..., np.ndarray]) -> np.ndarray:
+    """`reducer(band, axis=axis)` (`np.nanmean`/`np.nanmedian`) without
+    numpy's "Mean of empty slice"/"All-NaN slice encountered"
+    RuntimeWarning for a row/column that's entirely NaN (an expected,
+    harmless case near detector edges/gaps -- handled downstream via the
+    caller's own `keep` mask).
+
+    Excludes those all-NaN slices from the reducer call entirely, rather
+    than calling it on everything and suppressing the resulting warning
+    with `warnings.catch_warnings()`: that relies on the `warnings`
+    module's global filter list, which is not safe to mutate from several
+    threads at once -- exactly what `process_linecut_stack`'s `parallel=True`
+    option does, calling this function from a thread pool. Under a race
+    there, the filter can be *not yet installed* (or already restored) in
+    another thread when this one's reducer call actually runs, so the
+    warning escapes to the console instead of being silently dropped."""
+
+    valid = np.any(np.isfinite(band), axis=axis)
+    out = np.full(valid.shape, np.nan, dtype=np.float32)
+    if np.any(valid):
+        compressed = np.compress(valid, band, axis=1 - axis)
+        out[valid] = reducer(compressed, axis=axis)
+    return out
 
 
 @dataclass
@@ -166,16 +191,12 @@ def accumulation_average(
         row_end = max(row_start, min(n_rows - 1, int(np.ceil(row_center + band_plus))))
         band = image[row_start : row_end + 1, :]
         band_q = q[row_start : row_end + 1, :]
-        with np.errstate(all="ignore"), warnings.catch_warnings():
+        with np.errstate(all="ignore"):
             # A detector column whose entire band is gap/masked pixels is
-            # an expected, harmless case near detector edges -- nanmean/
-            # nanmedian correctly return NaN for it (kept as NaN downstream
-            # via the `keep` mask below), but warn on every occurrence via
-            # Python's warnings module, which np.errstate does not cover.
-            warnings.filterwarnings("ignore", message="Mean of empty slice")
-            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
-            intensity = reducer(band, axis=0)
-            mean_q = np.nanmean(band_q, axis=0)
+            # an expected, harmless case near detector edges -- kept as NaN
+            # downstream via the `keep` mask below.
+            intensity = _reduce_ignoring_empty_slices(band, axis=0, reducer=reducer)
+            mean_q = _reduce_ignoring_empty_slices(band_q, axis=0, reducer=np.nanmean)
         finite_counts = np.count_nonzero(np.isfinite(band), axis=0)
         band_width = band.shape[0]
         col_offset = np.arange(1, n_cols + 1, dtype=np.float64) - beam_y
@@ -187,11 +208,9 @@ def accumulation_average(
         col_end = max(col_start, min(n_cols - 1, int(np.ceil(col_center + band_plus))))
         band = image[:, col_start : col_end + 1]
         band_q = q[:, col_start : col_end + 1]
-        with np.errstate(all="ignore"), warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Mean of empty slice")
-            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
-            intensity = reducer(band, axis=1)
-            mean_q = np.nanmean(band_q, axis=1)
+        with np.errstate(all="ignore"):
+            intensity = _reduce_ignoring_empty_slices(band, axis=1, reducer=reducer)
+            mean_q = _reduce_ignoring_empty_slices(band_q, axis=1, reducer=np.nanmean)
         finite_counts = np.count_nonzero(np.isfinite(band), axis=1)
         band_width = band.shape[1]
         row_offset = -(np.arange(1, n_rows + 1, dtype=np.float64) - beam_z)

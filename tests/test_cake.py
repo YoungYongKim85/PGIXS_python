@@ -1,3 +1,6 @@
+import warnings
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 
@@ -95,3 +98,54 @@ def test_accumulation_average_rejects_non_axis_aligned_angle():
 
     with pytest.raises(ValueError, match="0, 90, or 180"):
         accumulation_average(data, q_map, center, angle_deg=45.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0)
+
+
+def test_accumulation_average_all_nan_band_emits_no_warning():
+    """A band that lands entirely on gap/masked pixels (e.g. right on the
+    beam column) is expected/harmless -- must come back as
+    `is_valid=False`, not print/raise numpy's "Mean of empty slice"."""
+
+    rng = np.random.default_rng(0)
+    data, q_map, (_beam_y, beam_z) = _synthetic_frame(rng)
+    data[:, :3] = np.nan  # columns the band below will land on
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = accumulation_average(
+            data, q_map, (1.0, beam_z), angle_deg=90.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0
+        )
+
+    assert not result.is_valid
+
+
+def test_accumulation_average_thread_safe_no_warning_race():
+    """Regression: the previous implementation suppressed "Mean of empty
+    slice" with `warnings.catch_warnings()`, which mutates a *global*
+    filter list -- not safe across the concurrent threads
+    `process_linecut_stack`'s `parallel=True` option now calls this
+    function from. Under a race, one thread's filter could be installed or
+    torn down while another thread's triggering call is in flight, leaking
+    the warning to the console. The current implementation excludes the
+    all-NaN slice from the reducer call entirely instead, so no warning is
+    ever raised in the first place -- verified here by running many calls
+    concurrently with `warnings.simplefilter("error")` active globally."""
+
+    rng = np.random.default_rng(0)
+    rows, cols = 40, 50
+    data = rng.uniform(1, 100, size=(rows, cols)).astype(np.float32)
+    data[:, :3] = np.nan
+    cols_idx, rows_idx = np.meshgrid(np.arange(1, cols + 1), np.arange(1, rows + 1))
+    beam_y, beam_z = 1.0, 25.0  # band sits right on the all-NaN columns
+    q_map = (np.hypot(cols_idx - beam_y, rows_idx - beam_z) * 0.01).astype(np.float32)
+
+    def run(_i):
+        return accumulation_average(
+            data, q_map, (beam_y, beam_z), angle_deg=90.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0
+        )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(run, range(40)))
+
+    assert not results[0].is_valid
