@@ -1016,6 +1016,44 @@ def test_gixs2_widget_azimuthal_position_button_click_sets_pix_and_arms_overlay(
     assert widget.azi_pix_spin.value() == pytest.approx(40.0, abs=0.01)
 
 
+def test_gixs2_widget_1d_position_button_click_sets_angle_and_arms_overlay(qapp, tmp_path):
+    """Port of console_widget.py's own Position button for the 1D Plot
+    Process angle field: arm the click-on-image mode, then a click on the
+    2D Image Plot Viewer sets `phi_spin` to the clicked point's angle from
+    the beam center. `phi_spin` is itself wired to `_arm_1d_overlay` (see
+    the 1D Plot Process UI construction), so the click also makes the line
+    appear live.
+
+    The clicked point (60.5, 140.5), below-left of the beam center
+    (100.5, 100.5), computes to a raw angle of 315 deg -- exercises the
+    fold-back-into-(-180,180] branch (phi_spin's own range, narrower than
+    console's line_angle_spin) down to the equivalent -45 deg."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+    session.corrected = True
+
+    widget._arm_position_mode("line")
+    assert widget._position_mode == "line"
+    assert len(widget.image_canvas._overlay_artists) == 0  # position mode alone draws nothing
+
+    widget._on_image_clicked(60.5, 140.5)
+
+    assert widget.phi_spin.value() == pytest.approx(-45.0, abs=0.01)
+    assert widget._active_overlay == "1d"
+    assert len(widget.image_canvas._overlay_artists) == 1
+
+    # Ignored while the toolbar's own pan/zoom mode is active, matching
+    # console_widget.py's own guard.
+    widget.image_canvas.toolbar.mode = "pan/zoom"
+    widget._on_image_clicked(999.0, 999.0)
+    assert widget.phi_spin.value() == pytest.approx(-45.0, abs=0.01)
+
+
 def test_gixs2_widget_azimuthal_overlay_hidden_until_armed_then_tracks_range_live(qapp, tmp_path):
     """Port of console_widget.py's own `_on_azi_draw_clicked`: two circles
     at pix+Range(-) and pix+Range(+), hidden until the user actually

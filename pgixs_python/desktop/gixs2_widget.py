@@ -153,6 +153,13 @@ class GIXS2Widget(QWidget):
         self.dir_edit = QLineEdit(self._last_dir)
         self.dir_edit.editingFinished.connect(self._on_directory_edited)
         self.dir_set_button = QPushButton("Set")
+        # `_field` gives every trailing widget the same layout stretch as
+        # the edit/spin box next to it, so a short-text button would
+        # otherwise grow to match the box's width, leaving the box itself
+        # cramped -- cap the button at its own comfortable width instead so
+        # the edit/spin box gets the freed space. Applied to every button
+        # that shares a `_field` row with a spin/edit box in this panel.
+        self.dir_set_button.setMaximumWidth(56)
         self.dir_set_button.clicked.connect(self._on_set_directory_clicked)
         layout.addWidget(_field("Directory", self.dir_edit, self.dir_set_button))
 
@@ -170,6 +177,7 @@ class GIXS2Widget(QWidget):
 
         self.filename_edit = QLineEdit("ABCD")
         self.set_table_button = QPushButton("Set / Table")
+        self.set_table_button.setMaximumWidth(96)
         self.set_table_button.clicked.connect(self._on_set_table_clicked)
         layout.addWidget(_field("Filename", self.filename_edit, self.set_table_button))
 
@@ -187,6 +195,7 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_divider("Incidence Angle Calibration"))
         self.y_pos_spin = _double_spin(-1.0e6, 1.0e6, 2, 0.0, 1.0)
         self.zplot_button = QPushButton("Z-Plot")
+        self.zplot_button.setMaximumWidth(72)
         self.zplot_button.clicked.connect(self._on_zplot_clicked)
         layout.addWidget(_field("y-pos", self.y_pos_spin, self.zplot_button))
 
@@ -212,15 +221,22 @@ class GIXS2Widget(QWidget):
 
         layout.addWidget(_divider("1D Plot Process"))
         self.phi_spin = _double_spin(-180.0, 180.0, 1, 90.0, 1.0)
-        layout.addWidget(_field("1D Ang", self.phi_spin))
+        self.line_position_button = QPushButton("Position")
+        self.line_position_button.setMaximumWidth(84)
+        self.line_position_button.setToolTip("Click a point on the 2D Image Plot Viewer to set 1D Ang (the angle from the beam center).")
+        self.line_position_button.clicked.connect(lambda: self._arm_position_mode("line"))
+        layout.addWidget(_field("1D Ang", self.phi_spin, self.line_position_button))
         self.accum_minus_spin = _double_spin(-1.0e5, 1.0e5, 1, -1.0, 1.0)
         self.accum_plus_spin = _double_spin(-1.0e5, 1.0e5, 1, 1.0, 1.0)
         self.accum_check = QCheckBox("Accum On")
-        layout.addWidget(_split_row(_field("Accum", self.accum_minus_spin, self.accum_plus_spin, label_width=48), self.accum_check))
+        # Same label_width (56) as z-pos mv/y-pos mv below -- all four of
+        # this section's split-row fields line up on one shared left edge
+        # instead of each pair drifting by its own few pixels.
+        layout.addWidget(_split_row(_field("Accum", self.accum_minus_spin, self.accum_plus_spin, label_width=56), self.accum_check))
         self.cakecut_minus_spin = _double_spin(-180.0, 180.0, 1, -1.0, 1.0)
         self.cakecut_plus_spin = _double_spin(-180.0, 180.0, 1, 1.0, 1.0)
         self.cakecut_check = QCheckBox("Cakecut On")
-        layout.addWidget(_split_row(_field("Cakecut", self.cakecut_minus_spin, self.cakecut_plus_spin, label_width=48), self.cakecut_check))
+        layout.addWidget(_split_row(_field("Cakecut", self.cakecut_minus_spin, self.cakecut_plus_spin, label_width=56), self.cakecut_check))
         self.z_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 2, 0.0, 1.0)
         self.y_pos_move_spin = _double_spin(-1.0e5, 1.0e5, 2, 0.0, 1.0)
         layout.addWidget(_split_row(_field("z-pos mv", self.z_pos_move_spin, label_width=56), _field("y-pos mv", self.y_pos_move_spin, label_width=56)))
@@ -260,12 +276,18 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_divider("Azimuthal Process"))
         self.azi_pix_spin = _double_spin(0.0, 1.0e6, 1, 202.0, 1.0)
         self.azi_position_button = QPushButton("Position")
+        self.azi_position_button.setMaximumWidth(84)
         self.azi_position_button.setToolTip("Click a point on the 2D Image Plot Viewer to set pix (the radius from the beam center).")
         self.azi_position_button.clicked.connect(lambda: self._arm_position_mode("azimuthal"))
-        layout.addWidget(_field("pix", self.azi_pix_spin, self.azi_position_button))
+        # label_width=88 on every full-row field in this section (pix,
+        # Range (-/+), Mean/Median) -- shared left edge for their edit
+        # boxes/combo, matching "Range (-/+)"'s own width (the longest
+        # label here, needing the most room).
+        layout.addWidget(_field("pix", self.azi_pix_spin, self.azi_position_button, label_width=88))
         self.azi_minus_spin = _double_spin(-1.0e5, 1.0e5, 1, -1.0, 1.0)
         self.azi_plus_spin = _double_spin(-1.0e5, 1.0e5, 1, 1.0, 1.0)
         self.azi_draw_button = QPushButton("Draw")
+        self.azi_draw_button.setMaximumWidth(64)
         self.azi_draw_button.setToolTip("Show the pix +/- Range(-/+) ring on the 2D image; keeps updating live as pix/Range change.")
         self.azi_draw_button.clicked.connect(self._arm_azi_overlay)
         layout.addWidget(_field("Range (-/+)", self.azi_minus_spin, self.azi_plus_spin, self.azi_draw_button, label_width=88))
@@ -273,7 +295,7 @@ class GIXS2Widget(QWidget):
             control.valueChanged.connect(lambda _v: self._arm_azi_overlay())
         self.azi_mean_median_combo = QComboBox()
         self.azi_mean_median_combo.addItems(["Mean", "Median"])
-        layout.addWidget(_field("Mean/Median", self.azi_mean_median_combo))
+        layout.addWidget(_field("Mean/Median", self.azi_mean_median_combo, label_width=88))
 
         self.exec_azi_button = QPushButton("Exec Azi")
         self.exec_azi_button.clicked.connect(self._on_exec_azi_clicked)
@@ -286,6 +308,7 @@ class GIXS2Widget(QWidget):
         self.n_roi_combo = QComboBox()
         self.n_roi_combo.addItems(["1", "2", "3", "4", "5"])
         self.draw_roi_button = QPushButton("Draw ROI")
+        self.draw_roi_button.setMaximumWidth(96)
         self.draw_roi_button.setToolTip(
             "Opens a separate window (matching MATLAB) -- drag out one rectangle per ROI, each in its own color."
         )
@@ -912,12 +935,15 @@ class GIXS2Widget(QWidget):
         self.image_canvas.draw_beam_circle(center, r_plus)
 
     # ------------------------------------------------------------------
-    # Click-to-position (Azimuthal pix) -- port of console_widget.py's own
-    # `_arm_position_mode`/`_on_image_clicked` azimuthal branch.
+    # Click-to-position (1D Ang / Azimuthal pix) -- port of
+    # console_widget.py's own `_arm_position_mode`/`_on_image_clicked`
+    # line/azimuthal branches.
     # ------------------------------------------------------------------
     def _arm_position_mode(self, mode: str) -> None:
         self._position_mode = mode
-        if mode == "azimuthal":
+        if mode == "line":
+            self._set_status("Click a point on the 2D image to set 1D Ang.", True)
+        elif mode == "azimuthal":
             self._set_status("Click a point on the 2D image to set the azimuthal pix.", True)
 
     def _on_image_clicked(self, x: float, y: float) -> None:
@@ -925,7 +951,19 @@ class GIXS2Widget(QWidget):
             return
         if self.image_canvas.toolbar.mode:
             return
-        if self._position_mode == "azimuthal":
+        if self._position_mode == "line":
+            beam_y, beam_z = self._current_beam_center()
+            raw_angle = (math.degrees(math.atan2(-(y - beam_z), -(x - beam_y))) + 360.0) % 360.0
+            angle = self._mode_corrected_angle(raw_angle)
+            if angle > 180.0:
+                # phi_spin's own range is -180..180 (unlike console's wider
+                # -360..360 line_angle_spin) -- fold the equivalent angle
+                # back into that range rather than letting setValue clamp
+                # it (silently wrong) at the 180 boundary.
+                angle -= 360.0
+            self.phi_spin.setValue(angle)
+            self._set_status(f"1D Ang position clicked at ({x:.1f}, {y:.1f}) -> angle {angle:.2f} deg.", True)
+        elif self._position_mode == "azimuthal":
             beam_y, beam_z = self._current_beam_center()
             radius = math.hypot(x - beam_y, y - beam_z)
             self.azi_pix_spin.setValue(radius)
