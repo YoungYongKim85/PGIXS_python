@@ -663,6 +663,13 @@ class ConsoleWidget(QWidget):
         self.map_format_combo = QComboBox()
         self.map_format_combo.addItems(cfg.map_formats)
         self.map_format_combo.currentTextChanged.connect(self._on_map_format_changed)
+        # ColorScale ("Linear"/"Log") and Map format ("Pixel"/"Qxy/Qz"/
+        # "Qy/Qz") otherwise size to their own much shorter content next to
+        # Colormap (entries as long as "twilight_shifted") on the same row
+        # -- fix all three to the same width so they line up; this panel
+        # (unlike the left one) has plenty of spare width to give them.
+        for combo in (self.color_scale_combo, self.colormap_combo, self.map_format_combo):
+            combo.setFixedWidth(200)
         # Every display-only control (ColorScale/Colormap/Contrast/Range/
         # Font) applies the moment it changes -- Update no longer needs to
         # be clicked for these to take effect. Spin boxes have

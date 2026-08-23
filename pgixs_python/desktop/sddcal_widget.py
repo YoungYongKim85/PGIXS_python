@@ -150,6 +150,12 @@ class SDDcalWidget(QWidget):
         self.standard_combo.setCurrentText("Silver behenate")
         self.order_combo = QComboBox()
         self.order_combo.addItems(_ORDER_LIST)
+        # Sharing one row/field, "Standard"'s longer names (e.g. "Mesoporous
+        # Silica") otherwise claim their full natural width while "Order"'s
+        # short ordinals ("1st".."7th") shrink to barely 1/4 of that --
+        # fix both to the same width so the row reads as one aligned pair.
+        self.standard_combo.setFixedWidth(150)
+        self.order_combo.setFixedWidth(150)
         self.energy_spin = _double_spin(0.1, 200.0, 4, 9.5, 0.1)
         self.pixel_radius_spin = _double_spin(0.0, 1.0e6, 2, 0.0, 1.0)
 

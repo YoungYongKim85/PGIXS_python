@@ -50,6 +50,14 @@ def test_gixs_console_has_incidence_and_footprint_widgets(qapp):
     assert console.footprint_spin is not None
     assert console.cakecut_check is not None
     assert console.circ_button is None
+    # ColorScale/Colormap/Map format used to size to their own natural
+    # content (Colormap needing much more room than ColorScale's "Linear"/
+    # "Log") sitting right next to each other on the Image Controller's
+    # own row -- now fixed to the same width so they line up. Reuses this
+    # test's own console instance rather than constructing another.
+    console.resize(1600, 1000)
+    widths = {console.color_scale_combo.width(), console.colormap_combo.width(), console.map_format_combo.width()}
+    assert widths == {200}
 
 
 def test_trxs_console_omits_incidence_but_has_circular(qapp):

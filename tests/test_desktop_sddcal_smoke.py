@@ -82,6 +82,11 @@ def test_sddcal_widget_constructs(qapp):
     widget = SDDcalWidget()
     assert widget.detector_combo.count() == 5
     assert widget.standard_combo.currentText() == "Silver behenate"
+    # Standard/Order used to size to their own natural content (Standard's
+    # longer names like "Mesoporous Silica" vs Order's short "1st".."7th")
+    # sharing one field/row -- now fixed to the same width so they line up.
+    widget.resize(1600, 1000)
+    assert widget.standard_combo.width() == widget.order_combo.width() == 150
 
 
 def test_sddcal_widget_directory_field_seeds_last_dir(qapp, tmp_path):
