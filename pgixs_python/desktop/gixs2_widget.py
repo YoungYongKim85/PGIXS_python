@@ -121,6 +121,7 @@ class GIXS2Widget(QWidget):
         self._exec_azi_thread = None
         self._current_image_data: np.ndarray | None = None
         self._play_dialog: QDialog | None = None
+        self._heatmap_dialog: QDialog | None = None
         # Set True once Load Info succeeds, matching console_widget.py's
         # own `_pixel_centered` (GIXS_gui.m's `Openinfo_Callback`): from
         # then on the 2D image's pixel axis re-centers on the beam
@@ -482,7 +483,11 @@ class GIXS2Widget(QWidget):
         # it would otherwise stretch to fill the row's full width.
         _size_combo(self.oned_scale_combo, _COMBO_CHARS)
         self.oned_scale_combo.currentTextChanged.connect(lambda _t: self._render_1d())
+        self.oned_heatmap_button = QPushButton("Heatmap")
+        self.oned_heatmap_button.setToolTip("Open a Q vs. X-axis heatmap of every frame's 1D cut (port of MATLAB's HeatmapQ_gui).")
+        self.oned_heatmap_button.clicked.connect(self._on_1d_heatmap_clicked)
         oned_ctrl.addWidget(_field("Scale", self.oned_scale_combo, label_width=40))
+        oned_ctrl.addWidget(self.oned_heatmap_button)
         oned_ctrl_row = _control_row(oned_ctrl)
         oned_layout.addWidget(oned_ctrl_row)
         top.addWidget(oned_group)
@@ -492,11 +497,14 @@ class GIXS2Widget(QWidget):
         self.azi_canvas = CurveCanvas()
         self.azi_canvas.canvas.setMinimumHeight(280)
         azi_layout.addWidget(self.azi_canvas)
-        # No controls of its own -- an empty same-height row keeps this
-        # viewer's canvas the same size as its three siblings' (see
-        # _equalize_control_row_heights below) instead of growing taller to
-        # fill the space a real control row would have taken.
-        azi_ctrl_row = _control_row(QHBoxLayout())
+        self.azi_heatmap_button = QPushButton("Heatmap")
+        self.azi_heatmap_button.setToolTip(
+            "Open an Angle vs. X-axis heatmap of every frame's azimuthal profile (port of MATLAB's HeatmapAzi_gui)."
+        )
+        self.azi_heatmap_button.clicked.connect(self._on_azi_heatmap_clicked)
+        azi_ctrl = QHBoxLayout()
+        azi_ctrl.addWidget(self.azi_heatmap_button)
+        azi_ctrl_row = _control_row(azi_ctrl)
         azi_layout.addWidget(azi_ctrl_row)
         bottom.addWidget(azi_group)
 
@@ -1271,6 +1279,99 @@ class GIXS2Widget(QWidget):
             xlabel="Angle, deg", ylabel="Intensity, arb. units", colorbar_label=colorbar_label,
         )
         self._render_integration()
+
+    # ------------------------------------------------------------------
+    # Heatmap -- port of MATLAB's HeatmapQ_gui/HeatmapAzi_gui: a separate
+    # window showing every frame's own curve stacked into a Q/Angle-vs-
+    # series-X-axis 2D heatmap, instead of the overlaid-curves view the
+    # main 1D/Azimuthal Plot Viewers show. Snapshots the data at open time
+    # (matches _on_play_clicked's own Frame Viewer) rather than staying
+    # live-linked to further Exec Cut/Exec Azi runs.
+    # ------------------------------------------------------------------
+    def _on_1d_heatmap_clicked(self) -> None:
+        session = gs.get_session()
+        if session.last_1d is None:
+            self._set_status("Run Exec Cut first.", False)
+            return
+        matrix = gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+        self._open_heatmap_dialog(
+            "1D Heatmap", session.last_1d["x_axis"], "Q, 1/A", matrix, "1D",
+        )
+
+    def _on_azi_heatmap_clicked(self) -> None:
+        session = gs.get_session()
+        if session.last_azimuthal is None:
+            self._set_status("Run Exec Azi first.", False)
+            return
+        matrix = gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
+        self._open_heatmap_dialog(
+            "Azimuthal Heatmap", session.last_azimuthal["x_axis"], "Angle, deg", matrix, "Azimuthal",
+        )
+
+    def _open_heatmap_dialog(self, title: str, y_axis: np.ndarray, y_label: str, matrix: np.ndarray, kind: str) -> None:
+        x_axis, x_label = self._series_color_values(matrix.shape[0])
+        if x_axis.shape[0] != matrix.shape[0] or y_axis.shape[0] != matrix.shape[1]:
+            self._set_status("Heatmap: series X-axis doesn't match the curve data.", False)
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.resize(900, 700)
+        layout = QVBoxLayout(dialog)
+
+        canvas = ImageCanvas()
+        layout.addWidget(canvas)
+
+        colormap_combo = QComboBox()
+        colormap_combo.addItems(_COLORMAPS)
+        default_index = colormap_combo.findText("viridis")
+        if default_index >= 0:
+            colormap_combo.setCurrentIndex(default_index)
+        scale_combo = QComboBox()
+        scale_combo.addItems(["Linear", "Log"])
+        cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        for combo in (colormap_combo, scale_combo):
+            _size_combo(combo, 12)
+
+        ctrl = QHBoxLayout()
+        ctrl.addWidget(_field("Colormap", colormap_combo, label_width=64))
+        ctrl.addWidget(_field("Z Scale", scale_combo, label_width=54))
+        ctrl.addWidget(_field("Contrast", cmin_spin, cmax_spin, label_width=54))
+        layout.addLayout(ctrl)
+        status_label = _muted("")
+        layout.addWidget(status_label)
+
+        def update() -> None:
+            cmin = cmin_spin.value()
+            cmax = cmax_spin.value()
+            vmin = cmin if cmax > cmin else None
+            vmax = cmax if cmax > cmin else None
+            used_vmin, used_vmax = canvas.render_mesh(
+                x_axis, y_axis, matrix.T,
+                cmap=colormap_combo.currentText(),
+                log_scale=scale_combo.currentText() == "Log",
+                vmin=vmin, vmax=vmax,
+                xlabel=x_label, ylabel=y_label,
+                title=f"{kind}: {matrix.shape[0]} frame(s)",
+            )
+            if vmin is None:
+                cmin_spin.blockSignals(True)
+                cmax_spin.blockSignals(True)
+                cmin_spin.setValue(used_vmin)
+                cmax_spin.setValue(used_vmax)
+                cmin_spin.blockSignals(False)
+                cmax_spin.blockSignals(False)
+
+        colormap_combo.currentTextChanged.connect(lambda _t: update())
+        scale_combo.currentTextChanged.connect(lambda _t: update())
+        cmin_spin.valueChanged.connect(lambda _v: update())
+        cmax_spin.valueChanged.connect(lambda _v: update())
+
+        update()
+        self._heatmap_dialog = dialog
+        dialog.show()
 
     # ------------------------------------------------------------------
     # ROI -- port of MATLAB `ROIdef2_Callback`: a separate "Draw ROI"

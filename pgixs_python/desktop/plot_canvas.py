@@ -168,6 +168,72 @@ class ImageCanvas(QWidget):
         self.canvas.draw_idle()
         return vmin, vmax
 
+    def render_mesh(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        z: np.ndarray,
+        *,
+        cmap: str = "viridis",
+        log_scale: bool = False,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        xlabel: str = "",
+        ylabel: str = "",
+        title: str = "",
+        font_size: int = 10,
+    ) -> tuple[float, float]:
+        """Render a Q/Angle-vs-series-X-axis heatmap: `z` is `(len(y),
+        len(x))`. Unlike `render()`'s `imshow`+`extent` (which assumes
+        evenly-spaced pixels), `pcolormesh` maps each column to its own
+        `x` coordinate -- correct when the series X-axis (Time/
+        Temperature) isn't evenly spaced frame to frame, matching
+        MATLAB's own `pcolor(hAX, X, Y, Z)` call this ports (GIXS2_gui.m's
+        HeatmapQ_gui/HeatmapAzi_gui)."""
+
+        self.stop_polygon_selector()
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)
+        self._colorbar = None
+        self._overlay_artists = []
+        finite = z[np.isfinite(z)]
+        if vmin is None or vmax is None:
+            if finite.size:
+                positive = finite[finite > 0]
+                sample = positive if positive.size else finite
+                auto_min = float(np.percentile(sample, 1.0))
+                auto_max = float(np.percentile(sample, 99.5))
+            else:
+                auto_min, auto_max = 0.0, 1.0
+            vmin = auto_min if vmin is None else vmin
+            vmax = auto_max if vmax is None else vmax
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+
+        norm = LogNorm(vmin=max(vmin, 1e-9), vmax=vmax) if log_scale else Normalize(vmin=vmin, vmax=vmax)
+        masked = np.ma.masked_invalid(z)
+        cmap_obj = _resolve_cmap(cmap)
+        cmap_obj.set_bad(color="white")
+
+        self._image = self.ax.pcolormesh(x, y, masked, cmap=cmap_obj, norm=norm, shading="nearest")
+        divider = make_axes_locatable(self.ax)
+        cax = divider.append_axes("right", size="4%", pad=0.12)
+        self._colorbar = self.figure.colorbar(self._image, cax=cax)
+        self._colorbar.ax.tick_params(labelsize=max(7, font_size - 2))
+        self.ax.set_anchor("C")
+
+        self.ax.set_xlabel(xlabel, fontsize=font_size)
+        self.ax.set_ylabel(ylabel, fontsize=font_size)
+        if title:
+            self.ax.set_title(title, fontsize=max(8, font_size - 1))
+        self.ax.tick_params(labelsize=max(7, font_size - 2))
+
+        self.toolbar.update()
+        self.toolbar.push_current()
+
+        self.canvas.draw_idle()
+        return vmin, vmax
+
     def set_axis_limits(self, xlim: tuple[float, float] | None, ylim: tuple[float, float] | None) -> None:
         if xlim is not None:
             self.ax.set_xlim(xlim)

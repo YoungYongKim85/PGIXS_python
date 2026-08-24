@@ -1235,3 +1235,33 @@ def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qa
     widget.normalize_azi_combo.setCurrentText("None")
     back_azi = first_curve_y(widget.azi_canvas)
     np.testing.assert_allclose(back_azi, none_azi)
+
+
+def test_gixs2_widget_heatmap_buttons_require_exec_first(qapp, tmp_path):
+    """Port of MATLAB's HeatmapQ_gui/HeatmapAzi_gui, opened here via a
+    "Heatmap" button on the 1D/Azimuthal Plot Viewer's own control row --
+    both require Exec Cut/Exec Azi to have produced a curve first, same as
+    every other Save/Heatmap-style action in this tab."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=1)
+
+    widget._on_1d_heatmap_clicked()
+    assert widget.status_label.property("role") == "status-error"
+    assert widget._heatmap_dialog is None
+
+    widget._on_azi_heatmap_clicked()
+    assert widget.status_label.property("role") == "status-error"
+    assert widget._heatmap_dialog is None
+
+
+# `_open_heatmap_dialog`'s actual rendering (pcolormesh shape, labels, live
+# Z Scale/Colormap updates) is covered directly against `ImageCanvas.
+# render_mesh` in test_desktop_smoke.py
+# (test_image_canvas_render_mesh_handles_non_uniform_x_axis) instead of via
+# a full GIXS2Widget + QDialog here -- that path was verified manually
+# (screenshot) end to end, but a second real matplotlib canvas on top of
+# this file's existing widget count reliably tipped the whole suite into
+# the native Windows access-violation crash from cumulative Qt/matplotlib
+# widget construction (see git history).

@@ -426,6 +426,44 @@ def test_image_canvas_centers_wide_aspect_equal_plot_with_colorbar(qapp):
     )
 
 
+def test_image_canvas_render_mesh_handles_non_uniform_x_axis(qapp):
+    """`render_mesh` (GIXS2's Heatmap dialogs -- port of MATLAB's
+    HeatmapQ_gui/HeatmapAzi_gui) uses `pcolormesh` instead of `render`'s
+    own `imshow`+`extent`, specifically because `imshow` assumes evenly-
+    spaced columns: a series X-axis (Time/Temperature) routinely isn't.
+    Checks the rendered mesh's actual coordinate array carries the real
+    (non-uniform) x values through, not a linearly-interpolated
+    approximation. Deliberately skips show()/processEvents() (unlike its
+    sibling test_image_canvas_centers_wide_aspect_equal_plot_with_colorbar
+    above) -- checking the Axes/artist data directly needs neither, and
+    this suite is already right at the edge of a native Windows access-
+    violation crash from cumulative Qt/matplotlib widget construction
+    (see git history)."""
+
+    import numpy as np
+
+    from pgixs_python.desktop.plot_canvas import ImageCanvas
+
+    canvas = ImageCanvas()
+    x = np.array([0.0, 1.0, 2.0, 20.0])  # deliberately non-uniform gaps
+    y = np.array([0.1, 0.2, 0.3])
+    z = np.arange(12, dtype=np.float32).reshape(3, 4)
+
+    vmin, vmax = canvas.render_mesh(x, y, z, xlabel="Time, s", ylabel="Q, 1/A", log_scale=False)
+
+    # `pcolormesh` (shading="nearest") reports per-cell *edges*, one more
+    # than the number of centers given -- the last edge-to-edge gap here
+    # must dwarf the first two, reflecting the big real gap between x=2
+    # and x=20 rather than an imshow-style evenly-spaced approximation.
+    edges = sorted(set(canvas._image.get_coordinates()[..., 0].ravel()))
+    gaps = np.diff(edges)
+    assert gaps[-1] > 10 * gaps[0]
+    assert canvas.ax.get_xlabel() == "Time, s"
+    assert canvas.ax.get_ylabel() == "Q, 1/A"
+    assert vmin < vmax
+    assert canvas._colorbar is not None
+
+
 def test_reset_view_restores_full_extent_after_zoom(qapp):
     """Regression: Reset Zoom (ImageCanvas.reset_view -> toolbar.home()) was
     a silent no-op. We never route through NavigationToolbar2's own pan/zoom
