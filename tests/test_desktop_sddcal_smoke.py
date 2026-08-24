@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QComboBox
 
 from pgixs_python.desktop.sddcal_widget import SDDcalWidget
 from pgixs_python.ui_backend import sddcal_session as ss
@@ -82,11 +82,19 @@ def test_sddcal_widget_constructs(qapp):
     widget = SDDcalWidget()
     assert widget.detector_combo.count() == 5
     assert widget.standard_combo.currentText() == "Silver behenate"
-    # Standard/Order used to size to their own natural content (Standard's
-    # longer names like "Mesoporous Silica" vs Order's short "1st".."7th")
-    # sharing one field/row -- now fixed to the same width so they line up.
-    widget.resize(1600, 1000)
-    assert widget.standard_combo.width() == widget.order_combo.width() == 150
+    # Standard's own longer names (e.g. "Mesoporous Silica") otherwise
+    # claimed far more of the "Standard / Order" row than Order's short
+    # ordinals ("1st".."7th") ever needed -- cap Standard's own budget
+    # down via _size_combo (console_widget.py) instead of also growing
+    # Order's tiny natural one to match it, which would only make the row
+    # need *more* total width, not less, and overflow the left panel
+    # (reported: "다 같은 사이즈로 하니까 약간씩 삐져나가네"). Checking
+    # the policy/budget directly, not the rendered .width() (which needs a
+    # real show()'d layout pass to reflect the scroll area's own width
+    # constraint -- and .show() is what triggers this suite's native
+    # access-violation crash, see git history).
+    assert widget.standard_combo.sizeAdjustPolicy() == QComboBox.AdjustToMinimumContentsLengthWithIcon
+    assert widget.standard_combo.minimumContentsLength() == 10
 
 
 def test_sddcal_widget_directory_field_seeds_last_dir(qapp, tmp_path):

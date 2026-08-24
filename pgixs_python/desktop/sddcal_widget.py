@@ -37,7 +37,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pgixs_python.desktop.console_widget import _COLORMAPS, _divider, _double_spin, _field, _muted, _row, _wrap_long_tokens
+from pgixs_python.desktop.console_widget import (
+    _COLORMAPS,
+    _divider,
+    _double_spin,
+    _field,
+    _muted,
+    _row,
+    _size_combo,
+    _wrap_long_tokens,
+)
 from pgixs_python.desktop.plot_canvas import CurveCanvas, ImageCanvas
 from pgixs_python.ui_backend import sddcal_session as ss
 
@@ -93,6 +102,7 @@ class SDDcalWidget(QWidget):
 
         self.detector_combo = QComboBox()
         self.detector_combo.addItems(_DETECTOR_LIST)
+        _size_combo(self.detector_combo, 12)
         layout.addWidget(_field("Detector", self.detector_combo))
 
         self.load_button = QPushButton("LOAD IMAGE DATA")
@@ -125,6 +135,10 @@ class SDDcalWidget(QWidget):
         layout.addWidget(_divider("Peak Fit"))
         self.fit_mode_combo = QComboBox()
         self.fit_mode_combo.addItems(["Single Peak", "Symmetric Peaks (+/-)"])
+        # "Symmetric Peaks (+/-)" alone would otherwise force this solo
+        # full-row combo's real minimum past the left panel's own width
+        # (see _size_combo's own docstring) -- elides when selected.
+        _size_combo(self.fit_mode_combo, 14)
         self.fit_mode_combo.setToolTip("Symmetric mode only applies to Y_Plot/Z_Plot line cuts, not Rad.Ave.")
         layout.addWidget(_field("Fit Mode", self.fit_mode_combo))
 
@@ -150,12 +164,14 @@ class SDDcalWidget(QWidget):
         self.standard_combo.setCurrentText("Silver behenate")
         self.order_combo = QComboBox()
         self.order_combo.addItems(_ORDER_LIST)
-        # Sharing one row/field, "Standard"'s longer names (e.g. "Mesoporous
-        # Silica") otherwise claim their full natural width while "Order"'s
-        # short ordinals ("1st".."7th") shrink to barely 1/4 of that --
-        # fix both to the same width so the row reads as one aligned pair.
-        self.standard_combo.setFixedWidth(150)
-        self.order_combo.setFixedWidth(150)
+        # "Standard"'s longer names (e.g. "Mesoporous Silica") otherwise
+        # claim far more of this shared row than "Order"'s short ordinals
+        # ("1st".."7th") ever need -- cap Standard's own budget down
+        # instead of also growing Order's tiny natural one to match it,
+        # which would only make the row need *more* total width, not less
+        # (see _size_combo's own docstring). The two won't render at
+        # exactly the same width, but the row comfortably fits either way.
+        _size_combo(self.standard_combo, 10)
         self.energy_spin = _double_spin(0.1, 200.0, 4, 9.5, 0.1)
         self.pixel_radius_spin = _double_spin(0.0, 1.0e6, 2, 0.0, 1.0)
 
@@ -235,6 +251,10 @@ class SDDcalWidget(QWidget):
         default_index = self.colormap_combo.findText("viridis")
         if default_index >= 0:
             self.colormap_combo.setCurrentIndex(default_index)
+        # Same content-length budget as the console tabs' own equivalent
+        # row (see _size_combo's own docstring).
+        _size_combo(self.color_scale_combo, 12)
+        _size_combo(self.colormap_combo, 12)
         self.color_scale_combo.currentTextChanged.connect(self._apply_display_settings)
         self.colormap_combo.currentTextChanged.connect(self._apply_display_settings)
         # 6 decimals, not 3 -- see console_widget.py's cmin_spin/cmax_spin

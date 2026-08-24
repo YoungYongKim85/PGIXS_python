@@ -169,6 +169,33 @@ def _field(label_text: str, *widgets: QWidget, label_width: int = 104) -> QWidge
     return container
 
 
+def _size_combo(combo: QComboBox, chars: int = 12) -> QComboBox:
+    """Give a combo box a content-length width budget instead of letting
+    its single longest item (e.g. "twilight_shifted", "Symmetric Peaks
+    (+/-)", "Mesoporous Silica") dictate both its preferred AND its real
+    *minimum* size.
+
+    QComboBox's default size-adjust policy (AdjustToContentsOnFirstShow)
+    makes `minimumSizeHint()` track the longest item exactly -- a plain
+    `setFixedWidth`/`setMaximumWidth` call only caps how wide the box
+    *renders* when there's room; it does nothing to the layout's real
+    minimum footprint, since Qt still reserves `minimumSizeHint()` worth
+    of space regardless. That's why aligning several combos that way
+    still made a narrow left panel need horizontal scrolling (reported:
+    "다 같은 사이즈로 하니까 약간씩 삐져나가네").
+
+    `AdjustToMinimumContentsLengthWithIcon` + a fixed `chars` budget makes
+    both the preferred size and the real minimum exactly `chars`
+    characters wide, independent of any one item's length -- longer
+    entries elide with "..." once selected instead of forcing extra
+    width, and same-`chars` siblings end up genuinely equal-width even
+    under space pressure, not just when the window happens to be wide."""
+
+    combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(chars)
+    return combo
+
+
 def _split_row(*fields: QWidget) -> QWidget:
     """Place several `_field(...)` groups side by side on one row, sharing
     the width evenly -- for packing e.g. Energy+SDD, or Center+Footprint,
@@ -338,6 +365,7 @@ class ConsoleWidget(QWidget):
 
         self.detector_combo = QComboBox()
         self.detector_combo.addItems(cfg.detector_list)
+        _size_combo(self.detector_combo, 12)
         self.multishot_check = QCheckBox("Multishot")
         self.multishot_check.setToolTip(
             "Average every file in this file's series (same name with the trailing _NNNN index stripped)."
@@ -425,6 +453,11 @@ class ConsoleWidget(QWidget):
         self.plus_data_spin = _double_spin(-1.0e6, 1.0e6, 3, 1.0, 0.01)
         self.normal_combo = QComboBox()
         self.normal_combo.addItems(["None", "IC", "BC"])
+        # Same content-length budget as the left panel's other "choice"
+        # combos (Mean/Median, Qxy/Qz<->Qy/Qz) -- see _size_combo's own
+        # docstring for why this (not setFixedWidth) actually keeps the
+        # panel from needing to scroll horizontally.
+        _size_combo(self.normal_combo, 8)
         data_field = _field("*Data", self.plus_data_spin, label_width=48)
         normal_field = _field("Normalization", self.normal_combo, label_width=88)
         layout.addWidget(_split_row(data_field, normal_field))
@@ -441,6 +474,7 @@ class ConsoleWidget(QWidget):
             self.q_uncertain_check = QCheckBox("q uncertainty")
             self.mapping_combo = QComboBox()
             self.mapping_combo.addItems(["Qxy/Qz", "Qy/Qz"])
+            _size_combo(self.mapping_combo, 10)
             layout.addWidget(_row(self.q_uncertain_check, self.mapping_combo))
         else:
             self.q_uncertain_check = None
@@ -596,6 +630,7 @@ class ConsoleWidget(QWidget):
         self.azi_position_button = QPushButton("Position")
         self.azi_meanmedian_combo = QComboBox()
         self.azi_meanmedian_combo.addItems(["Mean", "Median"])
+        _size_combo(self.azi_meanmedian_combo, 10)
         self.azi_position_button.clicked.connect(lambda: self._arm_position_mode("azimuthal"))
         layout.addWidget(_row(self.azi_position_button, self.azi_meanmedian_combo))
 
@@ -666,10 +701,10 @@ class ConsoleWidget(QWidget):
         # ColorScale ("Linear"/"Log") and Map format ("Pixel"/"Qxy/Qz"/
         # "Qy/Qz") otherwise size to their own much shorter content next to
         # Colormap (entries as long as "twilight_shifted") on the same row
-        # -- fix all three to the same width so they line up; this panel
-        # (unlike the left one) has plenty of spare width to give them.
+        # -- give all three the same content-length budget so they line up
+        # (see _size_combo's own docstring for why not setFixedWidth).
         for combo in (self.color_scale_combo, self.colormap_combo, self.map_format_combo):
-            combo.setFixedWidth(200)
+            _size_combo(combo, 12)
         # Every display-only control (ColorScale/Colormap/Contrast/Range/
         # Font) applies the moment it changes -- Update no longer needs to
         # be clicked for these to take effect. Spin boxes have

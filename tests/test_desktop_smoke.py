@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QComboBox
 
 from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config, trxs_config
 from pgixs_python.ui_backend import console_session as cs
@@ -52,12 +52,30 @@ def test_gixs_console_has_incidence_and_footprint_widgets(qapp):
     assert console.circ_button is None
     # ColorScale/Colormap/Map format used to size to their own natural
     # content (Colormap needing much more room than ColorScale's "Linear"/
-    # "Log") sitting right next to each other on the Image Controller's
-    # own row -- now fixed to the same width so they line up. Reuses this
-    # test's own console instance rather than constructing another.
-    console.resize(1600, 1000)
-    widths = {console.color_scale_combo.width(), console.colormap_combo.width(), console.map_format_combo.width()}
-    assert widths == {200}
+    # "Log") sitting right next to each other on the Image Controller's own
+    # row -- _size_combo (console_widget.py) gives all three the same
+    # content-length budget so they line up. Checking the policy/budget
+    # directly (rather than the rendered .width(), which needs a real
+    # show()'d layout pass to reflect the scroll area's own width
+    # constraint -- and .show() is what triggers this suite's native
+    # access-violation crash, see git history) still proves the fix is
+    # wired up, without paying that cost. Reuses this test's own console
+    # instance rather than constructing another.
+    for combo in (console.color_scale_combo, console.colormap_combo, console.map_format_combo):
+        assert combo.sizeAdjustPolicy() == QComboBox.AdjustToMinimumContentsLengthWithIcon
+        assert combo.minimumContentsLength() == 12
+    # Same follow-up for the left panel's own "choice" combos (Mean/Median,
+    # Qxy/Qz<->Qy/Qz, Normalization None/IC/BC), which each used to size to
+    # their own natural content too. Normalization gets a smaller budget
+    # (8, not 10) purely to leave the left panel a little more breathing
+    # room -- it's a standalone row, not sitting next to the other two.
+    for combo, chars in (
+        (console.azi_meanmedian_combo, 10),
+        (console.mapping_combo, 10),
+        (console.normal_combo, 8),
+    ):
+        assert combo.sizeAdjustPolicy() == QComboBox.AdjustToMinimumContentsLengthWithIcon
+        assert combo.minimumContentsLength() == chars
 
 
 def test_trxs_console_omits_incidence_but_has_circular(qapp):
@@ -66,6 +84,12 @@ def test_trxs_console_omits_incidence_but_has_circular(qapp):
     assert console.footprint_spin is None
     assert console.cakecut_check is None
     assert console.circ_button is not None
+    assert console.mapping_combo is None  # Qxy/Qz vs Qy/Qz is a GIXS-only distinction
+    # Same left-panel combo width fix as GIXS's own (see
+    # test_gixs_console_has_incidence_and_footprint_widgets, including why
+    # this checks the policy/budget rather than .width()) applies here too.
+    assert console.azi_meanmedian_combo.minimumContentsLength() == 10
+    assert console.normal_combo.minimumContentsLength() == 8
 
 
 def test_circular_process_is_positioned_above_1d_plot_process(qapp):

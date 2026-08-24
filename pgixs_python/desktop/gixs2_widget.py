@@ -40,7 +40,17 @@ from PySide6.QtWidgets import (
 )
 
 from pgixs_python.desktop.background_tasks import run_in_background
-from pgixs_python.desktop.console_widget import _COLORMAPS, _divider, _double_spin, _field, _muted, _row, _split_row, _wrap_long_tokens
+from pgixs_python.desktop.console_widget import (
+    _COLORMAPS,
+    _divider,
+    _double_spin,
+    _field,
+    _muted,
+    _row,
+    _size_combo,
+    _split_row,
+    _wrap_long_tokens,
+)
 from pgixs_python.desktop.plot_canvas import CurveCanvas, ImageCanvas
 from pgixs_python.ui_backend import gixs2_session as gs
 
@@ -60,12 +70,14 @@ _NORMALIZE_LIST = ["None", "IC", "BC"]
 # against this app's own light theme (MATLAB's 'y'/'w' entries wash out).
 _ROI_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4"]
 
-# Shared cap for every Normalize/Mean-Median combo box in the 1D Plot
-# Process and Azimuthal Process sections -- without it, a combo box alone
-# on its own row (e.g. Mean/Median) stretches to fill the whole row width,
-# while one sharing a row with an Exec button only gets what's left over,
-# so otherwise-equivalent dropdowns ended up visibly different widths.
-_COMBO_MAX_WIDTH = 180
+# Shared content-length budget (see console_widget.py's own `_size_combo`
+# docstring) for every Normalize/Mean-Median/Scale combo box across the
+# four viewer panels and the 1D Plot Process/Azimuthal Process/ROI
+# Process sections -- without it, a combo box alone on its own row (e.g.
+# Mean/Median) stretches to fill the whole row width, while one sharing a
+# row with an Exec button only gets what's left over, so otherwise-
+# equivalent dropdowns ended up visibly different widths.
+_COMBO_CHARS = 10
 
 
 def _control_row(layout: QHBoxLayout) -> QWidget:
@@ -174,6 +186,12 @@ class GIXS2Widget(QWidget):
         self.detector_combo.addItems(_DETECTOR_LIST)
         self.insitu_combo = QComboBox()
         self.insitu_combo.addItems(_INSITU_LIST)
+        # "Temperature" alone needs more room than any detector name here
+        # -- cap Insitu's own budget down closer to Detector's natural
+        # need instead of growing Detector's small one to match (see
+        # sddcal_widget.py's Standard/Order for why that would only make
+        # this row need *more* total width, not less).
+        _size_combo(self.insitu_combo, 6)
         self.insitu_combo.currentTextChanged.connect(self._update_sub_mode_items)
         layout.addWidget(_split_row(_field("Detector", self.detector_combo, label_width=60), _field("Insitu", self.insitu_combo, label_width=48)))
 
@@ -272,11 +290,11 @@ class GIXS2Widget(QWidget):
         self.exec_1d_button.clicked.connect(self._on_exec_1d_clicked)
         self.normalize_1d_combo = QComboBox()
         self.normalize_1d_combo.addItems(_NORMALIZE_LIST)
-        # Capped at the same width as every other combo box in the 1D
-        # Plot Process/Azimuthal Process sections (see _COMBO_MAX_WIDTH's
-        # own docstring) so they don't drift apart depending on whichever
+        # Same content-length budget as every other combo box in the 1D
+        # Plot Process/Azimuthal Process sections (see _COMBO_CHARS' own
+        # docstring) so they don't drift apart depending on whichever
         # button/label happens to share their row.
-        self.normalize_1d_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
+        _size_combo(self.normalize_1d_combo, _COMBO_CHARS)
         self.normalize_1d_combo.currentTextChanged.connect(self._render_1d)
         layout.addWidget(_row(self.exec_1d_button, self.normalize_1d_combo))
         self.exec_1d_parallel_check = QCheckBox("Parallel")
@@ -307,14 +325,14 @@ class GIXS2Widget(QWidget):
             control.valueChanged.connect(lambda _v: self._arm_azi_overlay())
         self.azi_mean_median_combo = QComboBox()
         self.azi_mean_median_combo.addItems(["Mean", "Median"])
-        self.azi_mean_median_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
+        _size_combo(self.azi_mean_median_combo, _COMBO_CHARS)
         layout.addWidget(_field("Mean/Median", self.azi_mean_median_combo, label_width=88))
 
         self.exec_azi_button = QPushButton("Exec Azi")
         self.exec_azi_button.clicked.connect(self._on_exec_azi_clicked)
         self.normalize_azi_combo = QComboBox()
         self.normalize_azi_combo.addItems(_NORMALIZE_LIST)
-        self.normalize_azi_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
+        _size_combo(self.normalize_azi_combo, _COMBO_CHARS)
         self.normalize_azi_combo.currentTextChanged.connect(self._render_azimuthal)
         layout.addWidget(_row(self.exec_azi_button, self.normalize_azi_combo))
 
@@ -330,7 +348,7 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_field("N. ROI", self.n_roi_combo, self.draw_roi_button))
         self.normalize_roi_combo = QComboBox()
         self.normalize_roi_combo.addItems(_NORMALIZE_LIST)
-        self.normalize_roi_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
+        _size_combo(self.normalize_roi_combo, _COMBO_CHARS)
         self.normalize_roi_combo.currentTextChanged.connect(self._render_integration)
         layout.addWidget(_field("Normalize", self.normalize_roi_combo))
 
@@ -396,15 +414,16 @@ class GIXS2Widget(QWidget):
         self.image_scale_combo.addItems(["Linear", "Log"])
         self.image_colormap_combo = QComboBox()
         self.image_colormap_combo.addItems(_COLORMAPS)
-        # Left to their own sizeHint, Scale ("Linear"/"Log") and Colormap
-        # (some entries as long as "twilight_shifted") end up very
-        # different widths sitting right next to each other on this row --
-        # fix both to the same width so they line up (a maximum alone
-        # wouldn't widen Scale's naturally-short sizeHint to match; the
-        # closed box still elides a long colormap name with "..." if
-        # needed, and the dropdown list itself always shows the full name).
-        self.image_scale_combo.setFixedWidth(160)
-        self.image_colormap_combo.setFixedWidth(160)
+        # Left to their own natural size, Scale ("Linear"/"Log") and
+        # Colormap (some entries as long as "twilight_shifted") end up
+        # very different widths sitting right next to each other on this
+        # row -- same content-length budget for both instead (see
+        # console_widget.py's `_size_combo` docstring for why not
+        # setFixedWidth); the closed box still elides a long colormap name
+        # with "..." if needed, and the dropdown list itself always shows
+        # the full name.
+        _size_combo(self.image_scale_combo, 12)
+        _size_combo(self.image_colormap_combo, 12)
         default_index = self.image_colormap_combo.findText("viridis")
         if default_index >= 0:
             self.image_colormap_combo.setCurrentIndex(default_index)
@@ -458,10 +477,10 @@ class GIXS2Widget(QWidget):
         oned_ctrl = QHBoxLayout()
         self.oned_scale_combo = QComboBox()
         self.oned_scale_combo.addItems(["Linear", "Logy", "Logxy"])
-        # Same cap as the left panel's Normalize/Mean-Median combos (see
-        # _COMBO_MAX_WIDTH's own docstring) -- alone in its control row, it
-        # would otherwise stretch to fill the row's full width.
-        self.oned_scale_combo.setMaximumWidth(_COMBO_MAX_WIDTH)
+        # Same budget as the left panel's Normalize/Mean-Median combos
+        # (see _COMBO_CHARS' own docstring) -- alone in its control row,
+        # it would otherwise stretch to fill the row's full width.
+        _size_combo(self.oned_scale_combo, _COMBO_CHARS)
         self.oned_scale_combo.currentTextChanged.connect(lambda _t: self._render_1d())
         oned_ctrl.addWidget(_field("Scale", self.oned_scale_combo, label_width=40))
         oned_ctrl_row = _control_row(oned_ctrl)
@@ -488,10 +507,9 @@ class GIXS2Widget(QWidget):
         integ_layout.addWidget(self.integ_canvas)
         self.integ_scale_combo = QComboBox()
         self.integ_scale_combo.addItems(["Linear", "Logy", "Logxy"])
-        # Same fixed width as the 1D Plot Viewer's own Scale combo (see its
-        # own comment) -- the two are the same kind of control, just on
-        # different viewers.
-        self.integ_scale_combo.setFixedWidth(180)
+        # Same budget as the 1D Plot Viewer's own Scale combo -- the two
+        # are the same kind of control, just on different viewers.
+        _size_combo(self.integ_scale_combo, _COMBO_CHARS)
         self.integ_scale_combo.currentTextChanged.connect(lambda _t: self._render_integration())
         self.replot_button = QPushButton("Re-Plot Series")
         self.replot_button.clicked.connect(self._render_integration)
