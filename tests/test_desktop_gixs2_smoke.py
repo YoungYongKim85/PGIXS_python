@@ -16,7 +16,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
 
-from pgixs_python.desktop.gixs2_widget import _ROI_COLORS, GIXS2Widget
+from pgixs_python.desktop.gixs2_widget import _ROI_COLORS, GIXS2Widget, _finite_range
 from pgixs_python.desktop.plot_canvas import ImageCanvas
 from pgixs_python.ui_backend import gixs2_session as gs
 
@@ -118,6 +118,20 @@ def _simulate_roi_drawing(widget, monkeypatch, rectangles):
         return QDialog.Accepted
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
+
+
+def test_finite_range_pads_apart_a_degenerate_range():
+    """Port of MATLAB's own `finiteRange` -- seeds a Heatmap dialog's X/Y
+    Range fields with the real data bounds (ignoring NaN/Inf), padding a
+    zero-width range apart so min < max always holds for the caller's
+    `xlim`/`ylim`. No `qapp` needed -- pure numpy, no Qt involved."""
+
+    assert _finite_range(np.array([3.0, 1.0, np.nan, 5.0])) == (1.0, 5.0)
+
+    lo, hi = _finite_range(np.array([2.0, 2.0, np.nan]))
+    assert lo < 2.0 < hi
+
+    assert _finite_range(np.array([np.nan, np.inf])) == (0.0, 1.0)
 
 
 def test_gixs2_widget_constructs(qapp):

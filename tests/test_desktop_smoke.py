@@ -464,19 +464,60 @@ def test_image_canvas_render_mesh_and_surface_modes(qapp):
     assert vmin < vmax
     assert canvas._colorbar is not None
 
-    vmin, vmax = canvas.render_surface(x, y, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A", zlabel="Intensity")
+    # X/Y Scale and X/Y Range (the plot's own axes) are independent of
+    # log_scale/vmin/vmax (the *color* scale) -- reported: "heatmap에서
+    # x축과 y축도 linear/log scale로 바꿀 수 있게 해주고, range도 설정이
+    # 가능하도록 textbox를 추가해줘".
+    canvas.render_mesh(
+        x, y, z, xlabel="Time, s", ylabel="Q, 1/A",
+        xscale="log", yscale="linear", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
+    )
+    assert canvas.ax.get_xscale() == "log"
+    assert canvas.ax.get_yscale() == "linear"
+    assert canvas.ax.get_xlim() == (1.0, 20.0)
+    assert canvas.ax.get_ylim() == (0.15, 0.25)
+
+    vmin, vmax = canvas.render_surface(
+        x, y, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A", zlabel="Intensity",
+        xscale="log", yscale="log", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
+    )
     assert canvas.ax.name == "3d"
     assert canvas.ax.get_zlabel() == "Intensity"
+    assert canvas.ax.get_xscale() == "log"
+    assert canvas.ax.get_yscale() == "log"
+    assert canvas.ax.get_xlim() == (1.0, 20.0)
+    assert canvas.ax.get_ylim() == (0.15, 0.25)
     assert vmin < vmax
     assert canvas._colorbar is not None
 
     vmin, vmax = canvas.render_surface(x, y, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A")
     assert canvas.ax.name == "3d"
-    assert len(canvas.ax.collections) == 1  # one PolyCollection, one curtain per y row
+    assert len(canvas.ax.collections) == 1  # one PolyCollection, one curtain per x column (frame)
     assert vmin < vmax
     assert canvas._colorbar is not None
+    # Default coloring is by intensity -- no explicit colorbar label set.
+    assert canvas._colorbar.ax.get_ylabel() == ""
 
-    # And switching back to the plain 2D mesh after two 3D renders works.
+    # color_by="index" colors each curtain by its own frame position
+    # (0..n-1) on a separate scale, independent of the vmin/vmax just
+    # returned for the z-axis/intensity range -- the z limits stay
+    # intensity-based either way (see render_surface's own docstring).
+    index_vmin, index_vmax = canvas.render_surface(
+        x, y, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A",
+        color_by="index", colorbar_label="Frame # (0-3)",
+    )
+    assert (index_vmin, index_vmax) == (vmin, vmax)
+    assert canvas._colorbar.ax.get_ylabel() == "Frame # (0-3)"
+
+    # An explicit xlim/ylim overrides waterfall's own internal
+    # set_xlim/set_ylim (auto-fit to the full x/y data range).
+    canvas.render_surface(
+        x, y, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
+    )
+    assert canvas.ax.get_xlim() == (1.0, 20.0)
+    assert canvas.ax.get_ylim() == (0.15, 0.25)
+
+    # And switching back to the plain 2D mesh after three 3D renders works.
     canvas.render_mesh(x, y, z, xlabel="Time, s", ylabel="Q, 1/A")
     assert canvas.ax.name == "rectilinear"
 

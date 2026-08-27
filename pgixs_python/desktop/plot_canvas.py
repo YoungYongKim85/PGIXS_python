@@ -182,6 +182,10 @@ class ImageCanvas(QWidget):
         ylabel: str = "",
         title: str = "",
         font_size: int = 10,
+        xscale: str = "linear",
+        yscale: str = "linear",
+        xlim: tuple[float, float] | None = None,
+        ylim: tuple[float, float] | None = None,
     ) -> tuple[float, float]:
         """Render a Q/Angle-vs-series-X-axis heatmap: `z` is `(len(y),
         len(x))`. Unlike `render()`'s `imshow`+`extent` (which assumes
@@ -189,7 +193,10 @@ class ImageCanvas(QWidget):
         `x` coordinate -- correct when the series X-axis (Time/
         Temperature) isn't evenly spaced frame to frame, matching
         MATLAB's own `pcolor(hAX, X, Y, Z)` call this ports (GIXS2_gui.m's
-        HeatmapQ_gui/HeatmapAzi_gui)."""
+        HeatmapQ_gui/HeatmapAzi_gui). `xscale`/`yscale` ("linear"/"log")
+        and `xlim`/`ylim` are that same reference's own X/Y Scale and
+        X/Y Range controls -- `log_scale`/`vmin`/`vmax` stay the *color*
+        (Z) scale, a separate MATLAB control."""
 
         self.stop_polygon_selector()
         self.figure.clear()
@@ -228,6 +235,16 @@ class ImageCanvas(QWidget):
             self.ax.set_title(title, fontsize=max(8, font_size - 1))
         self.ax.tick_params(labelsize=max(7, font_size - 2))
 
+        # Scale before limits -- matplotlib's own recommended order, so a
+        # switch to "log" doesn't first clip/reinterpret limits that were
+        # set under "linear".
+        self.ax.set_xscale(xscale)
+        self.ax.set_yscale(yscale)
+        if xlim is not None:
+            self.ax.set_xlim(xlim)
+        if ylim is not None:
+            self.ax.set_ylim(ylim)
+
         self.toolbar.update()
         self.toolbar.push_current()
 
@@ -241,6 +258,7 @@ class ImageCanvas(QWidget):
         z: np.ndarray,
         *,
         mode: str = "surf",
+        color_by: str = "intensity",
         cmap: str = "viridis",
         log_scale: bool = False,
         vmin: float | None = None,
@@ -248,25 +266,44 @@ class ImageCanvas(QWidget):
         xlabel: str = "",
         ylabel: str = "",
         zlabel: str = "",
+        colorbar_label: str = "",
         title: str = "",
         font_size: int = 10,
+        xscale: str = "linear",
+        yscale: str = "linear",
+        xlim: tuple[float, float] | None = None,
+        ylim: tuple[float, float] | None = None,
     ) -> tuple[float, float]:
         """3D companion to `render_mesh` -- `mode="surf"` is a shaded
         surface (`Axes3D.plot_surface`), `mode="waterfall"` is a stack of
-        filled curtains, one per `y` row, each dropping to the surface's
+        filled curtains, one per `x` column (each column is one series
+        frame's own y-vs-intensity curve), each dropping to the surface's
         own minimum (`PolyCollection` + `add_collection3d`, the standard
         matplotlib recipe for what MATLAB's own `waterfall()` draws).
         Port of GIXS2_gui.m's HeatmapQ_gui/HeatmapAzi_gui "Plot Type"
         selector's other two modes (`render_mesh` already covers
         "Heatmap"). `z` is `(len(y), len(x))`, matching `render_mesh`.
 
-        Colors both modes by intensity via the shared `cmap`/`norm` (a
-        waterfall curtain gets one color, its own row's mean -- MATLAB's
-        per-vertex height-gradient shading on each curtain isn't
-        reproduced, a deliberate simplification). Log scale only affects
-        that color mapping, not the Z axis itself -- `Axes3D`'s own log-
-        scale support is fragile with NaN/non-positive data, which this
-        app's masked regions routinely have."""
+        `mode="surf"` always colors by intensity. `mode="waterfall"`
+        additionally honors `color_by`: `"intensity"` colors each curtain
+        by its own column's mean intensity (default, via the shared
+        `cmap`/`norm`, same as `"surf"`); `"index"` instead colors each
+        curtain by its own frame's position (0..n-1) along a *separate*
+        0..n-1 scale, independent of the intensity contrast -- lets a
+        long series read as a clean sequential gradient (reported: "커튼
+        색을 프레임 인덱스 컬러맵으로도 선택할 수 있게 해줘") instead of
+        every curtain clustering near the same color when frame-to-frame
+        intensity barely varies. MATLAB's own per-vertex height-gradient
+        shading on each curtain isn't reproduced either way (one solid
+        color per curtain, a deliberate simplification). Log scale only
+        affects intensity-based color mapping, not the Z axis itself --
+        `Axes3D`'s own log-scale support is fragile with NaN/non-positive
+        data, which this app's masked regions routinely have.
+
+        `xscale`/`yscale`/`xlim`/`ylim` are the same X/Y Scale and X/Y
+        Range controls `render_mesh` takes -- applied here too so Surf/
+        Waterfall stay consistent with Heatmap when switching "Plot Type"
+        without touching those controls."""
 
         self.stop_polygon_selector()
         self.figure.clear()
@@ -295,23 +332,34 @@ class ImageCanvas(QWidget):
         if mode == "waterfall":
             from matplotlib.collections import PolyCollection
 
+            n_curtains = z.shape[1]
+            by_index = color_by == "index"
+            curtain_norm = Normalize(vmin=0, vmax=max(n_curtains - 1, 1)) if by_index else norm
             polys = []
-            row_values = []
-            for i in range(z.shape[0]):
-                row = z[i]
-                filled_row = np.where(np.isfinite(row), row, z_floor)
-                polys.append([(x[0], z_floor), *zip(x, filled_row), (x[-1], z_floor)])
-                row_values.append(float(np.nanmean(row)) if np.isfinite(row).any() else z_floor)
+            curtain_values = []
+            for j in range(n_curtains):
+                col = z[:, j]
+                filled_col = np.where(np.isfinite(col), col, z_floor)
+                polys.append([(y[0], z_floor), *zip(y, filled_col), (y[-1], z_floor)])
+                if by_index:
+                    curtain_values.append(float(j))
+                else:
+                    curtain_values.append(float(np.nanmean(col)) if np.isfinite(col).any() else z_floor)
             poly = PolyCollection(
-                polys, facecolors=cmap_obj(norm(np.asarray(row_values))), edgecolors="k", linewidths=0.4
+                polys, facecolors=cmap_obj(curtain_norm(np.asarray(curtain_values))), edgecolors="k", linewidths=0.4
             )
             poly.set_alpha(0.85)
-            self.ax.add_collection3d(poly, zs=y, zdir="y")
+            # zdir="x": each curtain's own 2D vertices (y, z) map onto the
+            # axes' (y, z) plane, offset along the axes' x by `zs` -- keeps
+            # x/y/z meaning the same as "surf"/"heatmap" (x=series axis,
+            # y=Q/Angle, z=intensity) even though curtains are now built
+            # column-by-column instead of row-by-row.
+            self.ax.add_collection3d(poly, zs=x, zdir="x")
             self.ax.set_xlim(float(np.min(x)), float(np.max(x)))
             self.ax.set_ylim(float(np.min(y)), float(np.max(y)))
             self.ax.set_zlim(vmin, vmax)
-            self._image = ScalarMappable(norm=norm, cmap=cmap_obj)
-            self._image.set_array(z)
+            self._image = ScalarMappable(norm=curtain_norm, cmap=cmap_obj)
+            self._image.set_array(np.asarray(curtain_values))
         else:
             XX, YY = np.meshgrid(x, y)
             masked = np.ma.masked_invalid(z)
@@ -321,6 +369,8 @@ class ImageCanvas(QWidget):
 
         self._colorbar = self.figure.colorbar(self._image, ax=self.ax, shrink=0.7, pad=0.1)
         self._colorbar.ax.tick_params(labelsize=max(7, font_size - 2))
+        if colorbar_label:
+            self._colorbar.set_label(colorbar_label, fontsize=font_size)
 
         self.ax.set_xlabel(xlabel, fontsize=font_size)
         self.ax.set_ylabel(ylabel, fontsize=font_size)
@@ -328,6 +378,13 @@ class ImageCanvas(QWidget):
         if title:
             self.ax.set_title(title, fontsize=max(8, font_size - 1))
         self.ax.tick_params(labelsize=max(7, font_size - 2))
+
+        self.ax.set_xscale(xscale)
+        self.ax.set_yscale(yscale)
+        if xlim is not None:
+            self.ax.set_xlim(xlim)
+        if ylim is not None:
+            self.ax.set_ylim(ylim)
 
         self.canvas.draw_idle()
         return vmin, vmax

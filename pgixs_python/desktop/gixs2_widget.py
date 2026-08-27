@@ -80,6 +80,26 @@ _ROI_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4"]
 _COMBO_CHARS = 10
 
 
+def _finite_range(values: np.ndarray) -> tuple[float, float]:
+    """Port of MATLAB's own `finiteRange` (HeatmapQ_gui/HeatmapAzi_gui):
+    the actual min/max of `values`' finite entries, padded apart slightly
+    if they'd otherwise coincide -- used to seed a Heatmap dialog's X/Y
+    Range fields with real, editable bounds instead of console_widget.py's
+    usual 0/0 "auto" sentinel (Contrast's own convention), since a Range
+    field with nothing in it gives the user no starting point to narrow
+    from."""
+
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 0.0, 1.0
+    lo, hi = float(np.min(finite)), float(np.max(finite))
+    if lo >= hi:
+        delta = max(abs(lo) * 0.01, 1.0)
+        lo -= delta
+        hi += delta
+    return lo, hi
+
+
 def _control_row(layout: QHBoxLayout) -> QWidget:
     """Wrap a viewer's control-row QHBoxLayout in a plain container widget
     -- sized naturally at first; `_equalize_control_row_heights` then pins
@@ -1317,7 +1337,7 @@ class GIXS2Widget(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle(title)
         dialog.setAttribute(Qt.WA_DeleteOnClose)
-        dialog.resize(900, 700)
+        dialog.resize(900, 760)
         layout = QVBoxLayout(dialog)
 
         canvas = ImageCanvas()
@@ -1330,19 +1350,48 @@ class GIXS2Widget(QWidget):
         default_index = colormap_combo.findText("viridis")
         if default_index >= 0:
             colormap_combo.setCurrentIndex(default_index)
+        # X/Y Scale/Range are the plot's own axes (the series X-axis and
+        # Q/Angle) -- Z Scale/Contrast (below) are the separate color
+        # scale, matching MATLAB's own distinct X/Y/Z Scale controls.
+        xscale_combo = QComboBox()
+        xscale_combo.addItems(["Linear", "Log"])
+        yscale_combo = QComboBox()
+        yscale_combo.addItems(["Linear", "Log"])
         scale_combo = QComboBox()
         scale_combo.addItems(["Linear", "Log"])
-        cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        for combo in (plot_type_combo, colormap_combo, scale_combo):
+        # Waterfall-only: color each curtain by its own frame's position
+        # (0..n-1) instead of its mean intensity -- a long series where
+        # frame-to-frame intensity barely varies otherwise leaves every
+        # curtain clustered near the same color.
+        curtain_color_combo = QComboBox()
+        curtain_color_combo.addItems(["Intensity", "Frame Index"])
+        curtain_color_combo.setEnabled(False)
+        for combo in (plot_type_combo, colormap_combo, xscale_combo, yscale_combo, scale_combo, curtain_color_combo):
             _size_combo(combo, 12)
 
-        ctrl = QHBoxLayout()
-        ctrl.addWidget(_field("Plot Type", plot_type_combo, label_width=64))
-        ctrl.addWidget(_field("Colormap", colormap_combo, label_width=64))
-        ctrl.addWidget(_field("Z Scale", scale_combo, label_width=54))
-        ctrl.addWidget(_field("Contrast", cmin_spin, cmax_spin, label_width=54))
-        layout.addLayout(ctrl)
+        x_lo, x_hi = _finite_range(x_axis)
+        y_lo, y_hi = _finite_range(y_axis)
+        xmin_spin = _double_spin(-1.0e12, 1.0e12, 4, x_lo, 1.0)
+        xmax_spin = _double_spin(-1.0e12, 1.0e12, 4, x_hi, 1.0)
+        ymin_spin = _double_spin(-1.0e12, 1.0e12, 4, y_lo, 0.01)
+        ymax_spin = _double_spin(-1.0e12, 1.0e12, 4, y_hi, 0.01)
+        cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+
+        ctrl_row1 = QHBoxLayout()
+        ctrl_row1.addWidget(_field("Plot Type", plot_type_combo, label_width=64))
+        ctrl_row1.addWidget(_field("Colormap", colormap_combo, label_width=64))
+        ctrl_row1.addWidget(_field("X Scale", xscale_combo, label_width=54))
+        ctrl_row1.addWidget(_field("Y Scale", yscale_combo, label_width=54))
+        ctrl_row1.addWidget(_field("Z Scale", scale_combo, label_width=54))
+        ctrl_row1.addWidget(_field("Curtain Color", curtain_color_combo, label_width=78))
+        layout.addLayout(ctrl_row1)
+
+        ctrl_row2 = QHBoxLayout()
+        ctrl_row2.addWidget(_field("X Range", xmin_spin, xmax_spin, label_width=54))
+        ctrl_row2.addWidget(_field("Y Range", ymin_spin, ymax_spin, label_width=54))
+        ctrl_row2.addWidget(_field("Contrast", cmin_spin, cmax_spin, label_width=54))
+        layout.addLayout(ctrl_row2)
         status_label = _muted("")
         layout.addWidget(status_label)
 
@@ -1351,20 +1400,30 @@ class GIXS2Widget(QWidget):
             cmax = cmax_spin.value()
             vmin = cmin if cmax > cmin else None
             vmax = cmax if cmax > cmin else None
+            xmin, xmax = xmin_spin.value(), xmax_spin.value()
+            ymin, ymax = ymin_spin.value(), ymax_spin.value()
             plot_type = plot_type_combo.currentText()
+            curtain_color_combo.setEnabled(plot_type == "Waterfall")
             common = dict(
                 cmap=colormap_combo.currentText(),
                 log_scale=scale_combo.currentText() == "Log",
                 vmin=vmin, vmax=vmax,
                 xlabel=x_label, ylabel=y_label,
                 title=f"{kind}: {matrix.shape[0]} frame(s)",
+                xscale=xscale_combo.currentText().lower(),
+                yscale=yscale_combo.currentText().lower(),
+                xlim=(xmin, xmax) if xmax > xmin else None,
+                ylim=(ymin, ymax) if ymax > ymin else None,
             )
             if plot_type == "Heatmap":
                 used_vmin, used_vmax = canvas.render_mesh(x_axis, y_axis, matrix.T, **common)
             else:
+                by_index = plot_type == "Waterfall" and curtain_color_combo.currentText() == "Frame Index"
                 used_vmin, used_vmax = canvas.render_surface(
                     x_axis, y_axis, matrix.T,
                     mode="surf" if plot_type == "Surf" else "waterfall",
+                    color_by="index" if by_index else "intensity",
+                    colorbar_label=f"Frame # (0-{matrix.shape[0] - 1})" if by_index else "",
                     zlabel="Intensity, arb. units", **common,
                 )
             if vmin is None:
@@ -1375,11 +1434,10 @@ class GIXS2Widget(QWidget):
                 cmin_spin.blockSignals(False)
                 cmax_spin.blockSignals(False)
 
-        plot_type_combo.currentTextChanged.connect(lambda _t: update())
-        colormap_combo.currentTextChanged.connect(lambda _t: update())
-        scale_combo.currentTextChanged.connect(lambda _t: update())
-        cmin_spin.valueChanged.connect(lambda _v: update())
-        cmax_spin.valueChanged.connect(lambda _v: update())
+        for combo in (plot_type_combo, colormap_combo, xscale_combo, yscale_combo, scale_combo, curtain_color_combo):
+            combo.currentTextChanged.connect(lambda _t: update())
+        for spin in (xmin_spin, xmax_spin, ymin_spin, ymax_spin, cmin_spin, cmax_spin):
+            spin.valueChanged.connect(lambda _v: update())
 
         update()
         self._heatmap_dialog = dialog
