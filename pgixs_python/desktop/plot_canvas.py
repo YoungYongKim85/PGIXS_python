@@ -52,6 +52,21 @@ def _log10_axis(values: np.ndarray) -> np.ndarray | None:
     return None
 
 
+def _log10_masked(values: np.ndarray) -> np.ndarray:
+    """Elementwise log10 for a Z (intensity) array, used for Surf/
+    Waterfall's Z-axis geometry when Z Scale is "Log" -- unlike
+    `_log10_axis` (a coordinate array, expected uniformly positive), an
+    intensity array routinely has a handful of zero/negative pixels
+    (background/noise), so a single non-positive value shouldn't refuse
+    the whole array; those entries just come back NaN (masked out),
+    matching `LogNorm`'s own convention for non-positive color data."""
+
+    out = np.full(values.shape, np.nan, dtype=np.float64)
+    positive = values > 0
+    out[positive] = np.log10(values[positive])
+    return out
+
+
 class ImageCanvas(QWidget):
     """2D detector image display: imshow + colorbar + click-to-pixel + overlay."""
 
@@ -350,20 +365,29 @@ class ImageCanvas(QWidget):
         every curtain clustering near the same color when frame-to-frame
         intensity barely varies. MATLAB's own per-vertex height-gradient
         shading on each curtain isn't reproduced either way (one solid
-        color per curtain, a deliberate simplification). `log_scale` only
-        affects intensity-based color mapping, not the Z axis itself --
-        `Axes3D`'s own log-scale support is fragile with NaN/non-positive
-        data, which this app's masked regions routinely have.
+        color per curtain, a deliberate simplification). `log_scale`
+        drives both the *color* mapping (`norm`) and the Z axis' own
+        geometry (matching MATLAB's own combined `ZScale`+`ColorScale`
+        control in HeatmapQ_gui.m/HeatmapAzi_gui.m) -- see the note below
+        on how the Z geometry transform is done without double-logging
+        the color.
 
         `xscale`/`yscale`/`xlim`/`ylim` are the same X/Y Scale and X/Y
         Range controls `render_mesh` takes. Unlike `render_mesh`, a "log"
-        request here is honored via a manual `_log10_axis` transform of
-        the plotted coordinates rather than `Axes3D.set_xscale`/
-        `set_yscale` -- those only relabel ticks without transforming the
-        3D projection, corrupting the geometry (see `_log10_axis`'s own
-        docstring). Check `axis_log_fallback` after calling if a caller
-        needs to know a requested "log" axis silently stayed linear
-        (non-positive data on that axis)."""
+        request on any of X/Y/Z here is honored via a manual `_log10_axis`/
+        `_log10_masked` transform of the plotted values rather than
+        `Axes3D.set_xscale`/`set_yscale`/`set_zscale` -- those only relabel
+        ticks without transforming the 3D projection, corrupting the
+        geometry (see `_log10_axis`'s own docstring). The Z transform
+        additionally has to keep color separate from height (via an
+        explicit `facecolors`/`ScalarMappable`, not `plot_surface`'s own
+        norm-driven coloring) since color must come from `norm` applied to
+        the *raw* intensity, not the already-logged plotted height. Check
+        `axis_log_fallback` after calling if a caller needs to know a
+        requested "log" axis silently stayed linear (non-positive data on
+        that axis -- for X/Y a single non-positive coordinate blocks the
+        whole axis; for Z, individual non-positive samples are just masked
+        out and only an *entirely* non-positive Z array falls back)."""
 
         self.stop_polygon_selector()
         self.figure.clear()
@@ -420,6 +444,26 @@ class ImageCanvas(QWidget):
             else:
                 self.axis_log_fallback.append("Y")
 
+        # `log_scale` ("Z Scale") already drives the *color* mapping above
+        # (`norm`) -- it also drives the Z axis' own geometry here, the
+        # same log10-transform-the-values workaround X/Y use just above
+        # (Axes3D has no working native log axis; MATLAB's own ZScale +
+        # ColorScale set together is what this ports -- HeatmapQ_gui.m/
+        # HeatmapAzi_gui.m: `set(ax,'ZScale',zSc,'ColorScale',zSc)`).
+        # Color still has to come from `norm` applied to the *raw* data,
+        # not `z_plot` -- plotting already-logged heights through a
+        # `LogNorm` color mapping would log it a second time.
+        z_plot = z
+        z_floor_plot = z_floor
+        z_log_used = False
+        if log_scale:
+            if finite.size and np.any(finite > 0):
+                z_plot = _log10_masked(z)
+                z_floor_plot = float(np.log10(max(vmin, 1e-9)))
+                z_log_used = True
+            else:
+                self.axis_log_fallback.append("Z")
+
         if mode == "waterfall":
             from matplotlib.collections import PolyCollection
 
@@ -429,13 +473,14 @@ class ImageCanvas(QWidget):
             polys = []
             curtain_values = []
             for j in range(n_curtains):
-                col = z[:, j]
-                filled_col = np.where(np.isfinite(col), col, z_floor)
-                polys.append([(y_plot[0], z_floor), *zip(y_plot, filled_col), (y_plot[-1], z_floor)])
+                col_raw = z[:, j]
+                col_plot = z_plot[:, j]
+                filled_col = np.where(np.isfinite(col_plot), col_plot, z_floor_plot)
+                polys.append([(y_plot[0], z_floor_plot), *zip(y_plot, filled_col), (y_plot[-1], z_floor_plot)])
                 if by_index:
                     curtain_values.append(float(j))
                 else:
-                    curtain_values.append(float(np.nanmean(col)) if np.isfinite(col).any() else z_floor)
+                    curtain_values.append(float(np.nanmean(col_raw)) if np.isfinite(col_raw).any() else z_floor)
             poly = PolyCollection(
                 polys, facecolors=cmap_obj(curtain_norm(np.asarray(curtain_values))), edgecolors="k", linewidths=0.4
             )
@@ -448,15 +493,31 @@ class ImageCanvas(QWidget):
             self.ax.add_collection3d(poly, zs=x_plot, zdir="x")
             self.ax.set_xlim(float(np.min(x_plot)), float(np.max(x_plot)))
             self.ax.set_ylim(float(np.min(y_plot)), float(np.max(y_plot)))
-            self.ax.set_zlim(vmin, vmax)
+            if z_log_used:
+                self.ax.set_zlim(z_floor_plot, float(np.log10(max(vmax, 1e-9))))
+            else:
+                self.ax.set_zlim(vmin, vmax)
             self._image = ScalarMappable(norm=curtain_norm, cmap=cmap_obj)
             self._image.set_array(np.asarray(curtain_values))
         else:
             XX, YY = np.meshgrid(x_plot, y_plot)
-            masked = np.ma.masked_invalid(z)
-            self._image = self.ax.plot_surface(
-                XX, YY, masked, cmap=cmap_obj, norm=norm, linewidth=0, antialiased=True, rstride=1, cstride=1
-            )
+            if z_log_used:
+                # Height (`masked_plot`) and color (`facecolors`, from
+                # `norm` applied to the raw data) come from different
+                # arrays here -- see the comment above on why `norm` can't
+                # just be handed to `plot_surface` directly in this case.
+                masked_plot = np.ma.masked_invalid(z_plot)
+                facecolors = cmap_obj(norm(np.ma.masked_invalid(z)))
+                self.ax.plot_surface(
+                    XX, YY, masked_plot, facecolors=facecolors, linewidth=0, antialiased=True, rstride=1, cstride=1
+                )
+                self._image = ScalarMappable(norm=norm, cmap=cmap_obj)
+                self._image.set_array(z)
+            else:
+                masked = np.ma.masked_invalid(z)
+                self._image = self.ax.plot_surface(
+                    XX, YY, masked, cmap=cmap_obj, norm=norm, linewidth=0, antialiased=True, rstride=1, cstride=1
+                )
 
         # `figure.colorbar(..., ax=self.ax, shrink=..., pad=...)` (the
         # simple form `render_mesh` can't use for a 3D axes) shrinks and
@@ -484,6 +545,8 @@ class ImageCanvas(QWidget):
             self.ax.xaxis.set_major_formatter(FuncFormatter(lambda val, _pos: f"{10.0 ** val:.3g}"))
         if y_log_used:
             self.ax.yaxis.set_major_formatter(FuncFormatter(lambda val, _pos: f"{10.0 ** val:.3g}"))
+        if z_log_used:
+            self.ax.zaxis.set_major_formatter(FuncFormatter(lambda val, _pos: f"{10.0 ** val:.3g}"))
 
         # `xlim`/`ylim` (from the caller's X/Y Range fields) are always in
         # real units -- transform them into the same log10 space as the

@@ -531,6 +531,47 @@ def test_image_canvas_render_mesh_and_surface_modes(qapp):
     assert canvas.ax.get_ylim() == pytest.approx((np.log10(0.15), np.log10(0.25)))
     assert canvas.ax.xaxis.get_major_formatter()(np.log10(20.0), 0) == "20"
 
+    # Z Scale ("log_scale") drives the Z axis' own geometry too, not just
+    # color (matching MATLAB's combined ZScale+ColorScale control) --
+    # reported: "z-scale을 로그로 하니 intensity만 log scale로 되고
+    # surf나 waterfall 이미지에서 z축이 log-scale로 바뀌지 않고 있어."
+    # `z` has a 0.0 entry (np.arange starts at 0) -- that one cell masks
+    # out (log of 0 undefined) without blocking the whole Z axis, unlike a
+    # single non-positive X/Y *coordinate*.
+    canvas.render_surface(
+        x_positive, y_positive, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A",
+        log_scale=True, vmin=1.0, vmax=10.0,
+    )
+    assert canvas.axis_log_fallback == []
+    # Surf's Z limits auto-fit to the plotted (log10-transformed) data
+    # range, same as the pre-existing linear-mode behavior -- unlike
+    # Waterfall below, Surf never clips its Z geometry to vmin/vmax. `z`'s
+    # positive values span 1..11, so its log10 range is (0, log10(11)).
+    assert canvas.ax.get_zlim() == pytest.approx((0.0, np.log10(11.0)), abs=0.05)
+    assert canvas.ax.zaxis.get_major_formatter()(1.0, 0) == "10"
+    # Color still comes from `norm` over the *raw* intensity, not the
+    # log10-transformed plotted height -- a `LogNorm` over an already-
+    # logged array would double-log it.
+    assert type(canvas._image.norm).__name__ == "LogNorm"
+    assert (canvas._image.norm.vmin, canvas._image.norm.vmax) == (1.0, 10.0)
+
+    canvas.render_surface(
+        x_positive, y_positive, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A",
+        log_scale=True, vmin=1.0, vmax=10.0,
+    )
+    assert canvas.ax.get_zlim() == pytest.approx((0.0, 1.0))
+    assert canvas.ax.zaxis.get_major_formatter()(1.0, 0) == "10"
+
+    # An entirely non-positive Z array can't be log-transformed at all --
+    # falls back to linear (raw vmin/vmax as the Z limits, no formatter),
+    # same shape of fallback X/Y already have.
+    z_nonpositive = -np.ones((3, 4), dtype=np.float32)
+    canvas.render_surface(
+        x_positive, y_positive, z_nonpositive, mode="surf", xlabel="Time, s", ylabel="Q, 1/A",
+        log_scale=True, vmin=1.0, vmax=10.0,
+    )
+    assert canvas.axis_log_fallback == ["Z"]
+
     vmin, vmax = canvas.render_surface(x, y, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A")
     assert canvas.ax.name == "3d"
     assert len(canvas.ax.collections) == 1  # one PolyCollection, one curtain per x column (frame)
