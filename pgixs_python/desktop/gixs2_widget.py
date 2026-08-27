@@ -139,6 +139,7 @@ class GIXS2Widget(QWidget):
         self._load_thread = None
         self._exec_1d_thread = None
         self._exec_azi_thread = None
+        self._auto_refresh_thread = None
         self._current_image_data: np.ndarray | None = None
         self._play_dialog: QDialog | None = None
         self._heatmap_dialog: QDialog | None = None
@@ -1580,7 +1581,18 @@ class GIXS2Widget(QWidget):
         self._set_status(f"X-Axis set to {result['label']} ({len(result['x_axis'])} points).", True)
 
     def _on_auto_refresh_clicked(self) -> None:
-        result = gs.gixs2_auto_refresh({"directory": self._last_dir, "parallel": self.parallel_check.isChecked()})
+        # Loading + correcting + reprocessing however many new files showed
+        # up can take a while for a real series -- run it on a background
+        # thread with the same progress dialog series loading/Exec Cut use,
+        # instead of freezing the UI with no feedback while it works.
+        self.auto_refresh_button.setEnabled(False)
+        self._start_progress_dialog("Checking for new files...", window_title="Auto Refresh")
+        payload = {"directory": self._last_dir, "parallel": self.parallel_check.isChecked()}
+        self._auto_refresh_thread = run_in_background(gs.gixs2_auto_refresh, payload, self._on_auto_refresh_finished)
+
+    def _on_auto_refresh_finished(self, result: dict[str, Any]) -> None:
+        self._stop_progress_dialog()
+        self.auto_refresh_button.setEnabled(True)
         if not result.get("ok"):
             self._set_status(result.get("message", "Auto Refresh failed."), False)
             return

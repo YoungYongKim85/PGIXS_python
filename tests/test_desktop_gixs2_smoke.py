@@ -102,6 +102,20 @@ def _exec_azi_sync(widget):
     return result
 
 
+def _auto_refresh_sync(widget, monkeypatch, payload=None):
+    """`_on_auto_refresh_clicked` now runs `gixs2_auto_refresh` on a
+    background QThread too (with a progress dialog, same as Exec Cut/Exec
+    Azi) -- replay it synchronously for tests that only care about the end
+    state. `test_gixs2_widget_auto_refresh_shows_progress_dialog` below
+    covers the actual threading/progress-dialog behavior."""
+
+    monkeypatch.setattr(
+        "pgixs_python.desktop.gixs2_widget.run_in_background",
+        lambda fn, call_payload, callback: callback(fn(call_payload)),
+    )
+    widget._on_auto_refresh_clicked()
+
+
 def _simulate_roi_drawing(widget, monkeypatch, rectangles):
     """Drive "Draw ROI"'s separate dialog through its sequential
     RectangleSelector flow (one drag per ROI, in display coordinates)
@@ -951,14 +965,16 @@ def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path):
     assert widget.integ_canvas.ax.get_xlabel() == "Time, s"
 
 
-def test_gixs2_widget_auto_refresh_no_new_files(qapp, tmp_path):
+def test_gixs2_widget_auto_refresh_no_new_files(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=2)
 
-    widget._on_auto_refresh_clicked()
+    _auto_refresh_sync(widget, monkeypatch)
 
     assert "No new files" in widget.status_label.text()
+    assert widget._progress_dialog is None
+    assert widget.auto_refresh_button.isEnabled()
 
 
 def test_gixs2_widget_auto_refresh_extends_roi_only_series_integration_plot(qapp, tmp_path, monkeypatch):
@@ -985,10 +1001,39 @@ def test_gixs2_widget_auto_refresh_extends_roi_only_series_integration_plot(qapp
 
     _write_synthetic_series(tmp_path, n_frames=3, center=center, radii=[60.0] * 3)
 
-    widget._on_auto_refresh_clicked()
+    _auto_refresh_sync(widget, monkeypatch)
 
     assert gs.get_session().last_roi.shape[0] == 3
     assert widget.integ_canvas._data_x.shape[0] == 3
+
+
+def test_gixs2_widget_auto_refresh_shows_progress_dialog(qapp, tmp_path, monkeypatch):
+    """Auto Refresh can load+correct+reprocess many new files -- it now
+    runs `gixs2_auto_refresh` on a background QThread with a progress
+    dialog (same pattern as series loading/Exec Cut/Exec Azi) instead of
+    freezing the UI with no feedback while it works."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=2)
+
+    captured = {}
+
+    def fake_run_in_background(fn, payload, callback):
+        captured["fn"] = fn
+        captured["payload"] = payload
+
+    monkeypatch.setattr("pgixs_python.desktop.gixs2_widget.run_in_background", fake_run_in_background)
+
+    widget._on_auto_refresh_clicked()
+
+    assert captured["fn"] is gs.gixs2_auto_refresh
+    assert captured["payload"]["directory"] == widget._last_dir
+    assert not widget.auto_refresh_button.isEnabled()
+    assert widget._progress_dialog is not None
+
+    widget._stop_progress_dialog()
+    widget.auto_refresh_button.setEnabled(True)
 
 
 def test_gixs2_widget_ai_pix_deg_sync(qapp, tmp_path):
