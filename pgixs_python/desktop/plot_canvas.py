@@ -16,9 +16,10 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle, Rectangle
+from matplotlib.ticker import FuncFormatter
 from matplotlib.widgets import PolygonSelector, RectangleSelector
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 
@@ -29,6 +30,26 @@ def _resolve_cmap(name: str):
         return plt.get_cmap(name).copy()
     except ValueError:
         return plt.get_cmap("viridis").copy()
+
+
+def _log10_axis(values: np.ndarray) -> np.ndarray | None:
+    """`Axes3D.set_xscale`/`set_yscale("log")` only relabels ticks -- it
+    doesn't transform the actual 3D projection, so the plotted geometry
+    and its "log" tick labels disagree and the surface collapses into a
+    thin, off-center sliver with stray diagonal edges (a known matplotlib
+    limitation, not something a render parameter can fix). Manually
+    log10-transforming the coordinate *values* before plotting, then
+    relabeling ticks back to the real value via a `FuncFormatter`, is the
+    standard workaround and is what MATLAB's own OpenGL 3D renderer does
+    correctly out of the box (`set(ax, 'XScale', 'log')` in
+    HeatmapQ_gui.m/HeatmapAzi_gui.m). Returns None (caller falls back to
+    linear) if any value is non-positive -- log of <=0 is undefined, same
+    as a Temperature/Angle axis that dips to or below zero would give
+    MATLAB's own log axis."""
+
+    if values.size and np.all(values > 0):
+        return np.log10(values)
+    return None
 
 
 class ImageCanvas(QWidget):
@@ -52,6 +73,18 @@ class ImageCanvas(QWidget):
         self._overlay_artists: list = []
         self._polygon_selector: PolygonSelector | None = None
         self._rectangle_selector: RectangleSelector | None = None
+        # Surf/Waterfall's drag-to-rotate view has no built-in indicator of
+        # the current orientation -- `_rotation_label` is a screen-space
+        # text artist `render_surface` creates, kept in sync with the live
+        # elev/azim by `_sync_rotation_label` polling on a timer rather
+        # than hooking mouse events, since Axes3D's own internal rotate
+        # handler (registered via `mouse_init()` when the 3D axes is
+        # created) may update elev/azim before *or* after ours runs
+        # depending on connection order, and a timer sidesteps that
+        # entirely. Stays `None` (and the timer no-ops) for every other
+        # `ImageCanvas` use in the app, which never renders a 3D axes.
+        self._rotation_label = None
+        self.axis_log_fallback: list[str] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -61,6 +94,18 @@ class ImageCanvas(QWidget):
 
         self.canvas.mpl_connect("button_press_event", self._on_click)
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
+
+        self._rotation_timer = QTimer(self)
+        self._rotation_timer.timeout.connect(self._sync_rotation_label)
+        self._rotation_timer.start(150)
+
+    def _sync_rotation_label(self) -> None:
+        if self._rotation_label is None or self.ax.name != "3d":
+            return
+        text = f"Elev {self.ax.elev:.0f}°, Azim {self.ax.azim:.0f}°"
+        if self._rotation_label.get_text() != text:
+            self._rotation_label.set_text(text)
+            self.canvas.draw_idle()
 
     def render(
         self,
@@ -93,6 +138,10 @@ class ImageCanvas(QWidget):
         # subplotspec). A full `figure.clear()` sidesteps that entirely.
         self.stop_polygon_selector()
         self.figure.clear()
+        # Re-enable constrained_layout in case the previous render was a
+        # Surf/Waterfall (render_surface turns it off -- see its own
+        # comment on why).
+        self.figure.set_layout_engine("constrained")
         self.ax = self.figure.add_subplot(111)
         self._colorbar = None
         self._overlay_artists = []
@@ -200,9 +249,15 @@ class ImageCanvas(QWidget):
 
         self.stop_polygon_selector()
         self.figure.clear()
+        # Re-enable constrained_layout in case the previous render was a
+        # Surf/Waterfall (render_surface turns it off -- see its own
+        # comment on why).
+        self.figure.set_layout_engine("constrained")
         self.ax = self.figure.add_subplot(111)
         self._colorbar = None
         self._overlay_artists = []
+        self._rotation_label = None
+        self.axis_log_fallback = []
         finite = z[np.isfinite(z)]
         if vmin is None or vmax is None:
             if finite.size:
@@ -295,21 +350,35 @@ class ImageCanvas(QWidget):
         every curtain clustering near the same color when frame-to-frame
         intensity barely varies. MATLAB's own per-vertex height-gradient
         shading on each curtain isn't reproduced either way (one solid
-        color per curtain, a deliberate simplification). Log scale only
+        color per curtain, a deliberate simplification). `log_scale` only
         affects intensity-based color mapping, not the Z axis itself --
         `Axes3D`'s own log-scale support is fragile with NaN/non-positive
         data, which this app's masked regions routinely have.
 
         `xscale`/`yscale`/`xlim`/`ylim` are the same X/Y Scale and X/Y
-        Range controls `render_mesh` takes -- applied here too so Surf/
-        Waterfall stay consistent with Heatmap when switching "Plot Type"
-        without touching those controls."""
+        Range controls `render_mesh` takes. Unlike `render_mesh`, a "log"
+        request here is honored via a manual `_log10_axis` transform of
+        the plotted coordinates rather than `Axes3D.set_xscale`/
+        `set_yscale` -- those only relabel ticks without transforming the
+        3D projection, corrupting the geometry (see `_log10_axis`'s own
+        docstring). Check `axis_log_fallback` after calling if a caller
+        needs to know a requested "log" axis silently stayed linear
+        (non-positive data on that axis)."""
 
         self.stop_polygon_selector()
         self.figure.clear()
+        # `constrained_layout` (the figure's default -- see __init__)
+        # doesn't handle `Axes3D` well in a wide/short dialog -- turn it
+        # off for this render and position the axes manually instead;
+        # `render`/`render_mesh` re-enable it for their own (2D,
+        # unaffected) renders since this is a `Figure`-level setting on
+        # the shared `self.figure`.
+        self.figure.set_layout_engine(None)
         self.ax = self.figure.add_subplot(111, projection="3d")
+        self.ax.set_position((0.02, 0.08, 0.90, 0.84))
         self._colorbar = None
         self._overlay_artists = []
+        self._rotation_label = None
         finite = z[np.isfinite(z)]
         if vmin is None or vmax is None:
             if finite.size:
@@ -329,6 +398,28 @@ class ImageCanvas(QWidget):
         cmap_obj.set_bad(color="white")
         z_floor = float(np.nanmin(finite)) if finite.size else 0.0
 
+        # `Axes3D.set_xscale("log")` doesn't work (see `_log10_axis`'s own
+        # docstring) -- log10-transform the coordinate *values* instead and
+        # relabel ticks back to the real value afterward. Falls back to
+        # linear (`x_plot is x`) if a "log" request can't be honored (a
+        # non-positive value on that axis), same as MATLAB's own log axis
+        # would refuse a Temperature/Angle axis dipping to <= 0.
+        self.axis_log_fallback = []
+        x_plot, y_plot = x, y
+        x_log_used = y_log_used = False
+        if xscale == "log":
+            transformed = _log10_axis(x)
+            if transformed is not None:
+                x_plot, x_log_used = transformed, True
+            else:
+                self.axis_log_fallback.append("X")
+        if yscale == "log":
+            transformed = _log10_axis(y)
+            if transformed is not None:
+                y_plot, y_log_used = transformed, True
+            else:
+                self.axis_log_fallback.append("Y")
+
         if mode == "waterfall":
             from matplotlib.collections import PolyCollection
 
@@ -340,7 +431,7 @@ class ImageCanvas(QWidget):
             for j in range(n_curtains):
                 col = z[:, j]
                 filled_col = np.where(np.isfinite(col), col, z_floor)
-                polys.append([(y[0], z_floor), *zip(y, filled_col), (y[-1], z_floor)])
+                polys.append([(y_plot[0], z_floor), *zip(y_plot, filled_col), (y_plot[-1], z_floor)])
                 if by_index:
                     curtain_values.append(float(j))
                 else:
@@ -354,20 +445,30 @@ class ImageCanvas(QWidget):
             # x/y/z meaning the same as "surf"/"heatmap" (x=series axis,
             # y=Q/Angle, z=intensity) even though curtains are now built
             # column-by-column instead of row-by-row.
-            self.ax.add_collection3d(poly, zs=x, zdir="x")
-            self.ax.set_xlim(float(np.min(x)), float(np.max(x)))
-            self.ax.set_ylim(float(np.min(y)), float(np.max(y)))
+            self.ax.add_collection3d(poly, zs=x_plot, zdir="x")
+            self.ax.set_xlim(float(np.min(x_plot)), float(np.max(x_plot)))
+            self.ax.set_ylim(float(np.min(y_plot)), float(np.max(y_plot)))
             self.ax.set_zlim(vmin, vmax)
             self._image = ScalarMappable(norm=curtain_norm, cmap=cmap_obj)
             self._image.set_array(np.asarray(curtain_values))
         else:
-            XX, YY = np.meshgrid(x, y)
+            XX, YY = np.meshgrid(x_plot, y_plot)
             masked = np.ma.masked_invalid(z)
             self._image = self.ax.plot_surface(
                 XX, YY, masked, cmap=cmap_obj, norm=norm, linewidth=0, antialiased=True, rstride=1, cstride=1
             )
 
-        self._colorbar = self.figure.colorbar(self._image, ax=self.ax, shrink=0.7, pad=0.1)
+        # `figure.colorbar(..., ax=self.ax, shrink=..., pad=...)` (the
+        # simple form `render_mesh` can't use for a 3D axes) shrinks and
+        # *reanchors* the parent axes to carve out room for the colorbar --
+        # its default anchor for that reanchor is the parent's right edge,
+        # not its center, which is what actually pushed the whole 3D box
+        # off to one side (reported: "surf와 waterfall의 이미지가 가운데
+        # 있지 않고"). An explicit `cax` in its own fixed-position axes
+        # sidesteps that reanchor entirely -- `self.ax` keeps exactly the
+        # position set above.
+        cax = self.figure.add_axes((0.90, 0.15, 0.02, 0.70))
+        self._colorbar = self.figure.colorbar(self._image, cax=cax)
         self._colorbar.ax.tick_params(labelsize=max(7, font_size - 2))
         if colorbar_label:
             self._colorbar.set_label(colorbar_label, fontsize=font_size)
@@ -379,12 +480,34 @@ class ImageCanvas(QWidget):
             self.ax.set_title(title, fontsize=max(8, font_size - 1))
         self.ax.tick_params(labelsize=max(7, font_size - 2))
 
-        self.ax.set_xscale(xscale)
-        self.ax.set_yscale(yscale)
+        if x_log_used:
+            self.ax.xaxis.set_major_formatter(FuncFormatter(lambda val, _pos: f"{10.0 ** val:.3g}"))
+        if y_log_used:
+            self.ax.yaxis.set_major_formatter(FuncFormatter(lambda val, _pos: f"{10.0 ** val:.3g}"))
+
+        # `xlim`/`ylim` (from the caller's X/Y Range fields) are always in
+        # real units -- transform them into the same log10 space as the
+        # plotted geometry when that axis is log, otherwise the requested
+        # range would silently clip against transformed data.
         if xlim is not None:
-            self.ax.set_xlim(xlim)
+            lo, hi = xlim
+            if x_log_used:
+                if lo > 0 and hi > 0:
+                    self.ax.set_xlim(float(np.log10(lo)), float(np.log10(hi)))
+            else:
+                self.ax.set_xlim(xlim)
         if ylim is not None:
-            self.ax.set_ylim(ylim)
+            lo, hi = ylim
+            if y_log_used:
+                if lo > 0 and hi > 0:
+                    self.ax.set_ylim(float(np.log10(lo)), float(np.log10(hi)))
+            else:
+                self.ax.set_ylim(ylim)
+
+        self._rotation_label = self.ax.text2D(
+            0.02, 0.96, f"Elev {self.ax.elev:.0f}°, Azim {self.ax.azim:.0f}°",
+            transform=self.ax.transAxes, fontsize=max(7, font_size - 1), color="dimgray",
+        )
 
         self.canvas.draw_idle()
         return vmin, vmax

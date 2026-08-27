@@ -1418,6 +1418,7 @@ class GIXS2Widget(QWidget):
             )
             if plot_type == "Heatmap":
                 used_vmin, used_vmax = canvas.render_mesh(x_axis, y_axis, matrix.T, **common)
+                status_label.setText("")
             else:
                 by_index = plot_type == "Waterfall" and curtain_color_combo.currentText() == "Frame Index"
                 used_vmin, used_vmax = canvas.render_surface(
@@ -1427,6 +1428,13 @@ class GIXS2Widget(QWidget):
                     colorbar_label=f"Frame # (0-{matrix.shape[0] - 1})" if by_index else "",
                     zlabel="Intensity, arb. units", **common,
                 )
+                if canvas.axis_log_fallback:
+                    axes_text = "/".join(canvas.axis_log_fallback)
+                    status_label.setText(
+                        f"{axes_text} axis has non-positive values -- Log Scale not applied, stayed Linear."
+                    )
+                else:
+                    status_label.setText("")
             if vmin is None:
                 cmin_spin.blockSignals(True)
                 cmax_spin.blockSignals(True)

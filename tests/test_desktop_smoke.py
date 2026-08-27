@@ -477,18 +477,59 @@ def test_image_canvas_render_mesh_and_surface_modes(qapp):
     assert canvas.ax.get_xlim() == (1.0, 20.0)
     assert canvas.ax.get_ylim() == (0.15, 0.25)
 
+    # `Axes3D.set_xscale`/`set_yscale("log")` doesn't actually work --
+    # it only relabels ticks without transforming the 3D projection,
+    # corrupting the geometry into an off-center sliver (reported:
+    # "surf와 waterfall의 이미지가 가운데 있지 않고... log스케일에서
+    # 이미지에 문제가 생겨"). render_surface instead log10-transforms the
+    # plotted *coordinates* and leaves the axes' own scale "linear", so
+    # get_xscale/get_yscale stay "linear" and get_xlim/get_ylim report the
+    # transformed range, with a FuncFormatter relabeling ticks back to the
+    # real value. `x` has a leading 0.0 (see above) -- log of <=0 is
+    # undefined, so the X axis silently falls back to linear (both its
+    # own geometry and the caller's raw xlim), while Y (all positive)
+    # transforms successfully.
     vmin, vmax = canvas.render_surface(
         x, y, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A", zlabel="Intensity",
         xscale="log", yscale="log", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
     )
     assert canvas.ax.name == "3d"
     assert canvas.ax.get_zlabel() == "Intensity"
-    assert canvas.ax.get_xscale() == "log"
-    assert canvas.ax.get_yscale() == "log"
+    assert canvas.ax.get_xscale() == "linear"
+    assert canvas.ax.get_yscale() == "linear"
+    assert canvas.axis_log_fallback == ["X"]
     assert canvas.ax.get_xlim() == (1.0, 20.0)
-    assert canvas.ax.get_ylim() == (0.15, 0.25)
+    assert canvas.ax.get_ylim() == pytest.approx((np.log10(0.15), np.log10(0.25)))
+    assert canvas.ax.yaxis.get_major_formatter()(np.log10(0.25), 0) == "0.25"
     assert vmin < vmax
     assert canvas._colorbar is not None
+    assert canvas._rotation_label is not None
+    assert canvas._rotation_label.get_text() == "Elev 30°, Azim -60°"
+
+    # Regression check for the reported "가운데 있지 않고" bug:
+    # `figure.colorbar(..., ax=self.ax, shrink=..., pad=...)` (matplotlib's
+    # simple form for a 3D axes) reanchors the parent axes toward its own
+    # right edge to make room, not its center, visibly pushing the whole
+    # 3D box to one side. render_surface uses an explicit `cax` instead
+    # (see its own comment) specifically so `self.ax` keeps the centered
+    # position set at the top of the method -- assert its x-midpoint is
+    # still close to that rect's own center (0.02 + 0.90/2 = 0.47), not
+    # dragged toward the colorbar on the right.
+    ax_x0, _, ax_x1, _ = canvas.ax.get_position().extents
+    assert (ax_x0 + ax_x1) / 2 == pytest.approx(0.47, abs=0.05)
+
+    # All-positive data on both axes -- both transform successfully this
+    # time, and the fallback list comes back empty.
+    y_positive = np.array([0.1, 0.2, 0.3])
+    x_positive = np.array([1.0, 2.0, 5.0, 20.0])
+    canvas.render_surface(
+        x_positive, y_positive, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A",
+        xscale="log", yscale="log", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
+    )
+    assert canvas.axis_log_fallback == []
+    assert canvas.ax.get_xlim() == pytest.approx((0.0, np.log10(20.0)))
+    assert canvas.ax.get_ylim() == pytest.approx((np.log10(0.15), np.log10(0.25)))
+    assert canvas.ax.xaxis.get_major_formatter()(np.log10(20.0), 0) == "20"
 
     vmin, vmax = canvas.render_surface(x, y, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A")
     assert canvas.ax.name == "3d"
