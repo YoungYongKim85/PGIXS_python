@@ -234,6 +234,104 @@ class ImageCanvas(QWidget):
         self.canvas.draw_idle()
         return vmin, vmax
 
+    def render_surface(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        z: np.ndarray,
+        *,
+        mode: str = "surf",
+        cmap: str = "viridis",
+        log_scale: bool = False,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        xlabel: str = "",
+        ylabel: str = "",
+        zlabel: str = "",
+        title: str = "",
+        font_size: int = 10,
+    ) -> tuple[float, float]:
+        """3D companion to `render_mesh` -- `mode="surf"` is a shaded
+        surface (`Axes3D.plot_surface`), `mode="waterfall"` is a stack of
+        filled curtains, one per `y` row, each dropping to the surface's
+        own minimum (`PolyCollection` + `add_collection3d`, the standard
+        matplotlib recipe for what MATLAB's own `waterfall()` draws).
+        Port of GIXS2_gui.m's HeatmapQ_gui/HeatmapAzi_gui "Plot Type"
+        selector's other two modes (`render_mesh` already covers
+        "Heatmap"). `z` is `(len(y), len(x))`, matching `render_mesh`.
+
+        Colors both modes by intensity via the shared `cmap`/`norm` (a
+        waterfall curtain gets one color, its own row's mean -- MATLAB's
+        per-vertex height-gradient shading on each curtain isn't
+        reproduced, a deliberate simplification). Log scale only affects
+        that color mapping, not the Z axis itself -- `Axes3D`'s own log-
+        scale support is fragile with NaN/non-positive data, which this
+        app's masked regions routinely have."""
+
+        self.stop_polygon_selector()
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111, projection="3d")
+        self._colorbar = None
+        self._overlay_artists = []
+        finite = z[np.isfinite(z)]
+        if vmin is None or vmax is None:
+            if finite.size:
+                positive = finite[finite > 0]
+                sample = positive if positive.size else finite
+                auto_min = float(np.percentile(sample, 1.0))
+                auto_max = float(np.percentile(sample, 99.5))
+            else:
+                auto_min, auto_max = 0.0, 1.0
+            vmin = auto_min if vmin is None else vmin
+            vmax = auto_max if vmax is None else vmax
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+
+        norm = LogNorm(vmin=max(vmin, 1e-9), vmax=vmax) if log_scale else Normalize(vmin=vmin, vmax=vmax)
+        cmap_obj = _resolve_cmap(cmap)
+        cmap_obj.set_bad(color="white")
+        z_floor = float(np.nanmin(finite)) if finite.size else 0.0
+
+        if mode == "waterfall":
+            from matplotlib.collections import PolyCollection
+
+            polys = []
+            row_values = []
+            for i in range(z.shape[0]):
+                row = z[i]
+                filled_row = np.where(np.isfinite(row), row, z_floor)
+                polys.append([(x[0], z_floor), *zip(x, filled_row), (x[-1], z_floor)])
+                row_values.append(float(np.nanmean(row)) if np.isfinite(row).any() else z_floor)
+            poly = PolyCollection(
+                polys, facecolors=cmap_obj(norm(np.asarray(row_values))), edgecolors="k", linewidths=0.4
+            )
+            poly.set_alpha(0.85)
+            self.ax.add_collection3d(poly, zs=y, zdir="y")
+            self.ax.set_xlim(float(np.min(x)), float(np.max(x)))
+            self.ax.set_ylim(float(np.min(y)), float(np.max(y)))
+            self.ax.set_zlim(vmin, vmax)
+            self._image = ScalarMappable(norm=norm, cmap=cmap_obj)
+            self._image.set_array(z)
+        else:
+            XX, YY = np.meshgrid(x, y)
+            masked = np.ma.masked_invalid(z)
+            self._image = self.ax.plot_surface(
+                XX, YY, masked, cmap=cmap_obj, norm=norm, linewidth=0, antialiased=True, rstride=1, cstride=1
+            )
+
+        self._colorbar = self.figure.colorbar(self._image, ax=self.ax, shrink=0.7, pad=0.1)
+        self._colorbar.ax.tick_params(labelsize=max(7, font_size - 2))
+
+        self.ax.set_xlabel(xlabel, fontsize=font_size)
+        self.ax.set_ylabel(ylabel, fontsize=font_size)
+        self.ax.set_zlabel(zlabel, fontsize=font_size)
+        if title:
+            self.ax.set_title(title, fontsize=max(8, font_size - 1))
+        self.ax.tick_params(labelsize=max(7, font_size - 2))
+
+        self.canvas.draw_idle()
+        return vmin, vmax
+
     def set_axis_limits(self, xlim: tuple[float, float] | None, ylim: tuple[float, float] | None) -> None:
         if xlim is not None:
             self.ax.set_xlim(xlim)

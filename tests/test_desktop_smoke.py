@@ -426,15 +426,15 @@ def test_image_canvas_centers_wide_aspect_equal_plot_with_colorbar(qapp):
     )
 
 
-def test_image_canvas_render_mesh_handles_non_uniform_x_axis(qapp):
-    """`render_mesh` (GIXS2's Heatmap dialogs -- port of MATLAB's
-    HeatmapQ_gui/HeatmapAzi_gui) uses `pcolormesh` instead of `render`'s
+def test_image_canvas_render_mesh_and_surface_modes(qapp):
+    """`render_mesh`/`render_surface` back GIXS2's Heatmap dialogs (port of
+    MATLAB's HeatmapQ_gui/HeatmapAzi_gui's Heatmap/Surf/Waterfall "Plot
+    Type" selector). `render_mesh` uses `pcolormesh` instead of `render`'s
     own `imshow`+`extent`, specifically because `imshow` assumes evenly-
     spaced columns: a series X-axis (Time/Temperature) routinely isn't.
-    Checks the rendered mesh's actual coordinate array carries the real
-    (non-uniform) x values through, not a linearly-interpolated
-    approximation. Deliberately skips show()/processEvents() (unlike its
-    sibling test_image_canvas_centers_wide_aspect_equal_plot_with_colorbar
+    Reuses one `ImageCanvas` across all three modes (rather than one per
+    mode) and deliberately skips show()/processEvents() throughout (unlike
+    its sibling test_image_canvas_centers_wide_aspect_equal_plot_with_colorbar
     above) -- checking the Axes/artist data directly needs neither, and
     this suite is already right at the edge of a native Windows access-
     violation crash from cumulative Qt/matplotlib widget construction
@@ -448,6 +448,7 @@ def test_image_canvas_render_mesh_handles_non_uniform_x_axis(qapp):
     x = np.array([0.0, 1.0, 2.0, 20.0])  # deliberately non-uniform gaps
     y = np.array([0.1, 0.2, 0.3])
     z = np.arange(12, dtype=np.float32).reshape(3, 4)
+    z[1, 2] = np.nan  # exercise the masked/NaN-handling path too
 
     vmin, vmax = canvas.render_mesh(x, y, z, xlabel="Time, s", ylabel="Q, 1/A", log_scale=False)
 
@@ -462,6 +463,22 @@ def test_image_canvas_render_mesh_handles_non_uniform_x_axis(qapp):
     assert canvas.ax.get_ylabel() == "Q, 1/A"
     assert vmin < vmax
     assert canvas._colorbar is not None
+
+    vmin, vmax = canvas.render_surface(x, y, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A", zlabel="Intensity")
+    assert canvas.ax.name == "3d"
+    assert canvas.ax.get_zlabel() == "Intensity"
+    assert vmin < vmax
+    assert canvas._colorbar is not None
+
+    vmin, vmax = canvas.render_surface(x, y, z, mode="waterfall", xlabel="Time, s", ylabel="Q, 1/A")
+    assert canvas.ax.name == "3d"
+    assert len(canvas.ax.collections) == 1  # one PolyCollection, one curtain per y row
+    assert vmin < vmax
+    assert canvas._colorbar is not None
+
+    # And switching back to the plain 2D mesh after two 3D renders works.
+    canvas.render_mesh(x, y, z, xlabel="Time, s", ylabel="Q, 1/A")
+    assert canvas.ax.name == "rectilinear"
 
 
 def test_reset_view_restores_full_extent_after_zoom(qapp):

@@ -1323,6 +1323,8 @@ class GIXS2Widget(QWidget):
         canvas = ImageCanvas()
         layout.addWidget(canvas)
 
+        plot_type_combo = QComboBox()
+        plot_type_combo.addItems(["Heatmap", "Surf", "Waterfall"])
         colormap_combo = QComboBox()
         colormap_combo.addItems(_COLORMAPS)
         default_index = colormap_combo.findText("viridis")
@@ -1332,10 +1334,11 @@ class GIXS2Widget(QWidget):
         scale_combo.addItems(["Linear", "Log"])
         cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
         cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        for combo in (colormap_combo, scale_combo):
+        for combo in (plot_type_combo, colormap_combo, scale_combo):
             _size_combo(combo, 12)
 
         ctrl = QHBoxLayout()
+        ctrl.addWidget(_field("Plot Type", plot_type_combo, label_width=64))
         ctrl.addWidget(_field("Colormap", colormap_combo, label_width=64))
         ctrl.addWidget(_field("Z Scale", scale_combo, label_width=54))
         ctrl.addWidget(_field("Contrast", cmin_spin, cmax_spin, label_width=54))
@@ -1348,14 +1351,22 @@ class GIXS2Widget(QWidget):
             cmax = cmax_spin.value()
             vmin = cmin if cmax > cmin else None
             vmax = cmax if cmax > cmin else None
-            used_vmin, used_vmax = canvas.render_mesh(
-                x_axis, y_axis, matrix.T,
+            plot_type = plot_type_combo.currentText()
+            common = dict(
                 cmap=colormap_combo.currentText(),
                 log_scale=scale_combo.currentText() == "Log",
                 vmin=vmin, vmax=vmax,
                 xlabel=x_label, ylabel=y_label,
                 title=f"{kind}: {matrix.shape[0]} frame(s)",
             )
+            if plot_type == "Heatmap":
+                used_vmin, used_vmax = canvas.render_mesh(x_axis, y_axis, matrix.T, **common)
+            else:
+                used_vmin, used_vmax = canvas.render_surface(
+                    x_axis, y_axis, matrix.T,
+                    mode="surf" if plot_type == "Surf" else "waterfall",
+                    zlabel="Intensity, arb. units", **common,
+                )
             if vmin is None:
                 cmin_spin.blockSignals(True)
                 cmax_spin.blockSignals(True)
@@ -1364,6 +1375,7 @@ class GIXS2Widget(QWidget):
                 cmin_spin.blockSignals(False)
                 cmax_spin.blockSignals(False)
 
+        plot_type_combo.currentTextChanged.connect(lambda _t: update())
         colormap_combo.currentTextChanged.connect(lambda _t: update())
         scale_combo.currentTextChanged.connect(lambda _t: update())
         cmin_spin.valueChanged.connect(lambda _v: update())
