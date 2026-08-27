@@ -1036,6 +1036,38 @@ def test_gixs2_widget_auto_refresh_shows_progress_dialog(qapp, tmp_path, monkeyp
     widget.auto_refresh_button.setEnabled(True)
 
 
+def test_gixs2_widget_four_quadrants_have_equal_stretch(qapp):
+    """The 2D Image/1D Plot/Azimuthal/Series Integration viewers previously
+    had no explicit sizes or stretch factors on their splitters, so their
+    own size hints (a wider 2D Image row with its Contrast/Play controls,
+    a wider Series Integration Viewer) left them visibly uneven, and that
+    unevenness shifted with whatever window size the app happened to open
+    at (reported: "이 크기가 맞았으면 좋겠어... 모니터에 따라 크기가 너무
+    다른데"). All three splitters should now start at an equal 1:1 split
+    with equal stretch factors, so the four quadrants stay a true grid
+    across window sizes."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    # A never-shown splitter falls back to distributing space by each
+    # section's own minimum-size hint (the 2D Image row's wider Scale/
+    # Colormap/Contrast/Play controls vs. the 1D Plot row's shorter one,
+    # e.g.) instead of honoring the equal split -- give it a real,
+    # realistic window size and an actual show() (needed for QSplitter to
+    # run its own layout pass at all) first, matching how the app opens.
+    widget.resize(1400, 900)
+    widget.show()
+    outer, top, bottom = widget._quadrant_splitters
+
+    # QSplitter has no public getter for stretch factor -- `sizes()` (which
+    # setStretchFactor's equal-split behavior on resize depends on having
+    # started equal) is the directly observable half of the fix.
+    for splitter in (outer, top, bottom):
+        assert splitter.count() == 2
+        sizes = splitter.sizes()
+        assert sizes[0] == sizes[1] > 0
+
+
 def test_gixs2_widget_ai_pix_deg_sync(qapp, tmp_path):
     gs.reset_session()
     widget = GIXS2Widget()

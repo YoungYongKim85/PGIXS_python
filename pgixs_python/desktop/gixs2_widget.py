@@ -100,14 +100,17 @@ def _finite_range(values: np.ndarray) -> tuple[float, float]:
     return lo, hi
 
 
-def _control_row(layout: QHBoxLayout) -> QWidget:
-    """Wrap a viewer's control-row QHBoxLayout in a plain container widget
-    -- sized naturally at first; `_equalize_control_row_heights` then pins
-    all four (2D Image/1D Plot/Azimuthal/Series Integration) to the same
-    explicit height once every row's widgets actually exist, so their
-    canvases come out the same size instead of QVBoxLayout handing all the
-    *extra* space to whichever expanding canvas has the shortest (or no)
-    control row below it."""
+def _control_row(layout: QHBoxLayout | QVBoxLayout) -> QWidget:
+    """Wrap a viewer's control-row layout (a single QHBoxLayout for most
+    viewers, or a QVBoxLayout of stacked QHBoxLayout rows for one that
+    needs more than one line -- see the 2D Image Plot Viewer's own
+    control block) in a plain container widget -- sized naturally at
+    first; `_equalize_control_row_heights` then pins all four (2D Image/
+    1D Plot/Azimuthal/Series Integration) to the same explicit height once
+    every row's widgets actually exist, so their canvases come out the
+    same size instead of the outer QVBoxLayout handing all the *extra*
+    space to whichever expanding canvas has the shortest (or no) control
+    row below it."""
 
     container = QWidget()
     container.setLayout(layout)
@@ -431,21 +434,28 @@ class GIXS2Widget(QWidget):
         self.image_canvas = ImageCanvas()
         self.image_canvas.pixel_clicked.connect(self._on_image_clicked)
         image_layout.addWidget(self.image_canvas)
-        image_ctrl = QHBoxLayout()
+        image_ctrl = QVBoxLayout()
+        image_ctrl.setContentsMargins(0, 0, 0, 0)
+        image_ctrl.setSpacing(2)
         self.image_scale_combo = QComboBox()
         self.image_scale_combo.addItems(["Linear", "Log"])
         self.image_colormap_combo = QComboBox()
         self.image_colormap_combo.addItems(_COLORMAPS)
-        # Left to their own natural size, Scale ("Linear"/"Log") and
-        # Colormap (some entries as long as "twilight_shifted") end up
-        # very different widths sitting right next to each other on this
-        # row -- same content-length budget for both instead (see
-        # console_widget.py's `_size_combo` docstring for why not
-        # setFixedWidth); the closed box still elides a long colormap name
-        # with "..." if needed, and the dropdown list itself always shows
-        # the full name.
-        _size_combo(self.image_scale_combo, 12)
-        _size_combo(self.image_colormap_combo, 12)
+        # Scale only ever shows "Linear"/"Log" (matches the other three
+        # viewers' own Scale combos) -- an 8-char budget fits that with a
+        # little breathing room, instead of the wider 12-char budget a
+        # standalone combo doesn't need (see console_widget.py's
+        # `_size_combo` docstring for why not setFixedWidth). Colormap
+        # keeps a wider 10-char budget since its real entries run much
+        # longer ("twilight_shifted"); the closed box still elides with
+        # "..." past that, and the dropdown list itself always shows the
+        # full name. Keeping both no wider than they need to be is what
+        # lets this row -- and so the whole 2D Image Plot Viewer -- get
+        # close to the other three viewers' own narrower control rows in
+        # width, instead of forcing the quadrant splitter to always give
+        # it more than an equal share.
+        _size_combo(self.image_scale_combo, 8)
+        _size_combo(self.image_colormap_combo, 10)
         default_index = self.image_colormap_combo.findText("viridis")
         if default_index >= 0:
             self.image_colormap_combo.setCurrentIndex(default_index)
@@ -474,13 +484,26 @@ class GIXS2Widget(QWidget):
         # relevant control again (or Draw ROI again) brings it back.
         self.image_scale_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
         self.image_colormap_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
-        # Scale/Colormap/Contrast/Play all on one row -- keeps the whole
-        # display-controls block to a single line instead of stacking it
-        # across two, so the image itself gets more vertical room.
-        image_ctrl.addWidget(_field("Scale", self.image_scale_combo, label_width=40))
-        image_ctrl.addWidget(_field("Colormap", self.image_colormap_combo, label_width=60))
-        image_ctrl.addWidget(_field("Contrast", self.image_cmin_spin, self.image_cmax_spin, label_width=54))
-        image_ctrl.addWidget(self.play_button)
+        # Scale/Colormap/Contrast/Play used to sit on one line, but that
+        # made this the widest of the four viewers' own control rows by a
+        # large margin -- the 1D/Azimuthal/Series Integration rows have at
+        # most two fields, and Contrast alone (two spin boxes) is already
+        # about as wide as either of those rows on its own. A single wide
+        # row forced the quadrant splitter below to give this viewer more
+        # than half the window width to fit it (reported: "이 크기가
+        # 맞았으면 좋겠어... 모니터에 따라 크기가 너무 다른데"), no matter
+        # what sizes/stretch factors the splitter itself was given.
+        # Splitting across two shorter rows keeps every viewer's control
+        # row in the same rough width range, so the quadrants can actually
+        # end up equal.
+        image_ctrl_row1 = QHBoxLayout()
+        image_ctrl_row1.addWidget(_field("Scale", self.image_scale_combo, label_width=40))
+        image_ctrl_row1.addWidget(_field("Colormap", self.image_colormap_combo, label_width=60))
+        image_ctrl_row2 = QHBoxLayout()
+        image_ctrl_row2.addWidget(_field("Contrast", self.image_cmin_spin, self.image_cmax_spin, label_width=54))
+        image_ctrl_row2.addWidget(self.play_button)
+        image_ctrl.addLayout(image_ctrl_row1)
+        image_ctrl.addLayout(image_ctrl_row2)
         image_ctrl_row = _control_row(image_ctrl)
         image_layout.addWidget(image_ctrl_row)
         top.addWidget(image_group)
@@ -551,9 +574,29 @@ class GIXS2Widget(QWidget):
 
         _equalize_control_row_heights(image_ctrl_row, oned_ctrl_row, azi_ctrl_row, integ_ctrl_row)
 
+        # Left to their own size hints, the four quadrants end up visibly
+        # uneven (the 2D Image Plot Viewer's own colorbar/Contrast/Play
+        # row and the Series Integration Viewer's wider default curve both
+        # nudge their splitter section wider than its neighbor) and that
+        # unevenness only gets worse at whatever window size the app
+        # happens to open at on a given monitor -- explicit equal initial
+        # sizes plus equal stretch factors on all three splitters make the
+        # four quadrants start at a true 1:1:1:1 grid and keep that ratio
+        # as the window is resized, rather than one section eating all the
+        # extra/lost space (`setStretchFactor`'s default of 0 for every
+        # section, unset here previously).
+        for row in (top, bottom):
+            row.setStretchFactor(0, 1)
+            row.setStretchFactor(1, 1)
+            row.setSizes([500, 500])
+
         outer.addWidget(top)
         outer.addWidget(bottom)
+        outer.setStretchFactor(0, 1)
+        outer.setStretchFactor(1, 1)
         outer.setSizes([500, 500])
+        # Exposed for tests -- see the equal-quadrant-sizing comment above.
+        self._quadrant_splitters = (outer, top, bottom)
 
         container = QWidget()
         layout = QVBoxLayout(container)
