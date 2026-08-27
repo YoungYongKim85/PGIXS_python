@@ -1591,8 +1591,21 @@ class GIXS2Widget(QWidget):
         self._current_image_data = None
         self._render_image()
         if result.get("curve_extended"):
-            self._render_1d()
-            self._render_azimuthal()
+            # Port of `Autoplot_Callback`'s `switch Auto.Met` dispatch:
+            # re-render only whichever of 1D/Azimuthal/ROI was the process
+            # actually just extended, not both unconditionally -- a
+            # ROI-only workflow (no prior Exec Cut/Exec Azi) has neither
+            # `last_1d` nor `last_azimuthal` set, so `_render_1d`/
+            # `_render_azimuthal` would both silently no-op and the Series
+            # Integration Viewer would never pick up the newly-appended
+            # ROI sums.
+            auto_met = gs.get_session().auto_met
+            if auto_met == "linecut":
+                self._render_1d()
+            elif auto_met == "azimuthal":
+                self._render_azimuthal()
+            elif auto_met == "roi":
+                self._render_integration()
         self._set_status(f"Auto Refresh: +{result['n_new']} frame(s), total {result['n_total']}.", True)
 
     # ------------------------------------------------------------------
@@ -1600,6 +1613,14 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     def _render_integration(self) -> None:
         session = gs.get_session()
+        # Recompute live, same as `_series_color_values` does for the 1D/
+        # Azimuthal Plot Viewers -- otherwise a stale `x_axis_values` (still
+        # sized to whatever it was when "Set X-Axis" was last clicked)
+        # mismatches a `last_roi`/`last_1d`/`last_azimuthal` that Auto
+        # Refresh just extended, and the shape guards below silently drop
+        # the redraw instead of showing the newly-appended frames.
+        if session.timestamps is not None:
+            gs.gixs2_set_x_axis({"sub_mode": self.sub_mode_combo.currentText(), "order": self.order_check.isChecked()})
         if session.x_axis_values is None:
             return
         scale = self.integ_scale_combo.currentText()

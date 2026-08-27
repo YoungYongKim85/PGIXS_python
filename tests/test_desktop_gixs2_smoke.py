@@ -961,6 +961,36 @@ def test_gixs2_widget_auto_refresh_no_new_files(qapp, tmp_path):
     assert "No new files" in widget.status_label.text()
 
 
+def test_gixs2_widget_auto_refresh_extends_roi_only_series_integration_plot(qapp, tmp_path, monkeypatch):
+    """Port of MATLAB `Autoplot_Callback`'s `switch Auto.Met` dispatch
+    (case AUTO_ROI -> autoUpdateROI -> PlotROI_Callback): a ROI-only
+    workflow (Draw ROI, never Exec Cut/Exec Azi) has neither `last_1d` nor
+    `last_azimuthal` set, so `_on_auto_refresh_clicked` must re-render the
+    Series Integration Viewer directly rather than relying on `_render_1d`/
+    `_render_azimuthal`'s own internal `_render_integration()` call, which
+    would silently no-op here and leave the plot stuck on the pre-refresh
+    frame count."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    assert gs.gixs2_set_x_axis({})["ok"]
+    widget.n_roi_combo.setCurrentText("1")
+    _simulate_roi_drawing(widget, monkeypatch, [(10.0, 10.0, 20.0, 20.0)])
+    widget._on_draw_roi_clicked()
+    assert gs.get_session().last_1d is None
+    assert gs.get_session().last_azimuthal is None
+    assert widget.integ_canvas._data_x.shape[0] == 2
+
+    _write_synthetic_series(tmp_path, n_frames=3, center=center, radii=[60.0] * 3)
+
+    widget._on_auto_refresh_clicked()
+
+    assert gs.get_session().last_roi.shape[0] == 3
+    assert widget.integ_canvas._data_x.shape[0] == 3
+
+
 def test_gixs2_widget_ai_pix_deg_sync(qapp, tmp_path):
     gs.reset_session()
     widget = GIXS2Widget()
