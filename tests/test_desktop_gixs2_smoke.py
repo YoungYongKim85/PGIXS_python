@@ -117,6 +117,20 @@ def _auto_refresh_sync(widget, monkeypatch, payload=None):
     widget._on_auto_refresh_clicked()
 
 
+def _qcal_sync(widget, monkeypatch):
+    """`_on_qcal_clicked` now runs `gixs2_qcal` on a background QThread too
+    (with a progress dialog, same as Exec Cut/Exec Azi/Auto Refresh) --
+    replay it synchronously for tests that only care about the end state.
+    `test_gixs2_widget_qcal_shows_progress_dialog` below covers the actual
+    threading/progress-dialog behavior."""
+
+    monkeypatch.setattr(
+        "pgixs_python.desktop.gixs2_widget.run_in_background",
+        lambda fn, call_payload, callback: callback(fn(call_payload)),
+    )
+    widget._on_qcal_clicked()
+
+
 def _simulate_roi_drawing(widget, monkeypatch, rectangles):
     """Drive "Draw ROI"'s separate dialog through its sequential
     RectangleSelector flow (one drag per ROI, in display coordinates)
@@ -331,7 +345,7 @@ def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch
     assert len(widget.image_canvas._overlay_artists) == 0
     session = gs.get_session()
     session.calibration.update({"beam_pos": (beam_y, beam_z), "sdd_mm": 300.0, "energy_kev": 9.5})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     assert session.corrected
     assert len(widget.image_canvas._overlay_artists) == 0
     widget.phi_spin.setValue(45.0)
@@ -410,7 +424,7 @@ def test_gixs2_widget_load_info_failure_does_not_mark_button_ok(qapp, tmp_path, 
     assert widget.status_label.property("role") == "status-error"
 
 
-def test_gixs2_widget_qcal_and_exec_1d_end_to_end(qapp, tmp_path):
+def test_gixs2_widget_qcal_and_exec_1d_end_to_end(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
@@ -418,7 +432,7 @@ def test_gixs2_widget_qcal_and_exec_1d_end_to_end(qapp, tmp_path):
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
 
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     assert "q-Cal applied" in widget.status_label.text()
 
     widget.phi_spin.setValue(90.0)
@@ -590,14 +604,14 @@ def test_gixs2_widget_1d_overlay_draws_accumulation_band(qapp, tmp_path):
     assert not widget.cakecut_check.isChecked()  # mutually exclusive
 
 
-def test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar(qapp, tmp_path):
+def test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
 
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
@@ -613,14 +627,14 @@ def test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar(qapp, tmp_path)
     assert len(plotted_lines) == 3
 
 
-def test_gixs2_widget_1d_plot_colorbar_uses_x_axis_label_after_set_x_axis(qapp, tmp_path):
+def test_gixs2_widget_1d_plot_colorbar_uses_x_axis_label_after_set_x_axis(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
 
@@ -643,7 +657,7 @@ def test_gixs2_widget_1d_scale_combo_toggles_log_axes(qapp, tmp_path, monkeypatc
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
 
@@ -728,14 +742,14 @@ def test_gixs2_widget_azimuthal_plot_colorbar_uses_x_axis_label_after_set_x_axis
     assert widget.azi_canvas._colorbar.ax.get_ylabel() == session.x_axis_label
 
 
-def test_gixs2_widget_set_x_axis_refreshes_both_1d_and_azimuthal_colorbars(qapp, tmp_path):
+def test_gixs2_widget_set_x_axis_refreshes_both_1d_and_azimuthal_colorbars(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
     widget.azi_pix_spin.setValue(60.0)
@@ -815,7 +829,7 @@ def test_gixs2_widget_play_opens_frame_viewer_with_locked_contrast(qapp, tmp_pat
     dialog.close()
 
 
-def test_gixs2_widget_change_ai_checkbox_wires_into_qcal(qapp, tmp_path):
+def test_gixs2_widget_change_ai_checkbox_wires_into_qcal(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
@@ -825,7 +839,7 @@ def test_gixs2_widget_change_ai_checkbox_wires_into_qcal(qapp, tmp_path):
 
     widget.change_ai_check.setChecked(True)
     widget.ai_step_spin.setValue(0.05)
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
 
     assert "Change ai" in widget.status_label.text()
     assert session.change_ai is True
@@ -946,14 +960,14 @@ def test_gixs2_widget_draw_roi_overlay_survives_image_rerender(qapp, tmp_path, m
     assert len(boxes) == 1
 
 
-def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path):
+def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
     center = (100.5, 100.5)
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     _exec_1d_sync(widget)
 
     widget._on_set_x_axis_clicked()
@@ -966,7 +980,7 @@ def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path):
     assert widget.integ_canvas.ax.get_xlabel() == "Time, s"
 
 
-def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path):
+def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monkeypatch):
     """Port of MATLAB's own `savePanelSnapshot` (called from Save 1D/Save
     Azi/Save Integ.'s callbacks): each data export now gets a same-named
     PNG of the panel's current plot alongside it, same convention as the
@@ -982,7 +996,7 @@ def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path):
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     _exec_1d_sync(widget)
     _exec_azi_sync(widget)
     widget._on_set_x_axis_clicked()
@@ -1089,6 +1103,39 @@ def test_gixs2_widget_auto_refresh_shows_progress_dialog(qapp, tmp_path, monkeyp
 
     widget._stop_progress_dialog()
     widget.auto_refresh_button.setEnabled(True)
+
+
+def test_gixs2_widget_qcal_shows_progress_dialog(qapp, tmp_path, monkeypatch):
+    """q-Cal's "Change ai" branch recomputes a whole new q-map per frame
+    (unlike its plain branch's single shared map) -- it now runs
+    `gixs2_qcal` on a background QThread with a progress dialog (same
+    pattern as series loading/Exec Cut/Exec Azi/Auto Refresh) instead of
+    freezing the UI for however long that per-frame loop takes. Reported:
+    "Change ai가 check가 되어 step이 있는 경우 q-map을 하나하나
+    계산해야돼... process box가 있으면 좋을 것 같아.\""""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    _load_series_into_widget(widget, tmp_path, n_frames=2)
+
+    captured = {}
+
+    def fake_run_in_background(fn, payload, callback):
+        captured["fn"] = fn
+        captured["payload"] = payload
+
+    monkeypatch.setattr("pgixs_python.desktop.gixs2_widget.run_in_background", fake_run_in_background)
+
+    widget.change_ai_check.setChecked(True)
+    widget._on_qcal_clicked()
+
+    assert captured["fn"] is gs.gixs2_qcal
+    assert captured["payload"]["change_ai"] is True
+    assert not widget.qcal_button.isEnabled()
+    assert widget._progress_dialog is not None
+
+    widget._stop_progress_dialog()
+    widget.qcal_button.setEnabled(True)
 
 
 def test_gixs2_widget_four_quadrants_have_equal_stretch(qapp):
@@ -1368,7 +1415,7 @@ def test_gixs2_widget_overlay_exclusivity_and_display_controls_clear_process_ove
     assert len(boxes) == 1
 
 
-def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qapp, tmp_path):
+def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qapp, tmp_path, monkeypatch):
     """The Normalize combo previously only affected Save output
     (gixs2_session.py's private `_normalized_matrix`, only called from
     gixs2_save_1d/gixs2_save_azimuthal) -- confirm switching it to IC/BC
@@ -1381,7 +1428,7 @@ def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qa
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
-    widget._on_qcal_clicked()
+    _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
     widget.azi_pix_spin.setValue(60.0)

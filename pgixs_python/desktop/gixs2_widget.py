@@ -143,6 +143,7 @@ class GIXS2Widget(QWidget):
         self._exec_1d_thread = None
         self._exec_azi_thread = None
         self._auto_refresh_thread = None
+        self._qcal_thread = None
         self._current_image_data: np.ndarray | None = None
         self._play_dialog: QDialog | None = None
         self._heatmap_dialog: QDialog | None = None
@@ -1208,12 +1209,27 @@ class GIXS2Widget(QWidget):
     # q-Cal
     # ------------------------------------------------------------------
     def _on_qcal_clicked(self) -> None:
+        # "Change ai" recomputes a whole new q-map per frame instead of
+        # one shared map for the series -- run it on a background thread
+        # with the same progress dialog Exec Cut/Exec Azi/Auto Refresh
+        # already use, instead of freezing the UI for however long that
+        # per-frame loop takes (reported: "Change ai가 check가 되어 step이
+        # 있는 경우 q-map을 하나하나 계산해야돼... process box가 있으면
+        # 좋을 것 같아"). The plain (non-Change-ai) path is a single shared
+        # q-map + one broadcast multiply either way, so it just finishes
+        # near-instantly with the dialog barely visible.
         payload = {
             "incident_angle_deg": self.ai_deg_spin.value(),
             "change_ai": self.change_ai_check.isChecked(),
             "ai_step": self.ai_step_spin.value(),
         }
-        result = gs.gixs2_qcal(payload)
+        self.qcal_button.setEnabled(False)
+        self._start_progress_dialog("Running q-Cal...", window_title="q-Cal")
+        self._qcal_thread = run_in_background(gs.gixs2_qcal, payload, self._on_qcal_finished)
+
+    def _on_qcal_finished(self, result: dict[str, Any]) -> None:
+        self._stop_progress_dialog()
+        self.qcal_button.setEnabled(True)
         if not result.get("ok"):
             self._mark_ok(self.qcal_button, False)
             self._set_status(result.get("message", "q-Cal failed."), False)

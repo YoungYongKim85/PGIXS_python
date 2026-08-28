@@ -70,6 +70,15 @@ class GIXS2Session:
     temperatures: np.ndarray | None = None  # (n_frames, 3)
     file_paths: list[Path] = field(default_factory=list)
     source_path: str = ""
+    # The raw text last entered in the Filename field when Set/Table
+    # actually found files with it (gixs2_list_series_files) -- Auto
+    # Refresh reuses this rather than re-deriving a prefix from
+    # file_paths[0]'s own name, which only recovers the right value for a
+    # plain "PREFIX_0001.h5..." series. A hand-typed prefix that's only a
+    # *substring* of each file's name (e.g. "pvk_om_05" matching
+    # "pvk_om_05_002_30_0001.h5", an angle-scan series where each file's
+    # own middle segment varies) can't be recovered that way at all.
+    series_filename_prefix: str = ""
     insitu_mode: str = "Time"
     # Raw (pre-baseline) timestamp of the series' own first frame -- kept
     # separately from `timestamps` (which is stored already baselined to
@@ -157,6 +166,17 @@ def _list_series_files(directory: Path, filename: str, extension: str = ".h5") -
     (`GX2.hFilename`/`self.filename_edit`) only ever holds the bare series
     prefix (no extension), so deriving the extension from it would always
     come up empty and match nothing.
+
+    The match itself is `prefix in item.name` (substring containment),
+    matching MATLAB's own `contains(allNames, prefix)` -- NOT equality
+    against each candidate file's own separately-normalized prefix (an
+    earlier version of this port did that, and it silently found nothing
+    for an angle-scan series like "pvk_om_05_002_30_0001.h5", "...
+    _004_30_0001.h5", ...: each file's *own* normalized prefix is
+    "pvk_om_05_002_30"/"pvk_om_05_004_30"/... -- never equal to each
+    other, let alone to a hand-typed "pvk_om_05" meant to catch all of
+    them). A plain substring check against the typed prefix is what
+    actually lets a shorter, hand-edited Filename widen the match.
     """
 
     if not directory.is_dir():
@@ -166,7 +186,7 @@ def _list_series_files(directory: Path, filename: str, extension: str = ".h5") -
     matches = [
         item
         for item in directory.iterdir()
-        if item.is_file() and suffix == item.suffix.lower() and _normalize_series_prefix(item.name) == prefix
+        if item.is_file() and suffix == item.suffix.lower() and prefix in item.name
     ]
     return sorted(matches, key=lambda item: item.name)
 
@@ -286,6 +306,9 @@ def gixs2_list_series_files(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": str(exc)}
     if not files:
         return {"ok": False, "message": "No files matched this series prefix."}
+    # Remembered for Auto Refresh -- see series_filename_prefix's own
+    # docstring on why file_paths[0]'s name alone can't always recover it.
+    _SESSION.series_filename_prefix = filename
     return {"ok": True, "files": [f.name for f in files]}
 
 
@@ -548,6 +571,12 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
         aivar = incident_angle_deg + np.arange(n_frames, dtype=np.float64) * ai_step
         q_stack = np.empty((n_frames, n_rows, n_cols), dtype=np.float32)
         corrected_frames: list[np.ndarray] = []
+        # "Change ai" recomputes a whole new q-map per frame (unlike the
+        # plain branch above, one shared map for the series) -- report
+        # progress through the same session field Exec Cut/Exec Azi/series
+        # loading already poll, so the widget can show a progress dialog
+        # for what can otherwise be a long, silent freeze.
+        _SESSION.load_progress = None
         try:
             for i in range(n_frames):
                 _, _, _, q_i, _, _ = qmap_gixs(
@@ -557,8 +586,11 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
                 factor = _change_ai_frame_factor(base_correction, q_i, k0, energy_kev, shape, beam_pos, pixel_mm, kapton_table, si_table)
                 corrected_frames.append(apply_detector_correction(_SESSION.stack[i], factor))
                 q_stack[i] = q_i
+                _set_load_progress(i + 1, n_frames, "q-Cal (Change ai)")
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": str(exc)}
+        finally:
+            _SESSION.load_progress = None
 
         corrected = np.stack(corrected_frames, axis=0)
         _SESSION.qmap = None
@@ -724,13 +756,28 @@ def gixs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
     time_offset_seconds = None if raw_offset is None else float(raw_offset)
     time_unit = str(payload.get("time_unit", "second"))
 
-    try:
-        values, label = compute_experiment_x_axis(
-            _SESSION.insitu_mode, _SESSION.timestamps, _SESSION.temperatures,
-            sub_mode=sub_mode, time_offset_seconds=time_offset_seconds, time_unit=time_unit,
-        )
-    except ValueError as exc:
-        return {"ok": False, "message": str(exc)}
+    # "Change ai" q-Cal computes the *real* per-frame incident angle each
+    # frame's own q-map was actually built with (aivar = ai + i*ai_step) --
+    # prefer that over compute_experiment_x_axis's own "Angle" branch (the
+    # per-file *logged* Angle metadata column, an unrelated value with no
+    # connection to the ai/ai_step ramp q-Cal applied) whenever it's
+    # available, matching MATLAB's own "Angle" axis, which always reads
+    # param.aivar. Reported: "angle 모드에서 1D plot에 incidence angle
+    # 밸류들이 제대로 반영이 되지 않아 color가 이상하게 나왔어." sub_mode
+    # == "Time" is still honored as an explicit opt-out back to the time
+    # axis (a valid choice within Angle insitu mode too).
+    if _SESSION.insitu_mode == "Angle" and sub_mode != "Time" and _SESSION.change_ai and _SESSION.aivar is not None:
+        if _SESSION.aivar.shape[0] != _SESSION.timestamps.shape[0]:
+            return {"ok": False, "message": "Incidence-angle ramp doesn't match the loaded series length."}
+        values, label = _SESSION.aivar, "Incidence Angle, deg"
+    else:
+        try:
+            values, label = compute_experiment_x_axis(
+                _SESSION.insitu_mode, _SESSION.timestamps, _SESSION.temperatures,
+                sub_mode=sub_mode, time_offset_seconds=time_offset_seconds, time_unit=time_unit,
+            )
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
 
     order = sort_x_axis(values, should_sort)
     _SESSION.x_axis_values = values[order]
@@ -880,8 +927,15 @@ def gixs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Load an initial series first."}
 
     directory = str(payload.get("directory", str(_SESSION.file_paths[0].parent)))
+    # Prefer the prefix actually typed into the Filename field over
+    # re-deriving one from file_paths[0]'s own name -- see
+    # series_filename_prefix's own docstring. Empty when the session
+    # loaded straight through gixs2_load_series without ever going through
+    # Set/Table (e.g. a test, or a future non-UI caller); file_paths[0]'s
+    # name is still the right fallback there.
+    match_name = _SESSION.series_filename_prefix or _SESSION.file_paths[0].name
     try:
-        all_files = _list_series_files(Path(directory), _SESSION.file_paths[0].name, _SESSION.file_paths[0].suffix)
+        all_files = _list_series_files(Path(directory), match_name, _SESSION.file_paths[0].suffix)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
 

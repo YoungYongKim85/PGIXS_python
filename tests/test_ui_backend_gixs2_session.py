@@ -158,6 +158,80 @@ def test_gixs2_list_series_files_finds_matching_prefix(tmp_path):
     assert len(result["files"]) == 3
 
 
+def _write_angle_scan_series(tmp_path, angles, prefix="pvk_om_05"):
+    """Each file is its own single-frame incident-angle scan step, named
+    like the real beamline data that surfaced this bug:
+    "pvk_om_05_002_30_0001.h5", "pvk_om_05_004_30_0001.h5", ... -- the
+    "_0001" frame counter is 4 digits (normalizePGIXSSeriesPrefix.m/
+    _normalize_series_prefix strips only that), but the "_002_30" angle/
+    scan segment in between varies file to file, so no single exact
+    per-file "normalized prefix" is shared -- only "pvk_om_05" is common,
+    as a substring."""
+
+    shape = (64, 64)
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+    r = np.hypot(xx - 31.5, yy - 31.5)
+    rng = np.random.default_rng(0)
+    files = []
+    for idx, angle in enumerate(angles):
+        data = (10.0 + 500.0 * np.exp(-((r - 20.0) ** 2) / (2.0 * 3.0**2)) + rng.uniform(0.0, 1.0, size=shape))
+        h5_file = tmp_path / f"{prefix}_{angle:03d}_30_0001.h5"
+        with h5py.File(h5_file, "w") as h5:
+            h5.create_dataset("/entry/data/data", data=data.astype(np.float32))
+            base = h5.create_group("/entry/instrument/user/params")
+            base.create_dataset("Counter1", data=np.array([10.0 + idx], dtype=np.float32))
+            base.create_dataset("Counter2", data=np.array([5.0 + idx], dtype=np.float32))
+            base.create_dataset("TimeStamp", data=np.array([1000.0 + idx * 10.0], dtype=np.float64))
+            base.create_dataset("Temp1", data=np.array([25.0], dtype=np.float32))
+            base.create_dataset("Temp2", data=np.array([50.0], dtype=np.float32))
+        files.append(h5_file)
+    return files
+
+
+def test_gixs2_list_series_files_matches_a_hand_typed_substring_prefix(tmp_path):
+    """Regression: "Filename에서 내가 임의로 수정한 이름과 똑같은 것을
+    Table로 다 불러오게 하고 싶은데, 그게 안되네" -- an earlier version of
+    _list_series_files compared each candidate file's own separately-
+    normalized prefix for *equality* against the typed prefix, which only
+    ever works for a plain "PREFIX_####.h5" series. MATLAB's own
+    listPGIXSSeriesFiles.m actually uses `contains(allNames, prefix)` (a
+    substring check), which is what lets a shorter, hand-typed prefix like
+    "pvk_om_05" catch every file in an angle-scan series whose own middle
+    segment varies file to file."""
+
+    _write_angle_scan_series(tmp_path, angles=[2, 4, 6, 8, 10])
+
+    result = gs.gixs2_list_series_files({"directory": str(tmp_path), "filename": "pvk_om_05"})
+
+    assert result["ok"], result.get("message")
+    assert len(result["files"]) == 5
+
+
+def test_gixs2_auto_refresh_finds_new_files_for_a_substring_prefix_series(tmp_path):
+    """Auto Refresh re-derives its own match prefix independently of
+    Set/Table's -- without remembering the originally hand-typed
+    "pvk_om_05", it would fall back to normalizing file_paths[0]'s own
+    name ("pvk_om_05_002_30_0001.h5" -> "pvk_om_05_002_30"), which is too
+    specific to ever match a *new* angle step's own differently-numbered
+    middle segment."""
+
+    files = _write_angle_scan_series(tmp_path, angles=[2, 4, 6])
+    list_result = gs.gixs2_list_series_files({"directory": str(tmp_path), "filename": "pvk_om_05"})
+    assert list_result["ok"], list_result.get("message")
+    load_result = gs.gixs2_load_series(
+        {"directory": str(tmp_path), "filenames": [f.name for f in files], "insitu_mode": "Temperature"}
+    )
+    assert load_result["ok"], load_result.get("message")
+
+    _write_angle_scan_series(tmp_path, angles=[8, 10])
+
+    result = gs.gixs2_auto_refresh({"directory": str(tmp_path)})
+
+    assert result["ok"], result.get("message")
+    assert result["n_new"] == 2
+    assert gs.get_session().stack.shape[0] == 5
+
+
 def test_gixs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
     _load_series(tmp_path, n_frames=2, center=(100.5, 100.5))
     session = gs.get_session()
@@ -453,6 +527,76 @@ def _write_and_load_out_of_order_temperatures(tmp_path):
         {"directory": str(tmp_path), "filenames": [f.name for f in files], "insitu_mode": "Temperature"}
     )
     assert result["ok"], result.get("message")
+
+
+def _load_series_angle_mode(tmp_path, n_frames=3, center=(100.5, 100.5)):
+    files = _write_synthetic_series(tmp_path, n_frames=n_frames, center=center, radii=[60.0] * n_frames)
+    result = gs.gixs2_load_series(
+        {"directory": str(tmp_path), "filenames": [f.name for f in files], "insitu_mode": "Angle"}
+    )
+    assert result["ok"], result.get("message")
+    return files, result
+
+
+def test_gixs2_set_x_axis_angle_mode_prefers_change_ai_ramp_over_logged_metadata(tmp_path):
+    """Regression: "angle 모드에서 1D plot에 incidence angle 밸류들이
+    제대로 반영이 되지 않아 color가 이상하게 나왔어." Insitu "Angle" mode's
+    X-axis used to always read the per-file *logged* "IncAngle" metadata
+    column -- unrelated to the ai/ai_step ramp "Change ai" q-Cal actually
+    computed and used to build each frame's own q-map. Once Change ai is
+    active, the X-axis (and so the 1D/Azimuthal Plot Viewers' colorbar)
+    must show that real per-frame incident angle instead, matching
+    MATLAB's own "Angle" axis (always param.aivar)."""
+
+    center = (100.5, 100.5)
+    _load_series_angle_mode(tmp_path, n_frames=4, center=center)
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    qcal_result = gs.gixs2_qcal({"incident_angle_deg": 0.1, "change_ai": True, "ai_step": 0.05})
+    assert qcal_result["ok"], qcal_result.get("message")
+
+    result = gs.gixs2_set_x_axis({})
+
+    assert result["ok"], result.get("message")
+    assert result["label"] == "Incidence Angle, deg"
+    np.testing.assert_allclose(result["x_axis"], [0.1, 0.15, 0.2, 0.25])
+
+
+def test_gixs2_set_x_axis_angle_mode_time_submode_still_overrides_change_ai(tmp_path):
+    """The Angle insitu mode's own sub-mode selector still offers "Time" as
+    an explicit fallback -- Change ai being active shouldn't silently
+    steal that choice away from the user."""
+
+    center = (100.5, 100.5)
+    _load_series_angle_mode(tmp_path, n_frames=3, center=center)
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    assert gs.gixs2_qcal({"incident_angle_deg": 0.1, "change_ai": True, "ai_step": 0.05})["ok"]
+
+    result = gs.gixs2_set_x_axis({"sub_mode": "Time"})
+
+    assert result["ok"], result.get("message")
+    assert result["label"] != "Incidence Angle, deg"
+
+
+def test_gixs2_set_x_axis_angle_mode_without_change_ai_falls_back_to_logged_metadata(tmp_path):
+    """Without Change ai, there is no per-frame aivar ramp to prefer --
+    Angle mode keeps reading the logged metadata column as before."""
+
+    center = (100.5, 100.5)
+    _load_series_angle_mode(tmp_path, n_frames=2, center=center)
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    assert gs.gixs2_qcal({"incident_angle_deg": 0.1, "change_ai": False})["ok"]
+
+    result = gs.gixs2_set_x_axis({})
+
+    assert result["ok"], result.get("message")
+    assert result["label"] == "Incidence Angle, deg"
+    # These synthetic files never write an "IncAngle" dataset -- the
+    # logged-metadata fallback path reads NaN, distinct from the (absent)
+    # aivar ramp's own real values, confirming the ramp wasn't used here.
+    assert all(np.isnan(v) for v in result["x_axis"])
 
 
 def test_gixs2_save_1d_writes_a_file(tmp_path):
