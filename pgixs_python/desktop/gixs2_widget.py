@@ -524,19 +524,39 @@ class GIXS2Widget(QWidget):
         # squeezing the bottom row shorter regardless of setSizes([500,500]).
         self.oned_canvas.canvas.setMinimumHeight(280)
         oned_layout.addWidget(self.oned_canvas)
-        oned_ctrl = QHBoxLayout()
         self.oned_scale_combo = QComboBox()
         self.oned_scale_combo.addItems(["Linear", "Logy", "Logxy"])
         # Same budget as the left panel's Normalize/Mean-Median combos
-        # (see _COMBO_CHARS' own docstring) -- alone in its control row,
-        # it would otherwise stretch to fill the row's full width.
+        # (see _COMBO_CHARS' own docstring).
         _size_combo(self.oned_scale_combo, _COMBO_CHARS)
         self.oned_scale_combo.currentTextChanged.connect(lambda _t: self._render_1d())
+        self.oned_colormap_combo = QComboBox()
+        self.oned_colormap_combo.addItems(_COLORMAPS)
+        _size_combo(self.oned_colormap_combo, 10)
+        oned_cmap_default = self.oned_colormap_combo.findText("viridis")
+        if oned_cmap_default >= 0:
+            self.oned_colormap_combo.setCurrentIndex(oned_cmap_default)
+        self.oned_colormap_combo.currentTextChanged.connect(lambda _t: self._render_1d())
         self.oned_heatmap_button = QPushButton("Heatmap")
         self.oned_heatmap_button.setToolTip("Open a Q vs. X-axis heatmap of every frame's 1D cut (port of MATLAB's HeatmapQ_gui).")
         self.oned_heatmap_button.clicked.connect(self._on_1d_heatmap_clicked)
-        oned_ctrl.addWidget(_field("Scale", self.oned_scale_combo, label_width=40))
-        oned_ctrl.addWidget(self.oned_heatmap_button)
+        # Scale/Colormap/Heatmap on one row used to be the widest of the
+        # four viewers' own control rows by a wide margin (adding the new
+        # Colormap combo tipped it over) -- split across two shorter rows
+        # instead, same fix already applied to the 2D Image Plot Viewer's
+        # own control block for the same reason (see its own comment),
+        # so the quadrant splitter's equal split actually holds (see
+        # test_gixs2_widget_four_quadrants_have_equal_stretch).
+        oned_ctrl = QVBoxLayout()
+        oned_ctrl.setContentsMargins(0, 0, 0, 0)
+        oned_ctrl.setSpacing(2)
+        oned_ctrl_row1 = QHBoxLayout()
+        oned_ctrl_row1.addWidget(_field("Scale", self.oned_scale_combo, label_width=40))
+        oned_ctrl_row1.addWidget(_field("Colormap", self.oned_colormap_combo, label_width=60))
+        oned_ctrl_row2 = QHBoxLayout()
+        oned_ctrl_row2.addWidget(self.oned_heatmap_button)
+        oned_ctrl.addLayout(oned_ctrl_row1)
+        oned_ctrl.addLayout(oned_ctrl_row2)
         oned_ctrl_row = _control_row(oned_ctrl)
         oned_layout.addWidget(oned_ctrl_row)
         top.addWidget(oned_group)
@@ -551,7 +571,15 @@ class GIXS2Widget(QWidget):
             "Open an Angle vs. X-axis heatmap of every frame's azimuthal profile (port of MATLAB's HeatmapAzi_gui)."
         )
         self.azi_heatmap_button.clicked.connect(self._on_azi_heatmap_clicked)
+        self.azi_colormap_combo = QComboBox()
+        self.azi_colormap_combo.addItems(_COLORMAPS)
+        _size_combo(self.azi_colormap_combo, 10)
+        azi_cmap_default = self.azi_colormap_combo.findText("viridis")
+        if azi_cmap_default >= 0:
+            self.azi_colormap_combo.setCurrentIndex(azi_cmap_default)
+        self.azi_colormap_combo.currentTextChanged.connect(lambda _t: self._render_azimuthal())
         azi_ctrl = QHBoxLayout()
+        azi_ctrl.addWidget(_field("Colormap", self.azi_colormap_combo, label_width=60))
         azi_ctrl.addWidget(self.azi_heatmap_button)
         azi_ctrl_row = _control_row(azi_ctrl)
         azi_layout.addWidget(azi_ctrl_row)
@@ -1278,10 +1306,11 @@ class GIXS2Widget(QWidget):
         """Port of `update1Dplot_Callback`: every frame's own cut plotted at
         once, color-coded by the series' X-axis value (Time/Temperature/
         Angle -- "Frame index" until Set X-Axis has run) with a colorbar,
-        rather than only the series mean. `viridis` stands in for MATLAB's
-        `jet`, which is not perceptually uniform (banding/false edges) and
-        is a poor choice for the sequential Time/Temperature progression
-        this plot exists to show."""
+        rather than only the series mean. Defaults to `viridis` in place of
+        MATLAB's `jet`, which is not perceptually uniform (banding/false
+        edges) and is a poor choice for the sequential Time/Temperature
+        progression this plot exists to show -- the Colormap combo lets the
+        user pick a different one."""
 
         session = gs.get_session()
         if session.last_1d is None:
@@ -1294,7 +1323,7 @@ class GIXS2Widget(QWidget):
         self.oned_canvas.render_series(
             session.last_1d["x_axis"], matrix, color_values,
             xlabel="Q, 1/A", ylabel="Intensity, arb. units", colorbar_label=colorbar_label,
-            xlog=xlog, ylog=ylog,
+            cmap=self.oned_colormap_combo.currentText(), xlog=xlog, ylog=ylog,
         )
         self._render_integration()
 
@@ -1361,6 +1390,7 @@ class GIXS2Widget(QWidget):
         self.azi_canvas.render_series(
             session.last_azimuthal["x_axis"], matrix, color_values,
             xlabel="Angle, deg", ylabel="Intensity, arb. units", colorbar_label=colorbar_label,
+            cmap=self.azi_colormap_combo.currentText(),
         )
         self._render_integration()
 
@@ -1739,7 +1769,7 @@ class GIXS2Widget(QWidget):
         if y.shape[0] != session.x_axis_values.shape[0]:
             return
         self.integ_canvas.render(
-            session.x_axis_values, y, xlabel=session.x_axis_label, ylabel=ylabel, xlog=xlog, ylog=ylog
+            session.x_axis_values, y, xlabel=session.x_axis_label, ylabel=ylabel, xlog=xlog, ylog=ylog, marker="o"
         )
 
     # ------------------------------------------------------------------

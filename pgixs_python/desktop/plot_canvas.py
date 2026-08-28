@@ -805,6 +805,8 @@ class CurveCanvas(QWidget):
         title: str = "",
         xlog: bool = False,
         ylog: bool = False,
+        marker: str | None = None,
+        markersize: float = 5.0,
     ) -> None:
         self._reset_axes()
         # Explicit float64 (not just np.asarray(x)) matters when a caller
@@ -817,7 +819,10 @@ class CurveCanvas(QWidget):
         # non-finite point.
         self._data_x = np.asarray(x, dtype=np.float64)
         self._data_y = np.asarray(y, dtype=np.float64)
-        self.ax.plot(self._data_x, self._data_y, color="#1d5c9e", linewidth=1.4)
+        self.ax.plot(
+            self._data_x, self._data_y, color="#1d5c9e", linewidth=1.4,
+            marker=marker, markersize=markersize, markerfacecolor="#1d5c9e", markeredgecolor="#1d5c9e",
+        )
         self.ax.set_xlabel(xlabel, fontsize=10)
         self.ax.set_ylabel(ylabel, fontsize=10)
         if title:

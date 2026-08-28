@@ -626,6 +626,17 @@ def test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar(qapp, tmp_path,
     plotted_lines = [ln for ln in widget.oned_canvas.ax.get_lines() if ln is not widget.oned_canvas._hover_marker]
     assert len(plotted_lines) == 3
 
+    # The Colormap combo (reported: "1D plot Viewer의 그래프와... colormap을
+    # 바꿔 플랏 색상을 바꿀 수 있으면 좋을것 같아") defaults to viridis and
+    # actually changes the plotted line colors when switched.
+    assert widget.oned_colormap_combo.currentText() == "viridis"
+    viridis_color = widget.oned_canvas.ax.get_lines()[0].get_color()
+
+    widget.oned_colormap_combo.setCurrentText("magma")
+
+    magma_color = widget.oned_canvas.ax.get_lines()[0].get_color()
+    assert magma_color != viridis_color
+
 
 def test_gixs2_widget_1d_plot_colorbar_uses_x_axis_label_after_set_x_axis(qapp, tmp_path, monkeypatch):
     gs.reset_session()
@@ -711,6 +722,16 @@ def test_gixs2_widget_azimuthal_plot_uses_series_colormap_with_colorbar(qapp, tm
     assert widget.azi_canvas._colorbar.ax.get_ylabel() == "Time, s"
     plotted_lines = [ln for ln in widget.azi_canvas.ax.get_lines() if ln is not widget.azi_canvas._hover_marker]
     assert len(plotted_lines) == 3
+
+    # Same Colormap combo as the 1D Plot Viewer -- see
+    # test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar.
+    assert widget.azi_colormap_combo.currentText() == "viridis"
+    viridis_color = widget.azi_canvas.ax.get_lines()[0].get_color()
+
+    widget.azi_colormap_combo.setCurrentText("magma")
+
+    magma_color = widget.azi_canvas.ax.get_lines()[0].get_color()
+    assert magma_color != viridis_color
 
 
 def test_gixs2_widget_series_color_values_falls_back_to_frame_index_without_timestamps(qapp, tmp_path):
@@ -978,6 +999,12 @@ def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path, monkeypatc
     # session.x_axis_label -- carries the unit (here "s") too, same as
     # the 1D/Azimuthal Plot Viewers' colorbars.
     assert widget.integ_canvas.ax.get_xlabel() == "Time, s"
+    # Reported: "Series Integration Viewer에서는 각 포인트에 마커가 있으면
+    # 보기 더 편할 것 같아" -- the sum-of-1D/Azimuthal curve (this test's
+    # own auto_met == "linecut" path) now plots a marker at every point,
+    # not just a bare line. The ROI path already had this via render_multi.
+    (curve,) = [ln for ln in widget.integ_canvas.ax.get_lines() if ln is not widget.integ_canvas._hover_marker]
+    assert curve.get_marker() == "o"
 
 
 def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monkeypatch):
