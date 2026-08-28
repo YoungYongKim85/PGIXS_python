@@ -2,6 +2,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.two_d_info import load_two_d_info_h5
@@ -135,6 +136,42 @@ def test_console_qspace_image_works_for_trxs(tmp_path):
     payload = cs.console_qspace_image({})
 
     assert payload["ok"], payload.get("message")
+
+
+def test_console_q_space_point_requires_qmap(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+
+    payload = cs.console_q_space_point({"col": 24.0, "row": 24.0})
+
+    assert not payload["ok"]
+    assert "q-Map Cal." in payload["message"]
+
+
+def test_console_q_space_point_and_pixel_from_q_space_round_trip(tmp_path):
+    """Used to draw a line/accumulation/cake cut overlay directly as a
+    straight line in Q-space (console_q_space_point) and to invert a
+    Q-space click back to a pixel offset (console_pixel_from_q_space) --
+    the two must be exact inverses so a click and the overlay it sets up
+    stay consistent. Reported: "Qxy/Qz 맵에서 90도 line cut을... 해보면
+    일직선 라인이 아니라 휘어져 나와... 그냥 일직선 라인이 되면 좋을 것
+    같아.\""""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    forward = cs.console_q_space_point({"col": 30.0, "row": 15.0})
+    assert forward["ok"], forward.get("message")
+
+    inverse = cs.console_pixel_from_q_space({"qx": forward["qx"], "qy": forward["qy"]})
+    assert inverse["ok"], inverse.get("message")
+    assert inverse["col"] == pytest.approx(30.0)
+    assert inverse["row"] == pytest.approx(15.0)
 
 
 def test_console_polar_image_requires_qmap(tmp_path):
@@ -316,6 +353,91 @@ def test_console_line_1d_pos_move_shifts_axis_aligned_cut_but_not_diagonal(tmp_p
 
     assert diag_shifted_intensity.shape == diag_baseline_intensity.shape
     assert np.allclose(diag_shifted_intensity, diag_baseline_intensity, equal_nan=True)
+
+
+def test_console_line_1d_qxyqz_mapping_runs_an_independent_cakecut(tmp_path):
+    """Regression: "1D process해서 pixel map에서 cutting하는 것이 Qxy/Qz
+    cutting에 반영되서 진행되는데, 그렇게 하지말고 독립적으로 되면
+    좋겠어" -- Map format previously only affected the 2D image display;
+    every line/accumulation/cake cut ran against the raw pixel data
+    regardless of it. "Qxy/Qz" must now run the cut against the actual
+    Q-remapped image (port of Anglecut1d_gi.m's `Mapping` branch), giving
+    a genuinely different curve from the same cut done in "Pixel" mode."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    pixel_payload = cs.console_line_1d(
+        {"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0, "mapping": "Pixel"}
+    )
+    assert pixel_payload["ok"], pixel_payload.get("message")
+    assert pixel_payload["mapping"] == "Pixel"
+    pixel_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    qspace_payload = cs.console_line_1d(
+        {"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0, "mapping": "Qxy/Qz"}
+    )
+    assert qspace_payload["ok"], qspace_payload.get("message")
+    assert qspace_payload["mapping"] == "Qxy/Qz"
+    qspace_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert qspace_intensity.shape != pixel_intensity.shape or not np.allclose(
+        qspace_intensity, pixel_intensity, equal_nan=True
+    )
+
+
+def test_console_line_1d_qxyqz_mapping_runs_an_independent_accumulation_cut(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    pixel_payload = cs.console_line_1d(
+        {"angle_deg": 90.0, "accumulation": True, "accum_minus": -2.0, "accum_plus": 2.0, "mapping": "Pixel"}
+    )
+    assert pixel_payload["ok"], pixel_payload.get("message")
+    pixel_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    qspace_payload = cs.console_line_1d(
+        {"angle_deg": 90.0, "accumulation": True, "accum_minus": -2.0, "accum_plus": 2.0, "mapping": "Qxy/Qz"}
+    )
+    assert qspace_payload["ok"], qspace_payload.get("message")
+    qspace_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert qspace_intensity.shape != pixel_intensity.shape or not np.allclose(
+        qspace_intensity, pixel_intensity, equal_nan=True
+    )
+
+
+def test_console_line_1d_qyqz_mapping_also_runs_independently(tmp_path):
+    """Same fix, the app's other Q-space Map format option ("Qy/Qz",
+    horizontal_q_map = qmap["qy"] instead of qmap["qr"])."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    pixel_payload = cs.console_line_1d(
+        {"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0, "mapping": "Pixel"}
+    )
+    assert pixel_payload["ok"], pixel_payload.get("message")
+    pixel_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    qspace_payload = cs.console_line_1d(
+        {"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0, "mapping": "Qy/Qz"}
+    )
+    assert qspace_payload["ok"], qspace_payload.get("message")
+    qspace_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert qspace_intensity.shape != pixel_intensity.shape or not np.allclose(
+        qspace_intensity, pixel_intensity, equal_nan=True
+    )
 
 
 def test_console_azimuthal_1d_returns_curve(tmp_path):

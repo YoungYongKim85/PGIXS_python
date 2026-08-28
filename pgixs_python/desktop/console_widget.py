@@ -1040,54 +1040,32 @@ class ConsoleWidget(QWidget):
         return (col, row)
 
     def _draw_q_space_line(self, col0: float, row0: float, angle_deg: float, bidirectional: bool = True) -> None:
-        """Draw a pixel-space line (through pixel (col0, row0) at
-        angle_deg) as it actually appears in Q-space. `bidirectional=False`
-        samples only the angle_deg-outward ray (see draw_beam_line's same
-        parameter -- used for Cakecut's wedge boundaries, since the
-        opposite direction was never part of the selected wedge).
-        Q-space axes aren't a linear function of pixel position, so a
-        straight pixel-space line can curve once mapped -- sample many
-        points along it in real pixel
-        space, look each one up in the true per-pixel Q maps (the same
-        maps `_display_xy_to_pixel_offset` searches in the opposite
-        direction), and draw the resulting path. Points that fall off the
-        detector or land on a masked/gap pixel come back NaN, which
-        matplotlib breaks the line on instead of drawing a wrong straight
-        segment across the gap."""
+        """Draw a straight line through pixel (col0, row0) at angle_deg,
+        directly in the same uniform Q-space coordinates the Qxy/Qz or
+        Qy/Qz display and cut geometry actually use (console_q_space_point
+        -- `qx = d_q * (col - beam_y)`, `qy = d_q * (beam_z - row)`, a
+        single linear scale applied identically to both axes).
 
-        session = cs.get_session()
-        if session.data is None or session.qmap is None:
+        This used to sample many points along the pixel-space line and
+        look each one up in the true per-pixel Q maps instead, which
+        curved a straight cut once mapped (reported: "Qxy/Qz 맵에서 90도
+        line cut을... 해보면 일직선 라인이 아니라 휘어져 나와... 그냥
+        일직선 라인이 되면 좋을 것 같아") -- console_line_1d's own
+        Qxy/Qz cut no longer runs against those true per-pixel maps
+        either (see console_session.py's `_q_space_cut_inputs`), so a
+        straight line in this same uniform grid is what actually matches
+        what gets cut, not an accurate-but-inconsistent curved path.
+
+        `angle_deg` is mirrored via `_mode_corrected_angle` before
+        drawing -- Q-space's own y-axis increases upward (see this
+        method's own docstring), the same convention `_mode_corrected_angle`
+        already exists to handle for beam-centered pixel display."""
+
+        result = cs.console_q_space_point({"col": col0, "row": row0})
+        if not result.get("ok"):
             return
-        rows, cols = session.data.shape
-        horizontal_key = "qy" if self.map_format_combo.currentText() == "Qy/Qz" else "qr"
-        horizontal_map = session.qmap.get(horizontal_key)
-        qz_map = session.qmap.get("qz")
-        if horizontal_map is None or qz_map is None:
-            return
-
-        rad = math.radians(angle_deg)
-        # Must match draw_beam_line's (-cos, -sin) convention -- see its
-        # docstring/comment for why plain (cos, -sin) mirrors the ray
-        # across the vertical axis relative to what a click at the same
-        # angle actually reports.
-        dx, dy = -math.cos(rad), -math.sin(rad)
-        extent = math.hypot(rows, cols)
-        t_start = 0.0 if not bidirectional else -extent
-        t = np.linspace(t_start, extent, 600)
-        col_pts = col0 + dx * t
-        row_pts = row0 + dy * t
-
-        row_idx = np.rint(row_pts - 1).astype(np.int64)
-        col_idx = np.rint(col_pts - 1).astype(np.int64)
-        in_bounds = (row_idx >= 0) & (row_idx < rows) & (col_idx >= 0) & (col_idx < cols)
-        safe_row = np.clip(row_idx, 0, rows - 1)
-        safe_col = np.clip(col_idx, 0, cols - 1)
-        x_vals = np.where(in_bounds, horizontal_map[safe_row, safe_col], np.nan)
-        y_vals = np.where(in_bounds, qz_map[safe_row, safe_col], np.nan)
-        finite = np.isfinite(x_vals) & np.isfinite(y_vals)
-        x_vals = np.where(finite, x_vals, np.nan)
-        y_vals = np.where(finite, y_vals, np.nan)
-        self.image_canvas.draw_polyline(x_vals, y_vals)
+        draw_angle = self._mode_corrected_angle(angle_deg)
+        self.image_canvas.draw_beam_line((result["qx"], result["qy"]), draw_angle, bidirectional=bidirectional)
 
     def _draw_line_overlay_q_space(self, angle: float, cakecut_on: bool, accum_on: bool) -> None:
         if cakecut_on:
@@ -1170,17 +1148,21 @@ class ConsoleWidget(QWidget):
         (increases going *up* the screen). The "0 left / 90 up / 180
         right" legend and the click-to-angle formula
         (_on_image_clicked's "line" branch) both assume raw mode's
-        convention -- in centered mode they need the angle mirrored
-        across the horizontal axis to still mean the same physical
-        direction on screen. This mirror is its own inverse, so the same
-        call converts a physical angle into what draw_beam_line needs to
-        draw it correctly, and converts a raw click-formula angle back
-        into the physical one. Only affects pixel mode -- Q-space's click/
-        draw paths (_display_xy_to_pixel_offset/_draw_q_space_line)
-        already work in real pixel coordinates and don't go through this
-        display-angle formula at all."""
+        convention -- in centered/Q-space mode they need the angle
+        mirrored across the horizontal axis to still mean the same
+        physical direction on screen. This mirror is its own inverse, so
+        the same call converts a physical angle into what draw_beam_line
+        needs to draw it correctly, and converts a raw click-formula angle
+        back into the physical one.
 
-        if self._axis_mode == "pixel" and self._pixel_centered:
+        Q-space mode's own display-y, `console_q_space_point`'s `qy = d_q
+        * (beam_z - row)`, increases upward exactly like centered pixel
+        mode's VD -- so it needs the same mirror, applied inside
+        `_draw_q_space_line` for the draw direction (every Q-space overlay
+        call site routes through it) rather than at each call site
+        individually."""
+
+        if (self._axis_mode == "pixel" and self._pixel_centered) or self._axis_mode == "q":
             return (-angle_deg) % 360.0
         return angle_deg % 360.0
 
@@ -1543,8 +1525,12 @@ class ConsoleWidget(QWidget):
         self.zrange_min_spin.blockSignals(False)
         self.zrange_max_spin.blockSignals(False)
         extent = self._current_extent(hr["min"], hr["max"], vr["max"], vr["min"])
-        label = "q_{xy}, 1/A" if mode == "Qxy/Qz" else "q_y, 1/A"
-        self._render_image(preview, extent, label, "q_z, 1/A")
+        # Plain text, not "q_{xy}"/"q_z" -- matplotlib's set_xlabel/
+        # set_ylabel only render underscore-brace as a LaTeX subscript
+        # inside mathtext ($...$), which this app doesn't use for any of
+        # its other axis labels (matches "Q, 1/A" elsewhere).
+        label = "Qxy, 1/A" if mode == "Qxy/Qz" else "Qy, 1/A"
+        self._render_image(preview, extent, label, "Qz, 1/A")
         self.image_canvas.reset_view()
         self._set_status(f"{mode} image ready.", True)
 
@@ -1756,30 +1742,22 @@ class ConsoleWidget(QWidget):
 
         Pixel mode's display already is pixel offsets (identity, matching
         `_current_beam_center()`'s subtraction in the caller). Q-space mode
-        is not a linear function of pixel position -- Qxy/Qz's horizontal
-        axis (qr) in particular is a magnitude/projection, so an inverse
-        trig formula would only be approximate. Instead, look up the actual
-        detector pixel whose (Q, Qz) is nearest the click, using the real
-        per-pixel Q maps q-Map Cal. already computed -- exact, and works
-        identically for Qxy/Qz and Qy/Qz without separate formulas."""
+        used to look up the actual detector pixel whose true (nonlinear)
+        per-pixel Q was nearest the click -- exact for *that* map, but
+        inconsistent with `_draw_q_space_line`'s straight-line overlay,
+        which (like `console_line_1d`'s own Qxy/Qz cut) now treats the
+        Q-space display as the uniform grid `image_transform_q_gi` actually
+        built: `console_pixel_from_q_space` inverts that same linear
+        mapping exactly instead, so a click and the line it sets up stay
+        consistent with each other."""
 
         if self._axis_mode != "q":
             return (x, y)
-        session = cs.get_session()
-        if session.qmap is None:
+        result = cs.console_pixel_from_q_space({"qx": x, "qy": y})
+        if not result.get("ok"):
             return (x, y)
-        horizontal_key = "qy" if self.map_format_combo.currentText() == "Qy/Qz" else "qr"
-        horizontal_map = session.qmap.get(horizontal_key)
-        qz_map = session.qmap.get("qz")
-        if horizontal_map is None or qz_map is None:
-            return (x, y)
-        dist_sq = (horizontal_map - x) ** 2 + (qz_map - y) ** 2
-        dist_sq = np.where(np.isfinite(dist_sq), dist_sq, np.inf)
-        row, col = np.unravel_index(int(np.argmin(dist_sq)), horizontal_map.shape)
-        # +1 for the 1-based pixel convention used throughout this codebase
-        # (pixel_angle_map, build_radius_bin_map).
-        pixel_dx = float(col + 1) - self.beam_y_spin.value()
-        pixel_dz = float(row + 1) - self.beam_z_spin.value()
+        pixel_dx = result["col"] - self.beam_y_spin.value()
+        pixel_dz = result["row"] - self.beam_z_spin.value()
         return (pixel_dx, pixel_dz)
 
     def _on_image_clicked(self, x: float, y: float) -> None:
@@ -1847,6 +1825,14 @@ class ConsoleWidget(QWidget):
             "accumulation": self.accum_check.isChecked() if self.accum_check is not None else False,
             "accum_minus": self.accum_minus_spin.value() if self.accum_minus_spin is not None else -1.0,
             "accum_plus": self.accum_plus_spin.value() if self.accum_plus_spin is not None else 1.0,
+            # Reported: "1D process해서 pixel map에서 cutting하는 것이
+            # Qxy/Qz cutting에 반영되서 진행되는데, 그렇게 하지말고
+            # 독립적으로 되면 좋겠어" -- Map format now genuinely selects
+            # which image (raw pixel data, or the Qxy/Qz-remapped one)
+            # the line/accumulation/cake cut actually runs against,
+            # instead of the Map format combo only ever affecting the 2D
+            # display.
+            "mapping": self.map_format_combo.currentText(),
         }
         result = cs.console_line_1d(payload)
         if not result.get("ok"):

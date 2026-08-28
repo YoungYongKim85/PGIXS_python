@@ -625,20 +625,6 @@ class ImageCanvas(QWidget):
         self.ax.set_ylim(ylim)
         self.canvas.draw_idle()
 
-    def draw_polyline(self, xs: np.ndarray, ys: np.ndarray) -> None:
-        """Draw an arbitrary (possibly gapped -- NaN breaks the line)
-        sequence of points, e.g. a pixel-space cut line/wedge/band edge
-        mapped point-by-point into Q-space, where it may not stay straight.
-        Preserves the current view like draw_beam_line, since the mapped
-        path can run well outside the visible Q-range."""
-
-        xlim, ylim = self.ax.get_xlim(), self.ax.get_ylim()
-        (line,) = self.ax.plot(xs, ys, color="white", linewidth=1.6, linestyle="--")
-        self._overlay_artists.append(line)
-        self.ax.set_xlim(xlim)
-        self.ax.set_ylim(ylim)
-        self.canvas.draw_idle()
-
     def draw_beam_circle(self, center: tuple[float, float], radius: float) -> None:
         circle = Circle(center, radius, fill=False, edgecolor="white", linewidth=1.6)
         self.ax.add_patch(circle)

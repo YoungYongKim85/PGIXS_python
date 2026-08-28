@@ -1187,6 +1187,47 @@ def test_line_plot_uses_full_resolution_curve_not_json_preview(qapp, tmp_path):
     assert None not in console.curve_canvas._data_y.tolist()
 
 
+def test_line_plot_map_format_selects_an_independent_qspace_cut(qapp, tmp_path):
+    """Regression: "1D process해서 pixel map에서 cutting하는 것이 Qxy/Qz
+    cutting에 반영되서 진행되는데, 그렇게 하지말고 독립적으로 되면
+    좋겠어" -- Map format used to only affect the 2D image display; Line
+    1D Process always cut the raw pixel data regardless of it.
+    _on_line_plot_clicked must now forward the combo's own selection into
+    console_line_1d's payload, and switching it to "Qxy/Qz" must produce
+    a genuinely different curve from "Pixel" (see
+    test_console_line_1d_qxyqz_mapping_runs_an_independent_cakecut in
+    test_ui_backend_console_session.py for the backend-level version of
+    this same check)."""
+
+    import numpy as np
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+    qmap_result = cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": 12.0, "beam_z": 10.0})
+    assert qmap_result["ok"], qmap_result.get("message")
+
+    console.map_format_combo.blockSignals(True)
+    console.map_format_combo.setCurrentText("Pixel")
+    console.map_format_combo.blockSignals(False)
+    console._on_line_plot_clicked()
+    assert cs.get_session().last_curve["mapping"] == "Pixel"
+    pixel_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    console.map_format_combo.blockSignals(True)
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    console.map_format_combo.blockSignals(False)
+    console._on_line_plot_clicked()
+    assert cs.get_session().last_curve["mapping"] == "Qxy/Qz"
+    qspace_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert qspace_intensity.shape != pixel_intensity.shape or not np.allclose(
+        qspace_intensity, pixel_intensity, equal_nan=True
+    )
+
+
 def test_status_message_with_long_path_does_not_widen_panel(qapp):
     """Regression reported live: clicking Save Img visibly resized the left
     panel. Root cause: its status message includes full Windows paths
@@ -1603,10 +1644,13 @@ def _load_test_frame_in_q_mode(tmp_path, beam_y=12.0, beam_z=10.0, mapping="Qxy/
     console.beam_z_spin.setValue(beam_z)
     qmap_result = cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": beam_y, "beam_z": beam_z})
     assert qmap_result["ok"], qmap_result.get("message")
-    console._axis_mode = "q"
-    console.map_format_combo.blockSignals(True)
+    # Unblocked (not blockSignals + a manual _axis_mode assignment) --
+    # _draw_q_space_line now draws its straight line via draw_beam_line,
+    # which extends the ray to the axes' *current* view limits, so those
+    # limits actually need to be the real Q-space ones from rendering the
+    # Qxy/Qz (or Qy/Qz) background image, not whatever the previous
+    # pixel-space image happened to leave them at.
     console.map_format_combo.setCurrentText(mapping)
-    console.map_format_combo.blockSignals(False)
     return console
 
 
@@ -1849,7 +1893,7 @@ def test_trxs_polar_toggle_sweeps_full_360_not_restricted_like_gixs(qapp, tmp_pa
     assert polar_result["horizontal_range"]["max"] > 180.0
 
     console.polar_check.setChecked(False)
-    assert console._current_xlabel == "q_y, 1/A"
+    assert console._current_xlabel == "Qy, 1/A"
     assert console.image_canvas.ax.get_aspect() == 1.0
 
 
@@ -1902,15 +1946,21 @@ def test_gixs_polar_still_requires_an_explicit_map_format_pick(qapp, tmp_path):
     assert not console.polar_check.isEnabled()
 
 
-def test_line_overlay_in_q_mode_draws_a_real_curve_not_a_single_point(qapp, tmp_path):
-    """Regression for "Qxy/Qz와 같은 맵에서는 ... 표시가 안 되는거야?": before this
-    fix, any overlay drawn while Map format was Qxy/Qz or Qy/Qz just fell
-    back to a straight line through the beam origin in Q-units, which is
-    only a loose approximation and collapses Accumulation's two edges onto
-    the same point (see the next two tests). The line/wedge/band is now
-    sampled in real pixel space and mapped through the true per-pixel Q
-    maps, so it should come back as a real (possibly curved) multi-point
-    path with a meaningful, non-degenerate span."""
+def test_line_overlay_in_q_mode_draws_a_real_line_not_a_single_point(qapp, tmp_path):
+    """Regression for "Qxy/Qz와 같은 맵에서는 ... 표시가 안 되는거야?": an
+    overlay drawn while Map format was Qxy/Qz or Qy/Qz must not collapse
+    to a single point (or the beam origin regardless of the cut's actual
+    angle) -- must span a real, non-degenerate range on both axes.
+
+    The overlay is a straight line in Q-space (`_draw_q_space_line` via
+    `draw_beam_line`, `console_q_space_point`'s own uniform-grid Q
+    coordinate for its one anchor point) -- a brief detour through
+    sampling the true per-pixel Q maps point by point made it a "real
+    curve" instead, but that curved what `console_line_1d`'s own Qxy/Qz
+    cut treats as a straight cut through the same uniform grid (see
+    console_session.py's `_q_space_cut_inputs`), reported: "Qxy/Qz
+    맵에서 90도 line cut을... 해보면 일직선 라인이 아니라 휘어져 나와...
+    그냥 일직선 라인이 되면 좋을 것 같아.\""""
 
     import numpy as np
 
@@ -1922,6 +1972,10 @@ def test_line_overlay_in_q_mode_draws_a_real_curve_not_a_single_point(qapp, tmp_
 
     (line,) = console.image_canvas._overlay_artists
     xdata, ydata = np.asarray(line.get_xdata()), np.asarray(line.get_ydata())
+    # draw_beam_line plots exactly two points (start, end of the segment)
+    # -- confirms this is a genuine straight line, not the old multi-point
+    # sampled-and-curved path.
+    assert xdata.shape == (2,)
     finite = np.isfinite(xdata) & np.isfinite(ydata)
     assert finite.sum() > 1
     assert np.nanmax(xdata[finite]) - np.nanmin(xdata[finite]) > 0
@@ -1958,11 +2012,11 @@ def test_cakecut_overlay_in_q_mode_shows_two_distinct_wedge_lines(qapp, tmp_path
     """Regression reported live: '웨지 오버레이가 기대한 모양과 다릅니다' -- an X/bowtie
     instead of a clean V. Root cause: each boundary was drawn as a full
     bidirectional line through the beam origin (both angle_deg and its
-    180-opposite), and Q-space's nonlinear mapping makes the "opposite"
-    half look nothing like a mirrored continuation, so two crossing full
-    lines read as a confusing X rather than a wedge. Each boundary is now
-    a ray starting at the beam's Q-space origin (~(0, 0)) and extending
-    only outward in its actual direction."""
+    180-opposite), so two crossing full lines read as a confusing X
+    rather than a wedge. Each boundary is now a ray starting at the
+    beam's Q-space origin (~(0, 0)) and extending only outward in its
+    actual direction, straight (see
+    test_line_overlay_in_q_mode_draws_a_real_line_not_a_single_point)."""
 
     import h5py
     import numpy as np
@@ -1970,11 +2024,6 @@ def test_cakecut_overlay_in_q_mode_shows_two_distinct_wedge_lines(qapp, tmp_path
     from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config
     from pgixs_python.ui_backend import console_session as cs
 
-    # A larger frame than _load_test_frame's 20x24 -- the ground-truth
-    # angle check below round-trips through a nearest-pixel Q-map lookup
-    # (_display_xy_to_pixel_offset), and a tiny grid's coarse per-pixel Q
-    # spacing adds several degrees of lookup ambiguity that isn't a real
-    # bug, just discretization noise from the test fixture itself.
     frame_path = tmp_path / "frame.h5"
     data = np.random.default_rng(0).uniform(10, 100, size=(200, 240)).astype(np.float32)
     with h5py.File(frame_path, "w") as handle:
@@ -1991,10 +2040,11 @@ def test_cakecut_overlay_in_q_mode_shows_two_distinct_wedge_lines(qapp, tmp_path
     console.beam_z_spin.setValue(beam_z)
     qmap_result = cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": beam_y, "beam_z": beam_z})
     assert qmap_result["ok"], qmap_result.get("message")
-    console._axis_mode = "q"
-    console.map_format_combo.blockSignals(True)
+    # Unblocked -- draw_beam_line extends its ray to the axes' *current*
+    # view limits, so those need to actually be the real Q-space ones
+    # from rendering the Qxy/Qz background first (see
+    # _load_test_frame_in_q_mode's own comment).
     console.map_format_combo.setCurrentText("Qxy/Qz")
-    console.map_format_combo.blockSignals(False)
 
     console.line_angle_spin.setValue(0.0)
     console.cakecut_check.setChecked(True)
@@ -2007,21 +2057,19 @@ def test_cakecut_overlay_in_q_mode_shows_two_distinct_wedge_lines(qapp, tmp_path
     expected_angles = [0.0 + (-10.0), 0.0 + 15.0]  # draw order: minus boundary, then plus
     for line, expected_angle in zip((line_minus, line_plus), expected_angles):
         xdata, ydata = np.asarray(line.get_xdata()), np.asarray(line.get_ydata())
-        finite = np.isfinite(xdata) & np.isfinite(ydata)
-        first = np.flatnonzero(finite)[0]
-        assert xdata[first] == pytest.approx(0.0, abs=1e-2)
-        assert ydata[first] == pytest.approx(0.0, abs=1e-2)
+        # Exactly two points (start, end) -- a genuine straight segment.
+        assert xdata.shape == (2,)
+        assert xdata[0] == pytest.approx(0.0, abs=1e-2)
+        assert ydata[0] == pytest.approx(0.0, abs=1e-2)
         # Ground-truth check independent of _draw_q_space_line's own math:
-        # take a point partway along the ray, convert it back to a pixel
-        # offset via the already-tested reverse lookup
+        # take the ray's far endpoint, convert it back to a pixel offset
+        # via the already-tested reverse lookup
         # (_display_xy_to_pixel_offset), and confirm that offset's angle
         # (by the same formula _on_image_clicked uses) matches the wedge
         # boundary this ray was supposed to represent.
-        idxs = np.flatnonzero(finite)
-        mid = idxs[len(idxs) // 4]
-        px, pz = console._display_xy_to_pixel_offset(xdata[mid], ydata[mid])
+        px, pz = console._display_xy_to_pixel_offset(xdata[1], ydata[1])
         reported = _click_angle_deg(px, pz, 0.0, 0.0)
-        assert reported == pytest.approx(expected_angle % 360.0, abs=2.0)
+        assert reported == pytest.approx(expected_angle % 360.0, abs=1e-2)
 
     y1 = np.asarray(line_minus.get_ydata())
     y2 = np.asarray(line_plus.get_ydata())

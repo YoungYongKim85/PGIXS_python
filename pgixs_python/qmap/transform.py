@@ -133,6 +133,52 @@ def image_transform_q_tr(
     return _forward_map_to_q_grid(data, qy_map, qz_map, beam_pos, pixel_mm, wavelength_a, sdd_mm)
 
 
+def q_space_point(
+    col: float,
+    row: float,
+    beam_pos: tuple[float, float],
+    pixel_mm: float,
+    wavelength_a: float,
+    sdd_mm: float,
+) -> tuple[float, float]:
+    """Convert one (col, row) pixel-space point into the same uniform
+    Q-space (qx, qy) coordinate `image_transform_q_gi`/`image_transform_q_tr`'s
+    own output grid axes use -- `d_q * (index - beam_pos)`, a single
+    scale factor applied identically to both axes (see
+    `_forward_map_to_q_grid`'s own `horizontal_axis`/`vertical_axis`).
+
+    Used to draw a line/accumulation/cake cut's overlay directly as a
+    straight line in Q-space, instead of sampling the true (nonlinear)
+    per-pixel Q maps point by point -- that curves what is, in this
+    uniform grid, actually a straight cut (the console's own Qxy/Qz
+    line/cake cut now runs against this exact grid, not the true Q maps;
+    see console_session.py's `_q_space_cut_inputs`). Reported: "Qxy/Qz
+    맵에서 90도 line cut을... 해보면 일직선 라인이 아니라 휘어져 나와...
+    그냥 일직선 라인이 되면 좋을 것 같아.\""""
+
+    d_q = (2.0 * np.pi * pixel_mm) / (wavelength_a * sdd_mm)
+    return d_q * (col - beam_pos[0]), d_q * (beam_pos[1] - row)
+
+
+def pixel_point_from_q_space(
+    qx: float,
+    qy: float,
+    beam_pos: tuple[float, float],
+    pixel_mm: float,
+    wavelength_a: float,
+    sdd_mm: float,
+) -> tuple[float, float]:
+    """Inverse of `q_space_point` -- a Q-space (qx, qy) coordinate (e.g. a
+    click on the Qxy/Qz or Qy/Qz display) back to the (col, row) pixel
+    point that grid cell was regridded from. Exact (this uniform grid's
+    two axes are each linear in pixel position), unlike inverting the
+    true per-pixel Q maps, which needs a nearest-neighbor search since
+    they aren't invertible in closed form."""
+
+    d_q = (2.0 * np.pi * pixel_mm) / (wavelength_a * sdd_mm)
+    return qx / d_q + beam_pos[0], beam_pos[1] - qy / d_q
+
+
 def polar_transform_q_grid(
     data: np.ndarray,
     horizontal_q_map: np.ndarray,

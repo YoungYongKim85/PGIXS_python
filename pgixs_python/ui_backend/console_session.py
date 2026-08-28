@@ -60,7 +60,13 @@ from pgixs_python.processing.grid_remove import grid_remove
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
 from pgixs_python.processing.normalization import process_normalization
 from pgixs_python.qmap.gixs import qmap_gixs
-from pgixs_python.qmap.transform import image_transform_q_gi, image_transform_q_tr, polar_transform_q_grid
+from pgixs_python.qmap.transform import (
+    image_transform_q_gi,
+    image_transform_q_tr,
+    pixel_point_from_q_space,
+    polar_transform_q_grid,
+    q_space_point,
+)
 from pgixs_python.qmap.trxs import qmap_trxs
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
 
@@ -502,6 +508,65 @@ def console_qspace_image(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _q_space_scale_inputs() -> tuple[float, float, float] | None:
+    """(pixel_mm, wavelength_a, sdd_mm) for `q_space_point`/
+    `pixel_point_from_q_space`, or None if the calibration can't produce
+    a valid wavelength/scale."""
+
+    cal = _SESSION.calibration
+    wavelength_a = wavelength_from_energy_kev(float(cal["energy_kev"]))
+    sdd_mm = float(cal["sdd_mm"])
+    if not np.isfinite(wavelength_a) or wavelength_a <= 0 or sdd_mm <= 0:
+        return None
+    return float(cal["pixel_mm"]), wavelength_a, sdd_mm
+
+
+def console_q_space_point(payload: dict[str, Any]) -> dict[str, Any]:
+    """Convert one pixel (col, row) point into the uniform Q-space (qx,
+    qy) coordinate the console's Qxy/Qz or Qy/Qz display and cut geometry
+    actually uses (see `q_space_point`'s own docstring) -- used to draw a
+    cut's overlay as a straight line in Q-space directly, instead of
+    sampling the true per-pixel Q maps point by point, which curves what
+    is, in this uniform grid, actually a straight cut. Reported: "Qxy/Qz
+    맵에서 90도 line cut을... 해보면 일직선 라인이 아니라 휘어져 나와...
+    그냥 일직선 라인이 되면 좋을 것 같아.\""""
+
+    if _SESSION.data is None or _SESSION.qmap is None:
+        return {"ok": False, "message": "Run q-Map Cal. first."}
+    scale_inputs = _q_space_scale_inputs()
+    if scale_inputs is None:
+        return {"ok": False, "message": "Invalid energy/SDD for Q-space scale."}
+    try:
+        col = float(payload["col"])
+        row = float(payload["row"])
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"ok": False, "message": f"Invalid pixel point: {exc}"}
+    beam_pos = (float(_SESSION.calibration["beam_pos"][0]), float(_SESSION.calibration["beam_pos"][1]))
+    qx, qy = q_space_point(col, row, beam_pos, *scale_inputs)
+    return {"ok": True, "qx": qx, "qy": qy}
+
+
+def console_pixel_from_q_space(payload: dict[str, Any]) -> dict[str, Any]:
+    """Inverse of `console_q_space_point` -- a Q-space (qx, qy) click back
+    to the (col, row) pixel point it was regridded from, exactly (this
+    uniform grid's axes are each linear in pixel position, unlike the
+    true per-pixel Q maps a click used to search)."""
+
+    if _SESSION.data is None or _SESSION.qmap is None:
+        return {"ok": False, "message": "Run q-Map Cal. first."}
+    scale_inputs = _q_space_scale_inputs()
+    if scale_inputs is None:
+        return {"ok": False, "message": "Invalid energy/SDD for Q-space scale."}
+    try:
+        qx = float(payload["qx"])
+        qy = float(payload["qy"])
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"ok": False, "message": f"Invalid Q-space point: {exc}"}
+    beam_pos = (float(_SESSION.calibration["beam_pos"][0]), float(_SESSION.calibration["beam_pos"][1]))
+    col, row = pixel_point_from_q_space(qx, qy, beam_pos, *scale_inputs)
+    return {"ok": True, "col": col, "row": row}
+
+
 def console_polar_image(payload: dict[str, Any]) -> dict[str, Any]:
     """Polar (angle vs |Q|) remap of the current Cartesian Q image,
     centered at q=0 (the beam) -- the "Polar" toggle next to Map format.
@@ -534,6 +599,55 @@ def console_polar_image(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _q_space_cut_inputs(mapping: str) -> tuple[np.ndarray, np.ndarray]:
+    """Build the (regridded intensity, Q-magnitude) pair `console_line_1d`
+    swaps in for `data`/`q_map` when Map format isn't "Pixel" -- port of
+    GIXS_gui.m's `Anglecut1d_gi.m` Mapping branch (`data2d = param.Itrans`
+    for Qxy/Qz and Qy/Qz), so a line/accumulation/cake cut done in
+    Qxy/Qz (or Qy/Qz) mode runs against the actual Q-remapped image
+    instead of silently reusing the pixel-space cut (reported: "1D
+    process해서 pixel map에서 cutting하는 것이 Qxy/Qz cutting에
+    반영되서 진행되는데, 그렇게 하지말고 독립적으로 되면 좋겠어").
+
+    `image_transform_q_gi`/`image_transform_q_tr`'s own output grid is
+    index-aligned 1:1 with the pixel grid -- its axes are `d_q * (index -
+    beam_pos)`, a single uniform scale factor applied identically to both
+    the horizontal and vertical axis, not a per-pixel nonlinear remap.
+    That means `console_line_1d`'s existing `beam_pos` and (angle-
+    invariant under a uniform scale) `angle_map` are *already* correct
+    for this regridded image unchanged -- only the array of values being
+    cut (Itrans instead of raw counts) and the Q label attached to each
+    cut sample (this grid's own true Q magnitude, computed here in closed
+    form, instead of the true per-pixel Q) actually differ. This is what
+    makes a "Qxy/Qz cut" a genuinely independent cut through the
+    Q-remapped image rather than the pixel-space cut just relabeled, and
+    it lets `cake_average`/`accumulation_average` be reused completely
+    generically -- no need to port MATLAB's own separate per-direction
+    `calcQ_Horizontal`/`calcQ_Vertical`/`calcQ_Diagonal` Q-labeling logic,
+    since this grid's Q value at any index is already known exactly."""
+
+    data_for_transform = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    cal = _SESSION.calibration
+    beam_pos = (float(cal["beam_pos"][0]), float(cal["beam_pos"][1]))
+    pixel_mm = float(cal["pixel_mm"])
+    wavelength_a = wavelength_from_energy_kev(float(cal["energy_kev"]))
+    sdd_mm = float(cal["sdd_mm"])
+    qmap = _SESSION.qmap
+
+    if _SESSION.mode == "trxs":
+        if "qy" not in qmap or "qz" not in qmap:
+            raise ValueError("Qy/Qz map is not available.")
+        result = image_transform_q_tr(data_for_transform, qmap["qy"], qmap["qz"], beam_pos, pixel_mm, wavelength_a, sdd_mm)
+    else:
+        horizontal_map = qmap.get("qy") if mapping == "Qy/Qz" else qmap.get("qr")
+        if horizontal_map is None or "qz" not in qmap:
+            raise ValueError(f"{mapping} map is not available.")
+        result = image_transform_q_gi(data_for_transform, horizontal_map, qmap["qz"], beam_pos, pixel_mm, wavelength_a, sdd_mm)
+
+    q_magnitude = np.hypot(result.horizontal_axis[np.newaxis, :], result.vertical_axis[:, np.newaxis]).astype(np.float32)
+    return result.image, q_magnitude
+
+
 def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.qmap is None or _SESSION.data is None:
         return {"ok": False, "message": "Run q-Map Cal. first."}
@@ -549,13 +663,21 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         accumulation = bool(payload.get("accumulation", False))
         accum_minus = float(payload.get("accum_minus", -1.0))
         accum_plus = float(payload.get("accum_plus", 1.0))
+        mapping = str(payload.get("mapping", "Pixel")).strip()
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid line parameters: {exc}"}
 
     if accumulation and cakecut:
         return {"ok": False, "message": "Turn off Cakecut before using Accumulation."}
 
-    data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    if mapping == "Pixel":
+        data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+        q_for_1d = _SESSION.qmap["q"]
+    else:
+        try:
+            data_for_1d, q_for_1d = _q_space_cut_inputs(mapping)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
     beam_pos = _SESSION.calibration["beam_pos"]
     angle_map = _SESSION.angle_map
     if angle_map is None or angle_map.shape != data_for_1d.shape:
@@ -576,7 +698,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
             result = accumulation_average(
                 data_for_1d,
-                _SESSION.qmap["q"],
+                q_for_1d,
                 center=beam_pos,
                 angle_deg=angle_deg,
                 perp_offset=perp_offset,
@@ -587,7 +709,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         elif cakecut:
             result = cake_average(
                 data_for_1d,
-                _SESSION.qmap["q"],
+                q_for_1d,
                 angle_map,
                 center=beam_pos,
                 reference_angle=angle_deg,
@@ -598,7 +720,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
             result = accumulation_average(
                 data_for_1d,
-                _SESSION.qmap["q"],
+                q_for_1d,
                 center=beam_pos,
                 angle_deg=angle_deg,
                 perp_offset=perp_offset,
@@ -609,7 +731,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             result = cake_average(
                 data_for_1d,
-                _SESSION.qmap["q"],
+                q_for_1d,
                 angle_map,
                 center=beam_pos,
                 reference_angle=angle_deg,
@@ -628,11 +750,13 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         "intensity": result.intensity,
         "coverage": result.coverage,
         "angle_deg": angle_deg,
+        "mapping": mapping,
     }
     return {
         "ok": True,
         "angle_deg": angle_deg,
         "angle_range": list(result.angle_range),
+        "mapping": mapping,
         "coverage_diagnostics": _coverage_summary(result.coverage),
         "preview": {
             "q": downsample_1d_for_json(result.q_axis, max_points=600),

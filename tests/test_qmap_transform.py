@@ -1,7 +1,13 @@
 import numpy as np
 import pytest
 
-from pgixs_python.qmap.transform import image_transform_q_gi, image_transform_q_tr, polar_transform_q_grid
+from pgixs_python.qmap.transform import (
+    image_transform_q_gi,
+    image_transform_q_tr,
+    pixel_point_from_q_space,
+    polar_transform_q_grid,
+    q_space_point,
+)
 
 
 def _identity_setup():
@@ -36,6 +42,44 @@ def test_image_transform_q_gi_identity_mapping_reproduces_source_pixels():
     # bilinear splat degenerates to full weight on a single cell -- the
     # transformed image exactly reproduces the source pixel-space image.
     np.testing.assert_allclose(result.image, data)
+
+
+def test_q_space_point_matches_image_transform_q_gi_own_axes():
+    """q_space_point's (qx, qy) at each grid-aligned (col, row) must equal
+    exactly what image_transform_q_gi's own horizontal_axis/vertical_axis
+    report for that same index -- it's meant to be the same uniform-grid
+    coordinate system, computed independently of actually regridding an
+    image (used to draw a cut overlay directly in Q-space)."""
+
+    data, hmap, vmap, beam_pos, pixel_mm, wavelength_a, sdd_mm = _identity_setup()
+    result = image_transform_q_gi(data, hmap, vmap, beam_pos, pixel_mm, wavelength_a, sdd_mm, mask_beamstop=False)
+
+    for col in range(1, 5):
+        for row in range(1, 5):
+            qx, qy = q_space_point(col, row, beam_pos, pixel_mm, wavelength_a, sdd_mm)
+            assert qx == pytest.approx(result.horizontal_axis[col - 1])
+            assert qy == pytest.approx(result.vertical_axis[row - 1])
+
+
+def test_pixel_point_from_q_space_is_the_exact_inverse_of_q_space_point():
+    """Regression: "Qxy/Qz 맵에서 90도 line cut을... 해보면 일직선
+    라인이 아니라 휘어져 나와" -- console_widget.py draws a cut overlay
+    as a straight line in Q-space via q_space_point, and inverts a
+    Q-space click back to a pixel point via pixel_point_from_q_space;
+    those two must be exact inverses of each other (this uniform grid's
+    axes are each linear in pixel position) for the overlay and the
+    click that sets it up to stay consistent."""
+
+    beam_pos = (12.3, 45.6)
+    pixel_mm = 0.075
+    wavelength_a = 1.3
+    sdd_mm = 300.0
+
+    for col, row in [(1.0, 1.0), (50.0, 30.0), (12.3, 45.6), (-10.0, 200.0)]:
+        qx, qy = q_space_point(col, row, beam_pos, pixel_mm, wavelength_a, sdd_mm)
+        back_col, back_row = pixel_point_from_q_space(qx, qy, beam_pos, pixel_mm, wavelength_a, sdd_mm)
+        assert back_col == pytest.approx(col)
+        assert back_row == pytest.approx(row)
 
 
 def test_image_transform_q_gi_masks_beamstop_column():
