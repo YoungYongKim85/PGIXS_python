@@ -390,13 +390,17 @@ class GIXS2Widget(QWidget):
 
         layout.addWidget(_divider("Save"))
         self.save_1d_button = QPushButton("Save 1D")
-        self.save_1d_button.clicked.connect(lambda: self._save(gs.gixs2_save_1d, self.normalize_1d_combo.currentText()))
+        self.save_1d_button.clicked.connect(
+            lambda: self._save(gs.gixs2_save_1d, self.normalize_1d_combo.currentText(), self.oned_canvas)
+        )
         self.save_azi_button = QPushButton("Save Azi")
-        self.save_azi_button.clicked.connect(lambda: self._save(gs.gixs2_save_azimuthal, self.normalize_azi_combo.currentText()))
+        self.save_azi_button.clicked.connect(
+            lambda: self._save(gs.gixs2_save_azimuthal, self.normalize_azi_combo.currentText(), self.azi_canvas)
+        )
         layout.addWidget(_row(self.save_1d_button, self.save_azi_button))
         self.save_integ_button = QPushButton("Save Integ.")
         self.save_integ_button.clicked.connect(
-            lambda: self._save(gs.gixs2_save_integration, self.normalize_roi_combo.currentText())
+            lambda: self._save(gs.gixs2_save_integration, self.normalize_roi_combo.currentText(), self.integ_canvas)
         )
         self.save_xaxis_button = QPushButton("Save X-Axis")
         self.save_xaxis_button.clicked.connect(lambda: self._save(gs.gixs2_save_x_axis))
@@ -1725,7 +1729,7 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
-    def _save(self, save_fn, normalize: str | None = None) -> None:
+    def _save(self, save_fn, normalize: str | None = None, canvas: CurveCanvas | None = None) -> None:
         payload = {"directory": self._last_dir}
         if normalize is not None:
             payload["normalize"] = normalize
@@ -1733,4 +1737,23 @@ class GIXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Save failed."), False)
             return
-        self._set_status(f"Saved {result['path']}.", True)
+        data_path = Path(result["path"])
+        if canvas is None:
+            self._set_status(f"Saved {data_path}.", True)
+            return
+        # Port of MATLAB's own `savePanelSnapshot` (called from
+        # `Saveget3_Callback`/`Saveget2_Callback`/`Saveget4_Callback`, the
+        # Save 1D/Azi/Integ. handlers): each data export gets a same-named
+        # image alongside it, same convention as the single-frame
+        # console's own `_on_curve_save_clicked`. MATLAB re-plots into a
+        # throwaway figure to work around `uiaxes` not supporting
+        # `copyobj`; that workaround doesn't apply here since `canvas`'s
+        # own `figure` already *is* a real matplotlib Figure, showing
+        # exactly what's on screen.
+        image_path = data_path.with_name(f"{data_path.stem}.png")
+        try:
+            canvas.save_figure(str(image_path))
+        except Exception as exc:  # noqa: BLE001
+            self._set_status(f"Saved {data_path}, but image export failed: {exc}", False)
+            return
+        self._set_status(f"Saved {data_path} and {image_path}.", True)

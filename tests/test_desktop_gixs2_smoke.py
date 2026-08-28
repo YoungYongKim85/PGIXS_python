@@ -5,6 +5,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import h5py
@@ -963,6 +964,60 @@ def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path):
     # session.x_axis_label -- carries the unit (here "s") too, same as
     # the 1D/Azimuthal Plot Viewers' colorbars.
     assert widget.integ_canvas.ax.get_xlabel() == "Time, s"
+
+
+def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path):
+    """Port of MATLAB's own `savePanelSnapshot` (called from Save 1D/Save
+    Azi/Save Integ.'s callbacks): each data export now gets a same-named
+    PNG of the panel's current plot alongside it, same convention as the
+    single-frame console's own Save button (see
+    test_curve_save_writes_csv_and_reports_full_paths in
+    test_desktop_smoke.py). Reuses one widget across all three saves
+    (rather than one per) -- this suite already constructs plenty of
+    GIXS2Widget instances elsewhere."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+    widget._on_qcal_clicked()
+    _exec_1d_sync(widget)
+    _exec_azi_sync(widget)
+    widget._on_set_x_axis_clicked()
+    widget._last_dir = str(tmp_path)
+
+    widget.save_1d_button.click()
+    csv_1d = tmp_path / "ABCD" / "ABCD_1D.csv"
+    png_1d = tmp_path / "ABCD" / "ABCD_1D.png"
+    assert csv_1d.exists()
+    assert png_1d.exists()
+    # _wrap_long_tokens inserts zero-width spaces into long paths so they
+    # wrap in the status label -- strip them before substring-checking.
+    status_text = widget.status_label.text().replace(chr(0x200B), "")
+    assert str(csv_1d) in status_text
+    assert str(png_1d) in status_text
+
+    widget.save_azi_button.click()
+    csv_azi = tmp_path / "ABCD" / "ABCD_Azi.csv"
+    png_azi = tmp_path / "ABCD" / "ABCD_Azi.png"
+    assert csv_azi.exists()
+    assert png_azi.exists()
+
+    widget.save_integ_button.click()
+    result = gs.gixs2_save_integration({"directory": str(tmp_path)})
+    integ_png = Path(result["path"]).with_suffix(".png")
+    assert Path(result["path"]).exists()
+    assert integ_png.exists()
+
+    # Save X-Axis has no single associated plot (MATLAB's own
+    # SavegetX_Callback doesn't call savePanelSnapshot either) -- no PNG
+    # alongside it, and no `canvas` argument in its own button wiring.
+    widget.save_xaxis_button.click()
+    xaxis_csv = tmp_path / "ABCD" / "ABCD_Xaxis.csv"
+    assert xaxis_csv.exists()
+    assert not xaxis_csv.with_suffix(".png").exists()
 
 
 def test_gixs2_widget_auto_refresh_no_new_files(qapp, tmp_path, monkeypatch):
