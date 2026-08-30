@@ -273,10 +273,15 @@ class TrXS2Widget(QWidget):
         self.line_exec_button.clicked.connect(self._on_line_exec_clicked)
         layout.addWidget(_row(self.line_draw_button, self.line_exec_button))
 
+        layout.addWidget(_divider("1D Output (Circular + Line)"))
         self.normalize_1d_combo = QComboBox()
         self.normalize_1d_combo.addItems(_NORMALIZE_LIST)
         _size_combo(self.normalize_1d_combo, _COMBO_CHARS)
         self.normalize_1d_combo.currentTextChanged.connect(lambda text: self._refresh_1d({"normalize": text}))
+        self.normalize_1d_combo.setToolTip(
+            "Applies to whichever of Circular Average / 1D Line Ang was run last -- both share this one "
+            "1D Wave Vector Plot output, this Normalize setting, and Save 1D."
+        )
         self.plot_1d_button = QPushButton("Plot")
         self.plot_1d_button.setToolTip("Redraw the 1D Wave Vector Plot with the current Normalize/Subtraction settings.")
         self.plot_1d_button.clicked.connect(lambda: self._refresh_1d({}))
