@@ -31,3 +31,19 @@ def compute_sdd_from_ring(pixel_radius: float, pixel_size_mm: float, energy_kev:
     sdd = float(pixel_radius) * float(pixel_size_mm) / np.tan(np.radians(two_theta_deg))
     return SDDRingResult(sdd=sdd, wavelength=wavelength, two_theta_deg=two_theta_deg)
 
+
+def predicted_ring_radius(sdd_mm: float, pixel_size_mm: float, energy_kev: float, q_value: float) -> float:
+    """Inverse of `compute_sdd_from_ring`: the pixel radius a ring at
+    `q_value` would appear at, given a known/assumed SDD -- used to check
+    whether an order-assignment hypothesis's implied "missing" lower-order
+    rings (e.g. a 1st-order Silver behenate ring hidden behind the
+    beamstop) would plausibly fall inside the excluded near-beamstop
+    region, rather than just being silently assumed."""
+
+    wavelength = wavelength_from_energy_kev(energy_kev)
+    theta = np.arcsin(float(q_value) * wavelength / (4.0 * np.pi))
+    two_theta_deg = float(np.degrees(2.0 * theta))
+    if not np.isfinite(two_theta_deg) or two_theta_deg <= 0:
+        raise ValueError("Invalid q/energy combination for SDD calculation.")
+    return float(sdd_mm) * np.tan(np.radians(two_theta_deg)) / float(pixel_size_mm)
+

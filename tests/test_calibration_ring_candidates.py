@@ -86,6 +86,82 @@ def test_analyze_sdd_candidates_non_silver_behenate_only_tries_order_one():
     assert report.candidates[0].q_value == pytest.approx(q1)
 
 
+def test_multiple_visible_rings_with_first_order_hidden_are_assigned_orders_two_through_four():
+    """The more typical real-data version of the beamstop-hidden-1st-order
+    scenario: several higher orders (2nd-4th) are all clearly visible and
+    mutually self-consistent, with only the 1st order missing (hidden
+    behind the beamstop). The cross-ring rel_spread term already handles
+    this correctly on its own (order_start=1 would misalign every ring by
+    one order and blow up the spread) -- this just locks in that the new
+    single-ring plausibility checks don't regress the already-working
+    multi-ring path."""
+
+    true_sdd = 150.0
+    pixel_size_mm = 0.075
+    energy_kev = 9.5
+    radii = []
+    for order in range(1, 5):
+        q = standard_q_value("Silver behenate", order)
+        wavelength = 12.398419843320026 / energy_kev
+        two_theta = 2.0 * np.arcsin(q * wavelength / (4.0 * np.pi))
+        radii.append(true_sdd * np.tan(two_theta) / pixel_size_mm)
+
+    r_axis, intensity, coverage = _synthetic_multi_ring_profile(radii[1:], n_bins=800, ring_sigma=2.0)
+
+    report = analyze_sdd_candidates(r_axis, intensity, coverage, "Silver behenate", energy_kev, pixel_size_mm)
+
+    assert [c.order for c in report.candidates] == [2, 3, 4]
+    assert report.final_sdd == pytest.approx(true_sdd, rel=0.01)
+
+
+def test_single_visible_ring_hidden_behind_beamstop_is_recognized_as_order_two():
+    """Regression: "1st order위치를 잘못 인식하는거야... 1st peak은 빔스탑에
+    가려져 있어" -- a short-SDD (WAXS-like) geometry where the 1st-order
+    Silver behenate ring falls inside the excluded near-beamstop region
+    and only the 2nd-order ring is ever detected as a candidate. The old
+    scoring always defaulted a lone ring to order=1 (a tie it could never
+    lose), silently ignoring that the implied 1st-order ring would sit
+    well inside the excluded region -- exactly what a hidden ring behind
+    the beamstop should look like."""
+
+    pixel_size_mm = 0.075
+    energy_kev = 9.5
+    q1 = standard_q_value("Silver behenate", 1)
+    q2 = standard_q_value("Silver behenate", 2)
+
+    # Choose a true SDD by pinning the (only visible) 2nd-order ring to a
+    # rough_radius comfortably past min_radius, then confirm the 1st-order
+    # ring it implies is comfortably inside the excluded (< min_radius)
+    # region -- i.e. genuinely hidden, not just barely.
+    true_sdd = compute_sdd_from_ring(80.0, pixel_size_mm, energy_kev, q2).sdd
+    order1_radius = 80.0 * (q1 / q2)  # small-angle approx, just for the assertion below
+    assert order1_radius < 50.0  # sanity check: 1st order is inside the excluded region
+
+    r_axis, intensity, coverage = _synthetic_multi_ring_profile([80.0], ring_sigma=2.0)
+
+    report = analyze_sdd_candidates(r_axis, intensity, coverage, "Silver behenate", energy_kev, pixel_size_mm)
+
+    assert len(report.candidates) == 1
+    assert report.candidates[0].order == 2
+    assert report.candidates[0].sdd == pytest.approx(true_sdd, rel=0.01)
+
+
+def test_single_visible_ring_far_from_beamstop_stays_order_one():
+    """The counterpart to the hidden-1st-order case above: a single ring
+    where the implied 2nd-order ring would fall *beyond* the analyzed
+    radial range (not just unseen but genuinely out of view) must still be
+    recognized as a real, unremarkable order=1 ring -- the "was a lower/
+    next order plausibly hidden" checks must not overcorrect every lone
+    ring into a higher order."""
+
+    r_axis, intensity, coverage = _synthetic_multi_ring_profile([80.0], n_bins=110, ring_sigma=2.0)
+
+    report = analyze_sdd_candidates(r_axis, intensity, coverage, "Silver behenate", 9.5, 0.075)
+
+    assert len(report.candidates) == 1
+    assert report.candidates[0].order == 1
+
+
 def test_candidates_to_dicts_round_trips_fields():
     r_axis, intensity, coverage = _synthetic_multi_ring_profile([150.0])
     report = analyze_sdd_candidates(r_axis, intensity, coverage, "Sucrose", 9.5, 0.075)

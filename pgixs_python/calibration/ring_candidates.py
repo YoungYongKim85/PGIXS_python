@@ -18,7 +18,7 @@ import numpy as np
 from scipy.signal import find_peaks
 
 from pgixs_python.calibration.peak_fit import fit_gaussian_peak
-from pgixs_python.calibration.sdd import compute_sdd_from_ring
+from pgixs_python.calibration.sdd import compute_sdd_from_ring, predicted_ring_radius
 from pgixs_python.calibration.standards import standard_q_value
 
 
@@ -145,8 +145,18 @@ def analyze_sdd_candidates(
             )
         )
 
+    max_radius = float(np.nanmax(r_axis)) if r_axis.size else min_radius
     _assign_ring_orders(
-        candidates, sample_name, energy_kev, pixel_size_mm, min_r_square, min_coverage, max_order_start, max_skip_candidates
+        candidates,
+        sample_name,
+        energy_kev,
+        pixel_size_mm,
+        min_r_square,
+        min_coverage,
+        max_order_start,
+        max_skip_candidates,
+        min_radius,
+        max_radius,
     )
 
     accepted_sdd = [c.sdd for c in candidates if c.accepted and c.sdd is not None]
@@ -181,6 +191,8 @@ def _assign_ring_orders(
     min_coverage: float,
     max_order_start: int,
     max_skip_candidates: int,
+    min_radius: float,
+    max_radius: float,
 ) -> None:
     n = len(candidates)
     if n == 0:
@@ -216,7 +228,9 @@ def _assign_ring_orders(
                     and trial[row].coverage >= min_coverage
                 )
 
-            score = _score_order_assignment(trial, cand_start)
+            score = _score_order_assignment(
+                trial, cand_start, order_start, sample_name, energy_kev, pixel_size_mm, min_radius, max_radius
+            )
             if score < best_score:
                 best_score = score
                 best_trial = trial
@@ -231,7 +245,16 @@ def _assign_ring_orders(
         candidates[i].message = "Skipped before selected ring series" if c.order is None else c.message
 
 
-def _score_order_assignment(trial: list[RingCandidate], cand_start: int) -> float:
+def _score_order_assignment(
+    trial: list[RingCandidate],
+    cand_start: int,
+    order_start: int,
+    sample_name: str,
+    energy_kev: float,
+    pixel_size_mm: float,
+    min_radius: float,
+    max_radius: float,
+) -> float:
     accepted_sdd = [c.sdd for c in trial if c.accepted and c.sdd is not None]
     n_accepted = len(accepted_sdd)
     if n_accepted == 0:
@@ -240,7 +263,56 @@ def _score_order_assignment(trial: list[RingCandidate], cand_start: int) -> floa
     if not np.isfinite(center) or center <= 0:
         return float("inf")
     rel_spread = 0.25 if n_accepted == 1 else float(np.std(accepted_sdd)) / center
-    return rel_spread - 0.05 * n_accepted + 0.02 * (cand_start - 1)
+    score = rel_spread - 0.05 * n_accepted + 0.02 * (cand_start - 1)
+
+    # order_start > 1 implicitly claims the lower orders (1..order_start-1)
+    # were never even detected as candidates -- e.g. "1st peak hidden
+    # behind the beamstop". With a single visible ring this previously tied
+    # with order_start=1 on every other term, so the search silently kept
+    # whichever order_start happened to be tried first (always 1), even
+    # when the true first-visible ring was actually a higher order.
+    # Check plausibility instead: predict where each "missing" lower order
+    # would fall using this hypothesis's own SDD estimate. A predicted
+    # radius still inside the observable region (>= min_radius) means it
+    # should have shown up as its own candidate but didn't -- contradicts
+    # the hypothesis, so penalize heavily. One that already falls below
+    # min_radius is a genuine, physically consistent explanation for why
+    # it was never detected.
+    if order_start > 1:
+        implausible = 0
+        for missing_order in range(1, order_start):
+            try:
+                q_value = standard_q_value(sample_name, missing_order)
+                radius = predicted_ring_radius(center, pixel_size_mm, energy_kev, q_value)
+            except (ValueError, ZeroDivisionError):
+                continue
+            if np.isfinite(radius) and radius >= min_radius:
+                implausible += 1
+        if implausible:
+            score += 0.5 * implausible
+        else:
+            # Among several self-consistent "hidden lower order" explanations,
+            # prefer the smallest order_start (fewest assumed-hidden rings).
+            score += 0.001 * (order_start - 1)
+    elif len(trial) == 1:
+        # order_start=1 has no lower order to explain, so it always passed
+        # the check above for free -- even when the single visible ring
+        # was actually a higher order with 1st order hidden behind the
+        # beamstop. Silver behenate's order-1 and order-2 rings are
+        # normally comparable in intensity and order 2 sits at a strictly
+        # larger, less-obstructed radius, so if nothing else was found
+        # anywhere in the analyzed range, and order 2's radius (predicted
+        # from this order=1 hypothesis) should have fallen well inside
+        # that range, its absence is itself evidence against order_start=1.
+        try:
+            q_next = standard_q_value(sample_name, 2)
+            radius_next = predicted_ring_radius(center, pixel_size_mm, energy_kev, q_next)
+        except (ValueError, ZeroDivisionError):
+            radius_next = float("nan")
+        if np.isfinite(radius_next) and min_radius <= radius_next <= max_radius:
+            score += 0.5
+
+    return score
 
 
 def candidates_to_dicts(report: SDDCandidateReport) -> list[dict[str, Any]]:
