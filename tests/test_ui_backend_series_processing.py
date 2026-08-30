@@ -2,10 +2,13 @@ import numpy as np
 import pytest
 
 from pgixs_python.averaging.cake import pixel_angle_map
+from pgixs_python.averaging.radial import radius_average
 from pgixs_python.ui_backend.series_processing import (
     average_exposure_seconds,
+    build_circular_radius_map,
     compute_experiment_x_axis,
     process_azimuthal_stack,
+    process_circular_stack,
     process_linecut_stack,
     process_roi_stack,
     sort_x_axis,
@@ -317,3 +320,145 @@ def test_sort_x_axis_off_keeps_load_order():
 def test_sort_x_axis_on_sorts_ascending():
     order = sort_x_axis(np.array([3.0, 1.0, 2.0]), should_sort=True)
     np.testing.assert_array_equal(order, [1, 2, 0])
+
+
+def _q_map(center=(100.5, 100.5), shape=(200, 200)):
+    return np.hypot(*np.meshgrid(np.arange(1, shape[1] + 1) - center[0], np.arange(1, shape[0] + 1) - center[1])).astype(
+        np.float32
+    )
+
+
+def test_build_circular_radius_map_full_circle_matches_direct_radius_average():
+    center = (100.5, 100.5)
+    q_map = _q_map(center)
+    radius_map = build_circular_radius_map(q_map, center)
+
+    assert radius_map.is_valid
+    assert radius_map.q_axis.shape[0] == radius_map.n_bins
+    # Full 0..360 range should include (nearly) every finite/positive-q pixel.
+    assert np.count_nonzero(radius_map.geom_mask) == int(np.count_nonzero(np.isfinite(q_map) & (q_map > 0)))
+
+
+def test_build_circular_radius_map_restricts_to_angle_range():
+    center = (100.5, 100.5)
+    q_map = _q_map(center)
+    full = build_circular_radius_map(q_map, center, angle_range=(0.0, 360.0))
+    half = build_circular_radius_map(q_map, center, angle_range=(0.0, 180.0))
+
+    assert np.count_nonzero(half.geom_mask) < np.count_nonzero(full.geom_mask)
+
+
+def test_build_circular_radius_map_applies_roi_mask():
+    center = (100.5, 100.5)
+    q_map = _q_map(center)
+    full = build_circular_radius_map(q_map, center)
+
+    roi_mask = np.zeros(q_map.shape, dtype=bool)
+    roi_mask[:100, :] = True  # keep only the top half
+    masked = build_circular_radius_map(q_map, center, mask=roi_mask)
+
+    assert np.count_nonzero(masked.geom_mask) < np.count_nonzero(full.geom_mask)
+
+
+def test_build_circular_radius_map_rejects_mismatched_mask_shape():
+    center = (100.5, 100.5)
+    q_map = _q_map(center)
+    with pytest.raises(ValueError):
+        build_circular_radius_map(q_map, center, mask=np.ones((5, 5), dtype=bool))
+
+
+def test_process_circular_stack_matches_hand_computed_radius_average():
+    center = (100.5, 100.5)
+    radii = [60.0, 70.0, 80.0]
+    stack = _synthetic_ring_stack(n_frames=3, center=center, radii=radii)
+    q_map = _q_map(center)
+    radius_map = build_circular_radius_map(q_map, center)
+
+    result = process_circular_stack(stack, radius_map)
+
+    assert result.intensity.shape[0] == 3
+    assert result.intensity.shape == result.coverage.shape
+    for i in range(3):
+        expected = radius_average(stack[i], radius_map)
+        np.testing.assert_allclose(result.intensity[i], expected.intensity, equal_nan=True)
+        np.testing.assert_allclose(result.x_axis, expected.q_axis)
+
+
+def test_process_circular_stack_tracks_moving_ring():
+    center = (100.5, 100.5)
+    radii = [60.0, 70.0, 80.0]
+    stack = _synthetic_ring_stack(n_frames=3, center=center, radii=radii)
+    radius_map = build_circular_radius_map(_q_map(center), center)
+
+    result = process_circular_stack(stack, radius_map)
+
+    # `_q_map`'s Q value at a given pixel equals that pixel's own radius
+    # from center, so the peak bin's x_axis value should track each
+    # frame's own ring radius directly.
+    for i, radius in enumerate(radii):
+        peak_idx = int(np.nanargmax(result.intensity[i]))
+        assert result.x_axis[peak_idx] == pytest.approx(radius, abs=3.0)
+
+
+def test_process_circular_stack_reports_progress_per_frame():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=4, center=center, radii=[60.0] * 4)
+    radius_map = build_circular_radius_map(_q_map(center), center)
+
+    calls = []
+    process_circular_stack(
+        stack, radius_map, progress_callback=lambda completed, total: calls.append((completed, total))
+    )
+
+    assert calls == [(1, 4), (2, 4), (3, 4), (4, 4)]
+
+
+def test_process_circular_stack_parallel_matches_serial():
+    center = (100.5, 100.5)
+    radii = [58.0, 63.0, 71.0, 66.0, 60.0, 75.0]
+    stack = _synthetic_ring_stack(n_frames=6, center=center, radii=radii)
+    radius_map = build_circular_radius_map(_q_map(center), center)
+
+    serial = process_circular_stack(stack, radius_map, parallel=False)
+    parallel = process_circular_stack(stack, radius_map, parallel=True)
+
+    np.testing.assert_array_equal(serial.x_axis, parallel.x_axis)
+    np.testing.assert_array_equal(serial.intensity, parallel.intensity)
+    np.testing.assert_array_equal(serial.coverage, parallel.coverage)
+
+
+def test_process_circular_stack_calc_std_populates_std_matrix():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=2, center=center, radii=[60.0, 60.0])
+    radius_map = build_circular_radius_map(_q_map(center), center)
+
+    without_std = process_circular_stack(stack, radius_map, calc_std=False)
+    with_std = process_circular_stack(stack, radius_map, calc_std=True)
+
+    assert without_std.std is None
+    assert with_std.std is not None
+    assert with_std.std.shape == with_std.intensity.shape
+
+
+def test_process_circular_stack_nulls_bins_below_min_coverage():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=1, center=center, radii=[60.0])
+    radius_map = build_circular_radius_map(_q_map(center), center)
+
+    permissive = process_circular_stack(stack, radius_map, min_coverage=0.0)
+    strict = process_circular_stack(stack, radius_map, min_coverage=1.01)  # nothing can reach >1.0 coverage
+
+    assert np.count_nonzero(np.isfinite(permissive.intensity)) > 0
+    assert np.count_nonzero(np.isfinite(strict.intensity)) == 0
+
+
+def test_process_circular_stack_rejects_empty_geometry():
+    center = (100.5, 100.5)
+    q_map = _q_map(center)
+    empty_mask = np.zeros(q_map.shape, dtype=bool)
+    radius_map = build_circular_radius_map(q_map, center, mask=empty_mask)
+    assert not radius_map.is_valid
+
+    stack = _synthetic_ring_stack(n_frames=1, center=center, radii=[60.0])
+    with pytest.raises(ValueError):
+        process_circular_stack(stack, radius_map)

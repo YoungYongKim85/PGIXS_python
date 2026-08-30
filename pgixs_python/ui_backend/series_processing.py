@@ -24,8 +24,9 @@ from typing import Callable
 
 import numpy as np
 
-from pgixs_python.averaging.angular import angular_profile
+from pgixs_python.averaging.angular import angular_profile, make_sector_mask
 from pgixs_python.averaging.cake import CakeAverageResult, accumulation_average, cake_average
+from pgixs_python.averaging.radial import RadiusBinMap, build_radius_bin_map, radius_average
 
 
 @dataclass
@@ -33,6 +34,14 @@ class SeriesCurveResult:
     x_axis: np.ndarray
     intensity: np.ndarray  # (n_frames, n_bins)
     coverage: np.ndarray  # (n_frames, n_bins)
+
+
+@dataclass
+class SeriesCircularResult:
+    x_axis: np.ndarray
+    intensity: np.ndarray  # (n_frames, n_bins)
+    coverage: np.ndarray  # (n_frames, n_bins)
+    std: np.ndarray | None  # (n_frames, n_bins), or None when calc_std=False
 
 
 def _align_to_reference(x: np.ndarray, y: np.ndarray, ref_x: np.ndarray) -> np.ndarray:
@@ -198,6 +207,117 @@ def process_linecut_stack(
     if x_axis is None:
         raise ValueError("No pixels selected for this line/cake-cut geometry in any frame.")
     return SeriesCurveResult(x_axis=x_axis, intensity=np.vstack(intensity_rows), coverage=np.vstack(coverage_rows))
+
+
+def build_circular_radius_map(
+    q_map: np.ndarray,
+    center: tuple[float, float],
+    angle_range: tuple[float, float] = (0.0, 360.0),
+    mask: np.ndarray | None = None,
+) -> RadiusBinMap:
+    """Precompute the once-per-series radius bin map Circular Average loops
+    across every frame of a stack -- port of `buildPGIXSRadiusBinMap`'s own
+    call site in `CircularAve2_Callback` (MATLAB's `radiusPrep`, explicitly
+    built once and reused for speed rather than recomputed per frame).
+
+    `angle_range` restricts the sector the same way `make_sector_mask`
+    does elsewhere in this codebase (equal start/end means full circle);
+    `mask`, when given, is a user-drawn ROI mask (True = keep pixel,
+    matching `console_set_circular_mask`'s convention) ANDed onto the
+    sector -- both are combined with `isfinite(q) & q > 0` before the one
+    `build_radius_bin_map` call, matching `CircularAve2_Callback`'s own
+    `geom_valid = sector_mask & (BW > 0) & isfinite(param.Q) & (param.Q > 0)`.
+    """
+
+    q = np.asarray(q_map, dtype=np.float32)
+    if q.ndim != 2:
+        raise ValueError("q_map must be a 2D array.")
+
+    geom_valid = make_sector_mask(q.shape, center, angle_range)
+    if mask is not None:
+        mask_arr = np.asarray(mask, dtype=bool)
+        if mask_arr.shape != q.shape:
+            raise ValueError("mask must match q_map shape.")
+        geom_valid = geom_valid & mask_arr
+
+    return build_radius_bin_map(q, center, geom_valid)
+
+
+def process_circular_stack(
+    stack: np.ndarray,
+    radius_map: RadiusBinMap,
+    use_median: bool = False,
+    calc_std: bool = False,
+    min_coverage: float = 0.80,
+    progress_callback: Callable[[int, int], None] | None = None,
+    parallel: bool = False,
+    max_workers: int | None = None,
+) -> SeriesCircularResult:
+    """Circular Average across a whole series -- same q-binned average as
+    `console_session.console_circular_average`, run once per frame against
+    a single precomputed `radius_map` (built once by
+    `build_circular_radius_map`, not rebuilt per frame -- the speed-critical
+    "radiusPrep" reuse `CircularAve2_Callback` itself relies on).
+
+    Per-frame bins below `min_coverage` are nulled to NaN, matching
+    `console_circular_average`'s own coverage-threshold behavior (MATLAB's
+    `CircularAve2_Callback` has no such threshold -- this mirrors the
+    single-frame TrXS console's own already-established coverage handling
+    instead, a deliberate simplification/enhancement over the literal
+    MATLAB port, same as `console_circular_average`'s docstring already
+    documents).
+
+    `progress_callback`/`parallel`/`max_workers` follow the same
+    conventions as `process_linecut_stack`'s own.
+    """
+
+    if not radius_map.is_valid:
+        raise ValueError("No valid radius bins for this circular-average geometry.")
+
+    n_frames = stack.shape[0]
+
+    def _run_frame(i: int):
+        return radius_average(stack[i], radius_map, use_median=use_median, calc_std=calc_std)
+
+    results = [None] * n_frames
+    if parallel and n_frames > 1:
+        progress_lock = threading.Lock()
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_run_frame, i): i for i in range(n_frames)}
+            for future in as_completed(futures):
+                i = futures[future]
+                results[i] = future.result()
+                if progress_callback is not None:
+                    with progress_lock:
+                        completed += 1
+                        progress_callback(completed, n_frames)
+    else:
+        for i in range(n_frames):
+            results[i] = _run_frame(i)
+            if progress_callback is not None:
+                progress_callback(i + 1, n_frames)
+
+    intensity_rows: list[np.ndarray] = []
+    coverage_rows: list[np.ndarray] = []
+    std_rows: list[np.ndarray] | None = [] if calc_std else None
+
+    for result in results:
+        intensity = np.asarray(result.intensity, dtype=np.float32).copy()
+        coverage = np.asarray(result.coverage, dtype=np.float32)
+        below = np.isfinite(coverage) & (coverage < min_coverage)
+        intensity[below] = np.nan
+        intensity_rows.append(intensity)
+        coverage_rows.append(coverage)
+        if calc_std:
+            std_rows.append(result.std)
+
+    return SeriesCircularResult(
+        x_axis=radius_map.q_axis,
+        intensity=np.vstack(intensity_rows),
+        coverage=np.vstack(coverage_rows),
+        std=np.vstack(std_rows) if calc_std else None,
+    )
 
 
 def process_azimuthal_stack(

@@ -8,6 +8,7 @@ from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config, trxs
 from pgixs_python.desktop.gixs2_widget import GIXS2Widget
 from pgixs_python.desktop.penetration_widget import PenetrationWidget
 from pgixs_python.desktop.sddcal_widget import SDDcalWidget
+from pgixs_python.desktop.trxs2_widget import TrXS2Widget
 from pgixs_python.desktop.xtrans_widget import XTransWidget
 
 
@@ -47,10 +48,17 @@ class MainWindow(QMainWindow):
         # right after GIXS since it's the same instrument/geometry, not
         # with the standalone calculator tabs.
         self.gixs2 = GIXS2Widget()
+        # TrXS-series: the series-analysis counterpart to TrXS, Phase 1 (see
+        # the implementation plan) -- Circular Average/1D Line Ang/Azimuthal/
+        # ROI, Background Subtraction, point-click normalization. Placed
+        # right after "TrXS" per the user's explicit wording, not grouped
+        # with GIXS2/GIXS.
+        self.trxs2 = TrXS2Widget()
         self.tabs.addTab(self.sddcal, "SDD Calibration")
         self.tabs.addTab(self.gixs_console, "GIXS")
         self.tabs.addTab(self.gixs2, "GIXS-series")
         self.tabs.addTab(self.trxs_console, "TrXS")
+        self.tabs.addTab(self.trxs2, "TrXS-series")
         self.tabs.addTab(self.xtrans, "XTrans")
         self.tabs.addTab(self.penetration, "Penetration Depth")
         self.setCentralWidget(self.tabs)
