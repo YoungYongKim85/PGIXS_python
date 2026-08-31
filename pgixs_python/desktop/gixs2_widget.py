@@ -47,6 +47,7 @@ from pgixs_python.desktop.console_widget import (
     _field,
     _muted,
     _row,
+    _sci_spin,
     _size_combo,
     _split_row,
     _wrap_long_tokens,
@@ -468,9 +469,11 @@ class GIXS2Widget(QWidget):
         # own Contrast field) -- ImageCanvas.render's own percentile-based
         # auto-contrast is used whenever cmax <= cmin, and whatever it picks
         # is reflected back into these fields so the user has a starting
-        # point to nudge from instead of two blank zeros.
-        self.image_cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        self.image_cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        # point to nudge from instead of two blank zeros. Scientific
+        # notation (not `_double_spin`'s fixed-decimal one) since detector
+        # intensity spans a fraction of a count up to 1e6+ raw counts.
+        self.image_cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        self.image_cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
         self.image_cmin_spin.valueChanged.connect(lambda _v: self._render_image(redraw_overlays=False))
         self.image_cmax_spin.valueChanged.connect(lambda _v: self._render_image(redraw_overlays=False))
         self.play_button = QPushButton("Play")
@@ -1469,8 +1472,8 @@ class GIXS2Widget(QWidget):
         xmax_spin = _double_spin(-1.0e12, 1.0e12, 4, x_hi, 1.0)
         ymin_spin = _double_spin(-1.0e12, 1.0e12, 4, y_lo, 0.01)
         ymax_spin = _double_spin(-1.0e12, 1.0e12, 4, y_hi, 0.01)
-        cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
 
         ctrl_row1 = QHBoxLayout()
         ctrl_row1.addWidget(_field("Plot Type", plot_type_combo, label_width=64))

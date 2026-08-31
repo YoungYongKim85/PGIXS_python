@@ -20,11 +20,13 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 from PySide6.QtCore import QPointF, QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -36,6 +38,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -143,6 +146,65 @@ def _double_spin(
     if readonly:
         spin.setReadOnly(True)
         spin.setProperty("readonly", "true")
+    return spin
+
+
+class _ScientificDoubleSpinBox(QDoubleSpinBox):
+    """A QDoubleSpinBox that displays/accepts scientific notation (e.g.
+    "2.00e-04") instead of plain fixed-decimal formatting -- for fields
+    spanning several orders of magnitude (Q ranges, etc.), where a normal
+    `decimals()` setting either silently rounds a small value like 0.0002
+    down to "0.0000" at 4 decimals, or wastes width on trailing zeros for
+    larger ones. Reported: "Q Min-Max의 텍스트 박스에 0.0000만 써 있어...
+    1e-3 이런식으로 표기되게 하면 더 낫지 않을까"."""
+
+    def __init__(self, sig_figs: int = 2, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._sig_figs = max(0, sig_figs)
+        # High internal precision so the spin box's own decimals()-based
+        # rounding (independent of the sig_figs display format below) never
+        # clips a typed/step value before textFromValue ever sees it.
+        self.setDecimals(12)
+
+    def textFromValue(self, value: float) -> str:
+        return f"{value:.{self._sig_figs}e}"
+
+    def valueFromText(self, text: str) -> float:
+        try:
+            return float(text.strip())
+        except ValueError:
+            return self.value()
+
+    def validate(self, text: str, pos: int):
+        stripped = text.strip()
+        if stripped in ("", "-", "+", ".", "-.", "+."):
+            return (QValidator.Intermediate, text, pos)
+        try:
+            float(stripped)
+            return (QValidator.Acceptable, text, pos)
+        except ValueError:
+            # Allow partial scientific-notation entry mid-typing (e.g. "1e",
+            # "1e-", "1.5e+") rather than rejecting each keystroke outright.
+            if stripped.lower().endswith(("e", "e+", "e-")):
+                return (QValidator.Intermediate, text, pos)
+            return (QValidator.Invalid, text, pos)
+
+
+def _sci_spin(
+    minimum: float = -1.0e6,
+    maximum: float = 1.0e6,
+    value: float = 0.0,
+    step: float = 1.0e-4,
+    sig_figs: int = 2,
+) -> QDoubleSpinBox:
+    spin = _ScientificDoubleSpinBox(sig_figs=sig_figs)
+    spin.setRange(minimum, maximum)
+    spin.setSingleStep(step)
+    spin.setValue(value)
+    spin.setKeyboardTracking(False)
+    spin.setMaximumWidth(110)
+    spin.setMinimumWidth(72)
+    spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
     return spin
 
 
@@ -317,6 +379,7 @@ class ConsoleWidget(QWidget):
         self._current_aspect = "equal"
         self._position_mode: str | None = None
         self._zplot_active = False
+        self._mask_dialog: QDialog | None = None
         self._last_dir = str(Path.home())
         self._load_thread: QThread | None = None
         self._progress_dialog: QProgressDialog | None = None
@@ -729,15 +792,16 @@ class ConsoleWidget(QWidget):
         )
 
         # QDoubleSpinBox.setValue() *rounds* to `decimals`, not just
-        # display-formats -- 3 decimals silently collapsed background-
-        # subtracted contrast values (routinely << 1, e.g. 0.000123) to
-        # 0.000, and when both cmin and cmax rounded to the same value the
-        # box read back cmax <= cmin, which _apply_display_settings treats
-        # as "auto" and silently threw away the real computed range. 6
-        # decimals keeps small values distinguishable; large raw-count
-        # values just show extra trailing zeros.
-        self.cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        self.cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        # display-formats -- a fixed-decimal display silently collapsed
+        # background-subtracted contrast values (routinely << 1, e.g.
+        # 0.000123) to 0.000, and when both cmin and cmax rounded to the
+        # same value the box read back cmax <= cmin, which
+        # _apply_display_settings treats as "auto" and silently threw away
+        # the real computed range. `_sci_spin` sidesteps this at any
+        # magnitude (small or large) with a scientific-notation display and
+        # a high internal precision independent of that display.
+        self.cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        self.cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
         self.yrange_min_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.yrange_max_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
         self.zrange_min_spin = _double_spin(-1.0e9, 1.0e9, 4, 0.0, 1.0)
@@ -1968,15 +2032,65 @@ class ConsoleWidget(QWidget):
         )
 
     def _on_circ_mask_draw_clicked(self) -> None:
+        """Port of MATLAB's `get_modern_mask`: draw the mask polygon in its
+        own large window instead of the small "2D Image Plot" quadrant --
+        that quadrant is too small to click out a precise polygon in a
+        4-way-split window."""
+
         self._activate()
         if self._axis_mode != "pixel":
             self._set_status("Switch Map format to Pixel before drawing a mask.", False)
             return
-        if cs.get_session().data is None:
+        session = cs.get_session()
+        if session.data is None or self._current_image_data is None:
             self._set_status("Load a detector image first.", False)
             return
-        self._set_status("Click points to draw the mask polygon; double-click (or click the first point) to close it.", True)
-        self.image_canvas.start_polygon_selector(self._on_circ_mask_polygon_complete)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Draw Circular Average Mask")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        layout = QVBoxLayout(dialog)
+
+        hint = QLabel(
+            "Click points to draw the mask polygon (the inside is excluded from Circular Average); "
+            "double-click, or click the first point again, to close it."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        canvas = ImageCanvas()
+        # ImageCanvas defaults to a Preferred size policy, which only grows
+        # into leftover dialog space on a par with the hint label/Cancel
+        # button rather than claiming it outright -- Expanding + an explicit
+        # layout stretch factor makes it the one widget that actually fills
+        # the large window this dialog is sized to (unlike the small "2D
+        # Image Plot" quadrant, where the splitter's own stretch factors
+        # already force this).
+        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(canvas, 1)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(dialog.close)
+        layout.addWidget(cancel_button)
+
+        canvas.render(
+            self._current_image_data,
+            cmap=self.colormap_combo.currentText(),
+            log_scale=self.color_scale_combo.currentText() == "Log",
+            vmin=self.cmin_spin.value() if self.cmax_spin.value() > self.cmin_spin.value() else None,
+            vmax=self.cmax_spin.value() if self.cmax_spin.value() > self.cmin_spin.value() else None,
+            extent=self._current_image_extent,
+            xlabel=self._current_xlabel,
+            ylabel=self._current_ylabel,
+            aspect=self._current_aspect,
+        )
+
+        def _on_complete(vertices: list[tuple[float, float]]) -> None:
+            self._on_circ_mask_polygon_complete(vertices)
+            dialog.close()
+
+        canvas.start_polygon_selector(_on_complete)
+        self._mask_dialog = dialog
+        dialog.show()
 
     def _on_circ_mask_polygon_complete(self, vertices: list[tuple[float, float]]) -> None:
         """The drawn polygon marks the region to *exclude* -- everything
@@ -2019,7 +2133,8 @@ class ConsoleWidget(QWidget):
 
     def _on_circ_mask_clear_clicked(self) -> None:
         self._activate()
-        self.image_canvas.stop_polygon_selector()
+        if self._mask_dialog is not None:
+            self._mask_dialog.close()
         cs.console_set_circular_mask({"clear": True})
         self.circ_mask_status_label.setText("Mask: none")
         self._set_status("Mask cleared.", True)

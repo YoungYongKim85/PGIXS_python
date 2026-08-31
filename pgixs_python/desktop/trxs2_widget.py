@@ -61,6 +61,7 @@ from pgixs_python.desktop.console_widget import (
     _field,
     _muted,
     _row,
+    _sci_spin,
     _size_combo,
     _split_row,
     _wrap_long_tokens,
@@ -150,13 +151,6 @@ class TrXS2Widget(QWidget):
         # Set by the Position/Point Find buttons -- see gixs2_widget.py's
         # own `_position_mode` docstring.
         self._position_mode: str | None = None
-        # The clicked Q point from the "Normalize" button's point-click mode
-        # (None until the user actually clicks a point) -- see
-        # trxs2_session.trxs2_normalize_at_point's own docstring: this must
-        # be re-applied, in order, every time Subtraction/Normalize change,
-        # since the backend function alone doesn't remember the clicked
-        # point across separate calls.
-        self._normalize_x_1d: float | None = None
         self._progress_dialog: QProgressDialog | None = None
         self._progress_timer: QTimer | None = None
 
@@ -403,8 +397,13 @@ class TrXS2Widget(QWidget):
         default_index = self.image_colormap_combo.findText("viridis")
         if default_index >= 0:
             self.image_colormap_combo.setCurrentIndex(default_index)
-        self.image_cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        self.image_cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        # Scientific notation for the same reason as Q Min-Max: detector
+        # intensity spans everything from a fraction of a count (background-
+        # subtracted/normalized data) to 1e6+ raw counts -- a fixed-decimal
+        # display either rounds the small end down to "0.000000" or wastes
+        # width on trailing zeros for the large end.
+        self.image_cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        self.image_cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
         self.image_cmin_spin.valueChanged.connect(lambda _v: self._render_image(redraw_overlays=False))
         self.image_cmax_spin.valueChanged.connect(lambda _v: self._render_image(redraw_overlays=False))
         self.play_button = QPushButton("Play")
@@ -412,29 +411,14 @@ class TrXS2Widget(QWidget):
         self.play_button.clicked.connect(self._on_play_clicked)
         self.image_scale_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
         self.image_colormap_combo.currentTextChanged.connect(lambda _text: self._render_image(redraw_overlays=False))
-        # Y-Range/Z-Range: 0/0 is the "auto" sentinel (matches Min-Max's own
-        # convention) -- a plain zoom window into the current image, applied
-        # directly to the axes without a full re-render/overlay-clear (see
-        # `_apply_image_range`), unlike Scale/Colormap/Min-Max which are
-        # wired through `_render_image` since they change what's drawn.
-        self.image_ymin_spin = _double_spin(-1.0e6, 1.0e6, 2, 0.0, 1.0)
-        self.image_ymax_spin = _double_spin(-1.0e6, 1.0e6, 2, 0.0, 1.0)
-        self.image_zmin_spin = _double_spin(-1.0e6, 1.0e6, 2, 0.0, 1.0)
-        self.image_zmax_spin = _double_spin(-1.0e6, 1.0e6, 2, 0.0, 1.0)
-        for spin in (self.image_ymin_spin, self.image_ymax_spin, self.image_zmin_spin, self.image_zmax_spin):
-            spin.valueChanged.connect(lambda _v: self._apply_image_range())
         image_ctrl_row1 = QHBoxLayout()
         image_ctrl_row1.addWidget(_field("Scale", self.image_scale_combo, label_width=40))
         image_ctrl_row1.addWidget(_field("Colormap", self.image_colormap_combo, label_width=60))
         image_ctrl_row2 = QHBoxLayout()
-        image_ctrl_row2.addWidget(_field("Min-Max", self.image_cmin_spin, self.image_cmax_spin, label_width=54))
+        image_ctrl_row2.addWidget(_field("Contrast", self.image_cmin_spin, self.image_cmax_spin, label_width=54))
         image_ctrl_row2.addWidget(self.play_button)
-        image_ctrl_row3 = QHBoxLayout()
-        image_ctrl_row3.addWidget(_field("Y-Range", self.image_ymin_spin, self.image_ymax_spin, label_width=54))
-        image_ctrl_row3.addWidget(_field("Z-Range", self.image_zmin_spin, self.image_zmax_spin, label_width=54))
         image_ctrl.addLayout(image_ctrl_row1)
         image_ctrl.addLayout(image_ctrl_row2)
-        image_ctrl.addLayout(image_ctrl_row3)
         image_ctrl_row = _control_row(image_ctrl)
         image_layout.addWidget(image_ctrl_row)
         top.addWidget(image_group)
@@ -457,17 +441,15 @@ class TrXS2Widget(QWidget):
             self.oned_colormap_combo.setCurrentIndex(oned_cmap_default)
         self.oned_colormap_combo.currentTextChanged.connect(lambda _t: self._render_1d_curve())
         # Q Min-Max: 0/0 auto sentinel, applied directly to the axes (see
-        # `_apply_oned_range`) rather than through a full re-render.
-        self.oned_qmin_spin = _double_spin(-1.0e6, 1.0e6, 4, 0.0, 0.01)
-        self.oned_qmax_spin = _double_spin(-1.0e6, 1.0e6, 4, 0.0, 0.01)
+        # `_apply_oned_range`) rather than through a full re-render. A
+        # scientific-notation spin box (not `_double_spin`'s plain fixed-
+        # decimal one) since Q spans several orders of magnitude -- a fixed
+        # 4-decimal display silently rounds a real value like 0.0002 down to
+        # "0.0000" (reported: "Q Min-Max의 텍스트 박스에 0.0000만 써 있어").
+        self.oned_qmin_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
+        self.oned_qmax_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
         self.oned_qmin_spin.valueChanged.connect(lambda _v: self._apply_oned_range())
         self.oned_qmax_spin.valueChanged.connect(lambda _v: self._apply_oned_range())
-        self.oned_normalize_button = QPushButton("Normalize")
-        self.oned_normalize_button.setToolTip(
-            "Click a point on this plot -- every frame's curve is rescaled to agree at that Q "
-            "(port of MATLAB's NormalFactor_Callback)."
-        )
-        self.oned_normalize_button.clicked.connect(self._arm_normalize_click)
         self.oned_heatmap_button = QPushButton("Heatmap")
         self.oned_heatmap_button.setToolTip("Open a Q vs. X-axis heatmap of every frame's 1D cut.")
         self.oned_heatmap_button.clicked.connect(self._on_1d_heatmap_clicked)
@@ -479,12 +461,9 @@ class TrXS2Widget(QWidget):
         oned_ctrl_row1.addWidget(_field("Colormap", self.oned_colormap_combo, label_width=60))
         oned_ctrl_row2 = QHBoxLayout()
         oned_ctrl_row2.addWidget(_field("Q Min-Max", self.oned_qmin_spin, self.oned_qmax_spin, label_width=64))
-        oned_ctrl_row2.addWidget(self.oned_normalize_button)
-        oned_ctrl_row3 = QHBoxLayout()
-        oned_ctrl_row3.addWidget(self.oned_heatmap_button)
+        oned_ctrl_row2.addWidget(self.oned_heatmap_button)
         oned_ctrl.addLayout(oned_ctrl_row1)
         oned_ctrl.addLayout(oned_ctrl_row2)
-        oned_ctrl.addLayout(oned_ctrl_row3)
         oned_ctrl_row = _control_row(oned_ctrl)
         oned_layout.addWidget(oned_ctrl_row)
         top.addWidget(oned_group)
@@ -625,7 +604,6 @@ class TrXS2Widget(QWidget):
         self._pixel_centered = False
         self._active_overlay = None
         self._position_mode = None
-        self._normalize_x_1d = None
         self.save_1d_std_button.setEnabled(False)
         self._render_image()
         self._mark_ok(self.load_button, True)
@@ -742,7 +720,6 @@ class TrXS2Widget(QWidget):
             return
         self.n_files_label.setText(f"# of Files: {result['n_files']}")
         self._current_image_data = None
-        self._normalize_x_1d = None
         self.save_1d_std_button.setEnabled(False)
         self._render_image()
         self._mark_ok(self.set_table_button, True)
@@ -843,23 +820,6 @@ class TrXS2Widget(QWidget):
             self.image_cmax_spin.blockSignals(False)
         if redraw_overlays:
             self._redraw_overlays()
-        self._apply_image_range()
-
-    def _apply_image_range(self) -> None:
-        """Y-Range/Z-Range: a plain zoom window applied directly to the
-        current axes -- 0/0 (max <= min) is the "auto" sentinel (matches
-        Min-Max's own convention), leaving whatever `render()`'s own extent
-        already set untouched."""
-
-        if self.image_canvas.ax is None:
-            return
-        ymin, ymax = self.image_ymin_spin.value(), self.image_ymax_spin.value()
-        if ymax > ymin:
-            self.image_canvas.ax.set_xlim(ymin, ymax)
-        zmin, zmax = self.image_zmin_spin.value(), self.image_zmax_spin.value()
-        if zmax > zmin:
-            self.image_canvas.ax.set_ylim(zmin, zmax)
-        self.image_canvas.canvas.draw_idle()
 
     def _image_extent(self, shape: tuple[int, int]) -> tuple[float, float, float, float]:
         rows, cols = shape
@@ -1208,7 +1168,6 @@ class TrXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Circular Exec failed."), False)
             return
-        self._normalize_x_1d = None
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         session = ts.get_session()
         self.save_1d_std_button.setEnabled(session.last_1d is not None and session.last_1d.get("std") is not None)
@@ -1230,7 +1189,6 @@ class TrXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Line Exec failed."), False)
             return
-        self._normalize_x_1d = None
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         # Line cut has no Std column at all (matches trxs2_session's own
         # `"std": None` -- only Circular Average ever populates it).
@@ -1260,19 +1218,15 @@ class TrXS2Widget(QWidget):
         self._set_status(f"Azimuthal series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
     # ------------------------------------------------------------------
-    # Render / Subtraction / Normalize-at-point -- thin wrappers over the
-    # backend's own trxs2_render_1d/trxs2_render_azimuthal/
-    # trxs2_normalize_at_point; the widget's own job is just composing them
-    # in the right order (render -> re-apply the pinned point, if any ->
-    # redraw matplotlib) and drawing whatever `session.last_1d["rendered"]`/
+    # Render / Subtraction -- thin wrappers over the backend's own
+    # trxs2_render_1d/trxs2_render_azimuthal; the widget's own job is just
+    # redrawing matplotlib with whatever `session.last_1d["rendered"]`/
     # `last_azimuthal["rendered"]` ends up holding.
     # ------------------------------------------------------------------
     def _refresh_1d(self, payload: dict[str, Any] | None = None) -> None:
         result = ts.trxs2_render_1d(dict(payload or {}))
         if not result.get("ok"):
             return
-        if self._normalize_x_1d is not None:
-            ts.trxs2_normalize_at_point({"x": self._normalize_x_1d, "which": "1d"})
         self._render_1d_curve()
 
     def _refresh_azimuthal(self, payload: dict[str, Any] | None = None) -> None:
@@ -1365,30 +1319,6 @@ class TrXS2Widget(QWidget):
             self.azi_canvas.canvas.draw_idle()
 
     # ------------------------------------------------------------------
-    # Point-click normalization -- port of `NormalFactor_Callback`.
-    # ------------------------------------------------------------------
-    def _arm_normalize_click(self) -> None:
-        self._set_status("Click a point on the 1D Wave Vector Plot to normalize every frame at that Q.", True)
-        try:
-            self.oned_canvas.point_clicked.disconnect(self._on_normalize_point_clicked)
-        except (TypeError, RuntimeError):
-            pass
-        self.oned_canvas.point_clicked.connect(self._on_normalize_point_clicked)
-
-    def _on_normalize_point_clicked(self, x: float, _y: float) -> None:
-        try:
-            self.oned_canvas.point_clicked.disconnect(self._on_normalize_point_clicked)
-        except (TypeError, RuntimeError):
-            pass
-        result = ts.trxs2_normalize_at_point({"x": x, "which": "1d"})
-        if not result.get("ok"):
-            self._set_status(result.get("message", "Normalize failed."), False)
-            return
-        self._normalize_x_1d = x
-        self._render_1d_curve()
-        self._set_status(f"Normalized every frame at Q={result['x']:.4f}.", True)
-
-    # ------------------------------------------------------------------
     # Heatmap -- port of MATLAB's HeatmapQ_gui/HeatmapAzi_gui, see
     # gixs2_widget.py's own `_open_heatmap_dialog` docstring for the full
     # rationale (snapshots at open time, doesn't stay live-linked).
@@ -1449,8 +1379,8 @@ class TrXS2Widget(QWidget):
         xmax_spin = _double_spin(-1.0e12, 1.0e12, 4, x_hi, 1.0)
         ymin_spin = _double_spin(-1.0e12, 1.0e12, 4, y_lo, 0.01)
         ymax_spin = _double_spin(-1.0e12, 1.0e12, 4, y_hi, 0.01)
-        cmin_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
-        cmax_spin = _double_spin(-1.0e12, 1.0e12, 6, 0.0, 1.0)
+        cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
 
         ctrl_row1 = QHBoxLayout()
         ctrl_row1.addWidget(_field("Plot Type", plot_type_combo, label_width=64))

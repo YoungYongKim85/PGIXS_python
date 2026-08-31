@@ -191,17 +191,31 @@ def test_contrast_spin_boxes_keep_precision_for_small_subtracted_values(qapp, tm
     assert (console.cmin_spin.value(), console.cmax_spin.value()) == (cmin, cmax)
 
 
-def test_trxs_circular_mask_draw_start_and_reject_outside_pixel_mode(qapp, tmp_path):
+def test_trxs_circular_mask_draw_start_and_reject_outside_pixel_mode(qapp, tmp_path, monkeypatch):
+    """Draw Mask opens its own dedicated window (port of MATLAB's
+    `get_modern_mask`) rather than drawing inline on the small "2D Image
+    Plot" quadrant -- patch the class method so it intercepts whichever
+    ImageCanvas instance the dialog creates, not `console.image_canvas`."""
+
+    from pgixs_python.desktop.plot_canvas import ImageCanvas
+
     console = _load_test_frame_trxs(tmp_path)
-    assert console.image_canvas._polygon_selector is None
+    captured = {}
+    monkeypatch.setattr(
+        ImageCanvas, "start_polygon_selector", lambda self, cb: captured.setdefault("cb", cb)
+    )
 
     console._on_circ_mask_draw_clicked()
-    assert console.image_canvas._polygon_selector is not None
+    assert "cb" in captured
+    assert console._mask_dialog is not None
 
-    console.image_canvas.stop_polygon_selector()
+    console._mask_dialog.close()
+    console._mask_dialog = None
+    captured.clear()
     console._axis_mode = "q"
     console._on_circ_mask_draw_clicked()
-    assert console.image_canvas._polygon_selector is None
+    assert "cb" not in captured
+    assert console._mask_dialog is None
 
 
 def test_trxs_circular_mask_polygon_complete_sets_and_clears_mask(qapp, tmp_path):

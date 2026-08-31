@@ -104,6 +104,72 @@ def test_trxs2_load_progress_reports_inactive_by_default():
 
 
 # ----------------------------------------------------------------------
+# Grid Remove
+# ----------------------------------------------------------------------
+def test_trxs2_grid_remove_corrects_each_frame_individually(tmp_path):
+    """Regression check: Grid Remove must run once per frame, not once
+    against the averaged display image or once and reused for every
+    frame. `grid_remove` derives its correction ratio from each call's
+    own reference pixels, so two frames with different content should
+    come out with genuinely different corrections -- this cross-checks
+    `trxs2_grid_remove`'s whole-stack output against calling `grid_remove`
+    directly on each raw frame, one at a time."""
+
+    from pgixs_python.processing.grid_remove import grid_remove
+
+    shape = (2167, 2070)  # real Eiger4M size -- grid_remove's fixed pixel
+    # indices require the full detector size to find their reference rows/cols.
+    center = (1000.5, 1000.5)
+    _load_series(tmp_path, n_frames=2, shape=shape, center=center, radii=[60.0, 400.0])
+
+    session = ts.get_session()
+    raw_before = session.stack.copy()
+
+    result = ts.trxs2_grid_remove({})
+    assert result["ok"], result.get("message")
+
+    corrected_stack = ts.get_session().stack
+    assert corrected_stack.shape == raw_before.shape
+
+    for i in range(raw_before.shape[0]):
+        # trxs2_grid_remove applies grid_remove in the untransposed
+        # orientation (same convention as console_session.console_grid_remove).
+        expected, report = grid_remove(raw_before[i].T, "Eiger4M")
+        assert report.applied, report.message
+        np.testing.assert_allclose(corrected_stack[i], expected.T)
+
+    # The two frames have very different content (ring radii 60 vs 400),
+    # so their own reference-pixel ratios differ -- confirms each frame
+    # really got its own correction, not frame 0's reused for both.
+    assert not np.allclose(corrected_stack[0], corrected_stack[1], equal_nan=True)
+
+
+def test_trxs2_grid_remove_requires_a_loaded_series():
+    result = ts.trxs2_grid_remove({})
+
+    assert not result["ok"]
+    assert "Load a series" in result["message"]
+
+
+def test_trxs2_grid_remove_refuses_to_run_after_qcal(tmp_path):
+    """Regression: running Grid Remove after q-Cal would silently leave
+    `corrected_stack` stale (this port never re-derives it from a
+    post-hoc-modified raw stack), so downstream Exec calls would keep
+    cutting un-grid-removed data despite the 2D preview showing the
+    correction applied. Must be refused, not silently accepted."""
+
+    shape = (2167, 2070)
+    center = (1000.5, 1000.5)
+    _load_series(tmp_path, n_frames=1, shape=shape, center=center, radii=[60.0])
+    _qcal(center)
+
+    result = ts.trxs2_grid_remove({})
+
+    assert not result["ok"]
+    assert "before q-Cal" in result["message"]
+
+
+# ----------------------------------------------------------------------
 # q-Cal
 # ----------------------------------------------------------------------
 def test_trxs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
@@ -483,59 +549,6 @@ def test_trxs2_render_1d_requires_exec_first():
 
 def test_trxs2_render_azimuthal_requires_exec_first():
     result = ts.trxs2_render_azimuthal({})
-    assert not result["ok"]
-
-
-def test_trxs2_normalize_at_point_divides_every_frame_by_its_own_value(tmp_path):
-    session = _setup_circular_with_background(tmp_path)
-    ts.trxs2_render_1d({"normalize": "None", "subtract": False})
-
-    x_point = float(session.last_1d["x_axis"][len(session.last_1d["x_axis"]) // 2])
-    result = ts.trxs2_normalize_at_point({"x": x_point})
-    assert result["ok"], result.get("message")
-
-    idx = result["index"]
-    rendered = session.last_1d["rendered"]
-    # Every frame's own value at the normalization point should now be 1
-    # (barring the sanitize-to-1-if-invalid fallback for a genuinely-NaN
-    # point, which this synthetic geometry shouldn't hit).
-    np.testing.assert_allclose(rendered[:, idx], 1.0, atol=1e-4)
-
-
-def test_trxs2_normalize_at_point_rescales_raw_background_not_rendered(tmp_path):
-    """The asymmetry from `applyNormalization`: the background curve used
-    here must be `bkg_1d` rescaled by its own *raw* value at the clicked
-    point, not `bkg_1d`'s already-per-frame-normalized rendered
-    counterpart."""
-
-    session = _setup_circular_with_background(tmp_path)
-    session.subtract_background = True
-    ts.trxs2_render_1d({"normalize": "None"})
-
-    x_axis = session.last_1d["x_axis"]
-    idx = len(x_axis) // 2
-    x_point = float(x_axis[idx])
-
-    rendered_before = session.last_1d["rendered"].copy()
-    result = ts.trxs2_normalize_at_point({"x": x_point})
-    assert result["ok"], result.get("message")
-
-    # Hand-compute the expected result using the documented asymmetric rule.
-    norm_factors = rendered_before[:, idx].copy()
-    norm_factors[~np.isfinite(norm_factors) | (norm_factors == 0)] = 1.0
-    expected = rendered_before / norm_factors[:, np.newaxis]
-
-    bkg_raw = session.bkg_1d
-    bkg_val = bkg_raw[idx]
-    if not np.isfinite(bkg_val) or bkg_val == 0:
-        bkg_val = 1.0
-    expected = expected - (bkg_raw / bkg_val)[np.newaxis, :]
-
-    np.testing.assert_allclose(session.last_1d["rendered"], expected, equal_nan=True, rtol=1e-4, atol=1e-4)
-
-
-def test_trxs2_normalize_at_point_requires_render_first(tmp_path):
-    result = ts.trxs2_normalize_at_point({"x": 1.0})
     assert not result["ok"]
 
 

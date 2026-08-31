@@ -391,39 +391,6 @@ def test_trxs2_widget_roi_exec_ignores_subtraction(qapp, tmp_path, monkeypatch):
     np.testing.assert_array_equal(session.last_roi, unsubtracted)
 
 
-def test_trxs2_widget_normalize_at_point_click(qapp, tmp_path, monkeypatch):
-    """Point-click normalization: arming via the Normalize button, then a
-    click on the 1D Wave Vector Plot rescales every frame's curve to agree
-    at that Q, and the pin persists across a later Normalize combo change."""
-
-    ts.reset_session()
-    widget = TrXS2Widget()
-    center = (100.5, 100.5)
-    _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
-    session = ts.get_session()
-    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
-    _qcal_sync(widget, monkeypatch)
-    _circular_exec_sync(widget, monkeypatch)
-
-    x_axis = np.asarray(session.last_1d["x_axis"])
-    click_x = float(x_axis[len(x_axis) // 2])
-
-    widget._arm_normalize_click()
-    widget._on_normalize_point_clicked(click_x, 0.0)
-
-    assert widget._normalize_x_1d == pytest.approx(click_x)
-    rendered = np.asarray(session.last_1d["rendered"])
-    idx = int(np.argmin(np.abs(x_axis - click_x)))
-    # Every frame agrees at the clicked point after normalization.
-    np.testing.assert_allclose(rendered[:, idx], rendered[0, idx], atol=1e-4)
-
-    # The pin survives a Normalize combo change -- re-applied on top of the
-    # freshly re-rendered (None/IC/BC + Subtraction) matrix.
-    widget.normalize_1d_combo.setCurrentText("IC")
-    rendered_ic = np.asarray(session.last_1d["rendered"])
-    np.testing.assert_allclose(rendered_ic[:, idx], rendered_ic[0, idx], atol=1e-4)
-
-
 def test_trxs2_widget_play_requires_data_loaded(qapp):
     ts.reset_session()
     widget = TrXS2Widget()

@@ -376,8 +376,21 @@ def trxs2_load_info(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def trxs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
+    """Applies `grid_remove` to every frame in `session.stack` individually
+    (each frame's own reference-pixel ratio, not one correction reused
+    across the series). Must run before q-Cal, not after: q-Cal caches its
+    own `corrected_stack` derived from `stack` at that moment, and unlike
+    MATLAB's single in-place-mutated array, this port never re-derives
+    `corrected_stack` afterward -- running Grid Remove post-q-Cal would
+    silently leave every downstream Circular/Line/Azimuthal Exec cutting
+    the stale, not-grid-removed corrected data despite `session.data`'s own
+    preview (and `session.stack`) showing the correction applied. Guarded
+    the same way `trxs2_qcal`'s own one-shot lifecycle guard is."""
+
     if _SESSION.stack is None:
         return {"ok": False, "message": "Load a series first."}
+    if _SESSION.corrected:
+        return {"ok": False, "message": "Run Grid Remove before q-Cal (reload the series to redo Grid Remove after q-Cal)."}
 
     n_frames = _SESSION.stack.shape[0]
     corrected_frames = []
@@ -883,72 +896,6 @@ def trxs2_render_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "x": downsample_1d_for_json(_SESSION.last_azimuthal["x_axis"], max_points=600)}
 
 
-def _sanitize_scale_factors(values: np.ndarray, fallback: float = 1.0) -> np.ndarray:
-    """Port of `sanitizePGIXSScaleFactors.m`: replace non-finite or zero
-    scale factors with `fallback` (dividing by 1 leaves that column/point
-    unchanged rather than producing Inf/NaN)."""
-
-    out = np.asarray(values, dtype=np.float64).copy()
-    invalid = ~np.isfinite(out) | (out == 0)
-    out[invalid] = fallback
-    return out
-
-
-def _normalize_at_point(session_key: str, bkg_key: str, x_point: float) -> dict[str, Any]:
-    curve = getattr(_SESSION, session_key)
-    if curve is None or curve.get("rendered") is None:
-        return {"ok": False, "message": "Render a curve first."}
-
-    x_axis = np.asarray(curve["x_axis"], dtype=np.float64)
-    finite = np.isfinite(x_axis)
-    if not np.any(finite):
-        return {"ok": False, "message": "No valid axis points to normalize against."}
-    candidates = np.where(finite, np.abs(x_axis - x_point), np.inf)
-    idx = int(np.argmin(candidates))
-
-    rendered = np.asarray(curve["rendered"], dtype=np.float32)
-    # Divide every frame's own curve by its own value at the clicked axis
-    # point -- "column" in MATLAB's (n_bins, n_frames) layout is a "row" of
-    # `rendered[:, idx]` in this module's (n_frames, n_bins) layout.
-    norm_factors = _sanitize_scale_factors(rendered[:, idx])
-    rendered = rendered / norm_factors[:, np.newaxis].astype(np.float32)
-
-    bkg_raw = getattr(_SESSION, bkg_key)
-    if _SESSION.subtract_background and bkg_raw is not None:
-        # Deliberate asymmetry, kept as-is from `applyNormalization`/
-        # `applyAziNormalization`: the background curve is rescaled by its
-        # own *raw* (not per-frame-normalized) value at this point, not by
-        # `session.bkg_1d`/`bkg_azi`'s already-rendered counterpart.
-        bkg_val = _sanitize_scale_factors(np.asarray([bkg_raw[idx]], dtype=np.float64))[0]
-        rescaled_bkg = np.asarray(bkg_raw, dtype=np.float32) / np.float32(bkg_val)
-        rendered = rendered - rescaled_bkg[np.newaxis, :]
-
-    curve["rendered"] = rendered.astype(np.float32)
-    return {"ok": True, "index": idx, "x": float(x_axis[idx])}
-
-
-def trxs2_normalize_at_point(payload: dict[str, Any]) -> dict[str, Any]:
-    """Point-click normalization -- port of `NormalFactor_Callback`/
-    `applyNormalization` (1D) and `NormalFactorAzi_Callback`/
-    `applyAziNormalization` (azimuthal, via `payload["which"] == "azimuthal"`).
-
-    Operates on the *already-rendered* matrix (not raw): must be called
-    after `trxs2_render_1d`/`trxs2_render_azimuthal`; the caller is
-    responsible for tracking "is a normalization point pinned" and
-    re-applying both stages, in order, whenever Subtraction/Normalize
-    change (this function alone doesn't remember the clicked point)."""
-
-    try:
-        x_point = float(payload["x"])
-    except (KeyError, TypeError, ValueError) as exc:
-        return {"ok": False, "message": f"Invalid point: {exc}"}
-
-    which = str(payload.get("which", "1d"))
-    if which == "azimuthal":
-        return _normalize_at_point("last_azimuthal", "bkg_azi", x_point)
-    return _normalize_at_point("last_1d", "bkg_1d", x_point)
-
-
 # ----------------------------------------------------------------------
 # X-axis
 # ----------------------------------------------------------------------
@@ -1256,7 +1203,6 @@ __all__ = [
     "trxs2_load_info",
     "trxs2_load_progress",
     "trxs2_load_series",
-    "trxs2_normalize_at_point",
     "trxs2_qcal",
     "trxs2_render_1d",
     "trxs2_render_azimuthal",
