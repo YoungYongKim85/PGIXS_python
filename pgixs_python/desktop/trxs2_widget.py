@@ -30,6 +30,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -45,6 +46,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QVBoxLayout,
@@ -135,6 +137,7 @@ class TrXS2Widget(QWidget):
         self._roi_dialog: QDialog | None = None
         self._play_dialog: QDialog | None = None
         self._heatmap_dialog: QDialog | None = None
+        self._mask_dialog: QDialog | None = None
         self._current_image_data: np.ndarray | None = None
         # Set True once Load Info succeeds -- see gixs2_widget.py's own
         # `_pixel_centered` docstring.
@@ -207,7 +210,8 @@ class TrXS2Widget(QWidget):
         self.parallel_check = QCheckBox("Parallel")
         self.parallel_check.setToolTip(
             "Load/process series files concurrently on several threads instead of one at a time -- "
-            "applies to Set/Table Import, Circular/Line Exec, and Auto Refresh alike."
+            "applies to Set/Table Import, Circular/Line/Azimuthal Exec, and Auto Refresh alike. "
+            "ROI Process is already a single vectorized operation and has no separate parallel path."
         )
         layout.addWidget(_row(self.n_files_label, self.parallel_check))
 
@@ -1002,12 +1006,71 @@ class TrXS2Widget(QWidget):
     # Circular Process mask (draw/clear polygon)
     # ------------------------------------------------------------------
     def _on_circ_mask_draw_clicked(self) -> None:
+        """Port of MATLAB's `get_modern_mask`: draw the mask polygon in its
+        own large window instead of the small "2D Image Plot" quadrant --
+        that quadrant is too small to click out a precise polygon in a
+        4-way-split window."""
+
         session = ts.get_session()
         if session.data is None:
             self._set_status("Load data first.", False)
             return
-        self._set_status("Click points to draw the mask polygon; double-click (or click the first point) to close it.", True)
-        self.image_canvas.start_polygon_selector(self._on_circ_mask_polygon_complete)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Draw Circular Average Mask")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        layout = QVBoxLayout(dialog)
+
+        hint = QLabel(
+            "Click points to draw the mask polygon (the inside is excluded from Circular Average); "
+            "double-click, or click the first point again, to close it."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        canvas = ImageCanvas()
+        # ImageCanvas defaults to a Preferred size policy, which only grows
+        # into leftover dialog space on a par with the hint label/Cancel
+        # button rather than claiming it outright -- Expanding + an explicit
+        # layout stretch factor makes it the one widget that actually fills
+        # the large window this dialog is sized to (unlike the small "2D
+        # Image Plot" quadrant, where the splitter's own stretch factors
+        # already force this).
+        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(canvas, 1)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(dialog.close)
+        layout.addWidget(cancel_button)
+
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            dialog.resize(int(avail.width() * 0.85), int(avail.height() * 0.9))
+        else:
+            dialog.resize(1000, 900)
+
+        cmin = self.image_cmin_spin.value()
+        cmax = self.image_cmax_spin.value()
+        vmin = cmin if cmax > cmin else None
+        vmax = cmax if cmax > cmin else None
+        canvas.render(
+            session.data,
+            cmap=self.image_colormap_combo.currentText(),
+            log_scale=self.image_scale_combo.currentText() == "Log",
+            vmin=vmin,
+            vmax=vmax,
+            extent=self._image_extent(session.data.shape),
+            xlabel="Y, pixel",
+            ylabel="Z, pixel",
+        )
+
+        def _on_complete(vertices: list[tuple[float, float]]) -> None:
+            self._on_circ_mask_polygon_complete(vertices)
+            dialog.close()
+
+        canvas.start_polygon_selector(_on_complete)
+        self._mask_dialog = dialog
+        dialog.show()
 
     def _on_circ_mask_polygon_complete(self, vertices: list[tuple[float, float]]) -> None:
         """The drawn polygon marks the region to *exclude* -- everything
@@ -1045,7 +1108,8 @@ class TrXS2Widget(QWidget):
         self._set_status(f"Mask set ({kept}/{total} px kept).", True)
 
     def _on_circ_mask_clear_clicked(self) -> None:
-        self.image_canvas.stop_polygon_selector()
+        if self._mask_dialog is not None:
+            self._mask_dialog.close()
         ts.trxs2_set_circular_mask({"clear": True})
         self.circ_mask_status_label.setText("Mask: none")
         self._set_status("Mask cleared.", True)
@@ -1180,6 +1244,7 @@ class TrXS2Widget(QWidget):
             "range_minus": self.azi_minus_spin.value(),
             "range_plus": self.azi_plus_spin.value(),
             "mean_or_median": self.azi_mean_median_combo.currentText(),
+            "parallel": self.parallel_check.isChecked(),
         }
         self.azi_exec_button.setEnabled(False)
         self._start_progress_dialog("Running azimuthal profile...", window_title="Azimuthal Exec")

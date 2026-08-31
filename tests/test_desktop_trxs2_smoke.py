@@ -634,12 +634,17 @@ def test_trxs2_widget_circular_mask_draw_and_clear(qapp, tmp_path, monkeypatch):
     widget = TrXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=1, shape=(60, 60))
 
+    # Draw Mask now opens its own dedicated window (a fresh ImageCanvas,
+    # not the small "2D Image Plot" quadrant) -- patch the class method so
+    # it intercepts whichever ImageCanvas instance the dialog creates.
     captured = {}
     monkeypatch.setattr(
-        widget.image_canvas, "start_polygon_selector", lambda cb: captured.setdefault("cb", cb)
+        ImageCanvas, "start_polygon_selector", lambda self, cb: captured.setdefault("cb", cb)
     )
     widget._on_circ_mask_draw_clicked()
     assert "cb" in captured
+    assert widget._mask_dialog is not None
+    assert isinstance(widget._mask_dialog, QDialog)
 
     vertices = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
     captured["cb"](vertices)

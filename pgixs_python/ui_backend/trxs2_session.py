@@ -739,11 +739,15 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
         range_plus = float(payload.get("range_plus", 1.0))
         use_median = str(payload.get("mean_or_median", "Mean")).strip().lower() == "median"
         n_angle_bins = int(payload.get("n_angle_bins", 180))
+        parallel = bool(payload.get("parallel", False))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid azimuthal parameters: {exc}"}
 
     beam_pos = _SESSION.calibration["beam_pos"]
     radius_range = (pixel + range_minus, pixel + range_plus)
+    # `kwargs` is also reused below for the single-frame background cut via
+    # `angular_profile`, which has no `parallel`/`max_workers` parameters --
+    # keep `parallel` out of it and pass it only to the stack call.
     kwargs = dict(radius_range=radius_range, n_angle_bins=n_angle_bins, use_median=use_median, angle_range=(0.0, 360.0))
 
     def _report(completed: int, total: int) -> None:
@@ -751,7 +755,9 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
 
     _SESSION.load_progress = None
     try:
-        result = process_azimuthal_stack(_data_for_processing(), center=beam_pos, progress_callback=_report, **kwargs)
+        result = process_azimuthal_stack(
+            _data_for_processing(), center=beam_pos, progress_callback=_report, parallel=parallel, **kwargs
+        )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
     finally:

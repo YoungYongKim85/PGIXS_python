@@ -205,6 +205,18 @@ def test_process_azimuthal_stack_reports_progress_per_frame():
     assert calls == [(1, 4), (2, 4), (3, 4), (4, 4)]
 
 
+def test_process_azimuthal_stack_parallel_matches_serial():
+    center = (100.5, 100.5)
+    stack = _synthetic_ring_stack(n_frames=6, center=center, radii=[60.0, 61.0, 62.0, 63.0, 64.0, 65.0])
+
+    serial = process_azimuthal_stack(stack, center=center, radius_range=(55.0, 70.0), n_angle_bins=90, parallel=False)
+    parallel = process_azimuthal_stack(stack, center=center, radius_range=(55.0, 70.0), n_angle_bins=90, parallel=True)
+
+    np.testing.assert_array_equal(serial.x_axis, parallel.x_axis)
+    np.testing.assert_array_equal(serial.intensity, parallel.intensity)
+    np.testing.assert_array_equal(serial.coverage, parallel.coverage)
+
+
 def test_process_roi_stack_matches_hand_computed_sum():
     stack = np.zeros((3, 10, 10), dtype=np.float32)
     stack[0, 2:5, 2:5] = 1.0  # 9 pixels of value 1

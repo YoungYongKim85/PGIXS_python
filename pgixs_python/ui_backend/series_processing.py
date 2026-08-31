@@ -328,23 +328,52 @@ def process_azimuthal_stack(
     use_median: bool = False,
     angle_range: tuple[float, float] = (0.0, 180.0),
     progress_callback: Callable[[int, int], None] | None = None,
+    parallel: bool = False,
+    max_workers: int | None = None,
 ) -> SeriesCurveResult:
     """Azimuthal Process across a whole series -- same as
     `console_session.console_azimuthal_1d`, run once per frame.
 
     `progress_callback(completed, total)`, when given, is called after
-    every frame -- same convention as `process_linecut_stack`'s own."""
+    every frame -- same convention as `process_linecut_stack`'s own.
+
+    `parallel`/`max_workers` follow the exact same `ThreadPoolExecutor`
+    convention as `process_linecut_stack`/`process_circular_stack`: only
+    the per-frame `angular_profile` call is parallelized, and results are
+    reassembled below in frame order, so the output is bit-for-bit
+    identical to the serial path regardless of completion order."""
 
     n_frames = stack.shape[0]
-    x_axis: np.ndarray | None = None
-    intensity_rows: list[np.ndarray] = []
-    coverage_rows: list[np.ndarray] = []
 
-    for i in range(n_frames):
-        result = angular_profile(
+    def _run_frame(i: int):
+        return angular_profile(
             stack[i], center=center, radius_range=radius_range,
             n_angle_bins=n_angle_bins, use_median=use_median, angle_range=angle_range,
         )
+
+    results = [None] * n_frames
+    if parallel and n_frames > 1:
+        progress_lock = threading.Lock()
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_run_frame, i): i for i in range(n_frames)}
+            for future in as_completed(futures):
+                i = futures[future]
+                results[i] = future.result()
+                if progress_callback is not None:
+                    with progress_lock:
+                        completed += 1
+                        progress_callback(completed, n_frames)
+    else:
+        for i in range(n_frames):
+            results[i] = _run_frame(i)
+            if progress_callback is not None:
+                progress_callback(i + 1, n_frames)
+
+    x_axis: np.ndarray | None = None
+    intensity_rows: list[np.ndarray] = []
+    coverage_rows: list[np.ndarray] = []
+    for i, result in enumerate(results):
         if x_axis is None:
             x_axis = result.angle_axis
         elif result.angle_axis.shape != x_axis.shape:
@@ -354,8 +383,6 @@ def process_azimuthal_stack(
             )
         intensity_rows.append(result.intensity)
         coverage_rows.append(result.coverage)
-        if progress_callback is not None:
-            progress_callback(i + 1, n_frames)
 
     assert x_axis is not None
     return SeriesCurveResult(x_axis=x_axis, intensity=np.vstack(intensity_rows), coverage=np.vstack(coverage_rows))
