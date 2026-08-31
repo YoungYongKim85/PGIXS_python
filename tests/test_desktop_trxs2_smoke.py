@@ -458,6 +458,40 @@ def test_trxs2_widget_1d_heatmap_opens_after_circular_exec(qapp, tmp_path, monke
     widget._heatmap_dialog.close()
 
 
+def test_trxs2_widget_heatmap_save_image_writes_a_png(qapp, tmp_path, monkeypatch):
+    """Regression: "heatmap의 image를 세이브하게 만들어줘" -- the Heatmap
+    dialog only had matplotlib's own small toolbar save icon; add an
+    explicit "Save Image" button matching this app's usual save-button
+    convention, wired to a real file save dialog + ImageCanvas.save_figure."""
+
+    from PySide6.QtWidgets import QFileDialog, QPushButton
+
+    ts.reset_session()
+    widget = TrXS2Widget()
+    center = (100.5, 100.5)
+    _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
+    session = ts.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    _qcal_sync(widget, monkeypatch)
+    _circular_exec_sync(widget, monkeypatch)
+
+    widget._on_1d_heatmap_clicked()
+    dialog = widget._heatmap_dialog
+    assert dialog is not None
+
+    save_button = next(
+        b for b in dialog.findChildren(QPushButton) if b.text() == "Save Image"
+    )
+    out_path = tmp_path / "heatmap_export.png"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
+
+    save_button.click()
+
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0
+    dialog.close()
+
+
 def test_trxs2_widget_draw_roi_converts_centered_drag_to_raw_pixel(qapp, tmp_path, monkeypatch):
     ts.reset_session()
     widget = TrXS2Widget()

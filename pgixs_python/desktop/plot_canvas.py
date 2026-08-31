@@ -403,6 +403,31 @@ class ImageCanvas(QWidget):
         self._colorbar = None
         self._overlay_artists = []
         self._rotation_label = None
+
+        # `Axes3D.set_xlim`/`set_ylim` (applied further down) only move the
+        # axes' own viewport -- unlike a 2D plot, `Axes3D` never clips
+        # `plot_surface`/`Poly3DCollection` geometry to the box, so a
+        # narrower X/Y Range left the *data* built at full size and it
+        # visibly poked out past the walls (reported: "range를 바꾸니까
+        # axis 밖으로 삐져나와"). The only correct fix is trimming the
+        # source arrays themselves to the requested range *before* any
+        # geometry gets built from them, not just narrowing the viewport
+        # afterward -- done here, first, so every downstream computation
+        # (auto-contrast, z_floor, the surf/waterfall geometry itself)
+        # already sees the same trimmed data the viewport ends up showing.
+        if xlim is not None:
+            lo, hi = xlim
+            x_mask = (x >= lo) & (x <= hi)
+            if np.any(x_mask):
+                x = x[x_mask]
+                z = z[:, x_mask]
+        if ylim is not None:
+            lo, hi = ylim
+            y_mask = (y >= lo) & (y <= hi)
+            if np.any(y_mask):
+                y = y[y_mask]
+                z = z[y_mask, :]
+
         finite = z[np.isfinite(z)]
         if vmin is None or vmax is None:
             if finite.size:
@@ -491,8 +516,14 @@ class ImageCanvas(QWidget):
             # y=Q/Angle, z=intensity) even though curtains are now built
             # column-by-column instead of row-by-row.
             self.ax.add_collection3d(poly, zs=x_plot, zdir="x")
-            self.ax.set_xlim(float(np.min(x_plot)), float(np.max(x_plot)))
-            self.ax.set_ylim(float(np.min(y_plot)), float(np.max(y_plot)))
+            # Skip when an explicit xlim/ylim override is coming right below
+            # anyway -- besides being redundant, min==max on an X/Y Range
+            # trimmed down to a single remaining point would otherwise warn
+            # ("Attempting to set identical low and high ylims").
+            if xlim is None:
+                self.ax.set_xlim(float(np.min(x_plot)), float(np.max(x_plot)))
+            if ylim is None:
+                self.ax.set_ylim(float(np.min(y_plot)), float(np.max(y_plot)))
             if z_log_used:
                 self.ax.set_zlim(z_floor_plot, float(np.log10(max(vmax, 1e-9))))
             else:

@@ -1294,6 +1294,22 @@ class TrXS2Widget(QWidget):
         if qmax > qmin:
             self.oned_canvas.ax.set_xlim(qmin, qmax)
             self.oned_canvas.canvas.draw_idle()
+            return
+        # 0/0 auto sentinel: reflect the actual displayed Q range back into
+        # the fields, matching Contrast's own "shows the real auto-computed
+        # value instead of staying at two blank zeros" convention (reported:
+        # "Q Min-Max에서 값이 제대로 안나와" -- it was staying at 0.00e+00
+        # forever since nothing ever wrote a real value into it).
+        session = ts.get_session()
+        if session.last_1d is None:
+            return
+        lo, hi = _finite_range(np.asarray(session.last_1d["x_axis"], dtype=np.float64))
+        self.oned_qmin_spin.blockSignals(True)
+        self.oned_qmax_spin.blockSignals(True)
+        self.oned_qmin_spin.setValue(lo)
+        self.oned_qmax_spin.setValue(hi)
+        self.oned_qmin_spin.blockSignals(False)
+        self.oned_qmax_spin.blockSignals(False)
 
     def _render_azimuthal_curve(self) -> None:
         session = ts.get_session()
@@ -1381,6 +1397,10 @@ class TrXS2Widget(QWidget):
         ymax_spin = _double_spin(-1.0e12, 1.0e12, 4, y_hi, 0.01)
         cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
         cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        save_image_button = QPushButton("Save Image")
+        save_image_button.setToolTip(
+            "Save the current Heatmap/Surf/Waterfall view as a PNG (also available via the toolbar's own save icon)."
+        )
 
         ctrl_row1 = QHBoxLayout()
         ctrl_row1.addWidget(_field("Plot Type", plot_type_combo, label_width=64))
@@ -1395,9 +1415,26 @@ class TrXS2Widget(QWidget):
         ctrl_row2.addWidget(_field("X Range", xmin_spin, xmax_spin, label_width=54))
         ctrl_row2.addWidget(_field("Y Range", ymin_spin, ymax_spin, label_width=54))
         ctrl_row2.addWidget(_field("Contrast", cmin_spin, cmax_spin, label_width=54))
+        ctrl_row2.addWidget(save_image_button)
         layout.addLayout(ctrl_row2)
         status_label = _muted("")
         layout.addWidget(status_label)
+
+        def save_image() -> None:
+            default_name = f"{title.replace(' ', '_')}.png"
+            path, _ = QFileDialog.getSaveFileName(
+                dialog, "Save Heatmap Image", str(Path(self._last_dir) / default_name), "PNG Image (*.png)"
+            )
+            if not path:
+                return
+            try:
+                canvas.save_figure(path)
+            except Exception as exc:  # noqa: BLE001
+                status_label.setText(f"Image save failed: {exc}")
+                return
+            status_label.setText(f"Saved {path}.")
+
+        save_image_button.clicked.connect(save_image)
 
         def update() -> None:
             cmin = cmin_spin.value()

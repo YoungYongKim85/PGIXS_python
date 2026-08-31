@@ -1474,6 +1474,10 @@ class GIXS2Widget(QWidget):
         ymax_spin = _double_spin(-1.0e12, 1.0e12, 4, y_hi, 0.01)
         cmin_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
         cmax_spin = _sci_spin(-1.0e12, 1.0e12, 0.0, 1.0)
+        save_image_button = QPushButton("Save Image")
+        save_image_button.setToolTip(
+            "Save the current Heatmap/Surf/Waterfall view as a PNG (also available via the toolbar's own save icon)."
+        )
 
         ctrl_row1 = QHBoxLayout()
         ctrl_row1.addWidget(_field("Plot Type", plot_type_combo, label_width=64))
@@ -1488,9 +1492,26 @@ class GIXS2Widget(QWidget):
         ctrl_row2.addWidget(_field("X Range", xmin_spin, xmax_spin, label_width=54))
         ctrl_row2.addWidget(_field("Y Range", ymin_spin, ymax_spin, label_width=54))
         ctrl_row2.addWidget(_field("Contrast", cmin_spin, cmax_spin, label_width=54))
+        ctrl_row2.addWidget(save_image_button)
         layout.addLayout(ctrl_row2)
         status_label = _muted("")
         layout.addWidget(status_label)
+
+        def save_image() -> None:
+            default_name = f"{title.replace(' ', '_')}.png"
+            path, _ = QFileDialog.getSaveFileName(
+                dialog, "Save Heatmap Image", str(Path(self._last_dir) / default_name), "PNG Image (*.png)"
+            )
+            if not path:
+                return
+            try:
+                canvas.save_figure(path)
+            except Exception as exc:  # noqa: BLE001
+                status_label.setText(f"Image save failed: {exc}")
+                return
+            status_label.setText(f"Saved {path}.")
+
+        save_image_button.clicked.connect(save_image)
 
         def update() -> None:
             cmin = cmin_spin.value()

@@ -502,25 +502,46 @@ def test_image_canvas_render_mesh_and_surface_modes(qapp):
     # get_xscale/get_yscale stay "linear" and get_xlim/get_ylim report the
     # transformed range, with a FuncFormatter relabeling ticks back to the
     # real value. `x` has a leading 0.0 (see above) -- log of <=0 is
-    # undefined, so the X axis silently falls back to linear (both its
-    # own geometry and the caller's raw xlim), while Y (all positive)
-    # transforms successfully.
+    # undefined, so the X axis silently falls back to linear (both its own
+    # geometry and the caller's raw xlim) whenever that 0.0 point is still
+    # within the requested X Range (here (-1.0, 20.0), which keeps it) --
+    # while Y (all positive) transforms successfully.
     vmin, vmax = canvas.render_surface(
         x, y, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A", zlabel="Intensity",
-        xscale="log", yscale="log", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
+        xscale="log", yscale="log", xlim=(-1.0, 20.0), ylim=(0.15, 0.25),
     )
     assert canvas.ax.name == "3d"
     assert canvas.ax.get_zlabel() == "Intensity"
     assert canvas.ax.get_xscale() == "linear"
     assert canvas.ax.get_yscale() == "linear"
     assert canvas.axis_log_fallback == ["X"]
-    assert canvas.ax.get_xlim() == (1.0, 20.0)
+    assert canvas.ax.get_xlim() == (-1.0, 20.0)
     assert canvas.ax.get_ylim() == pytest.approx((np.log10(0.15), np.log10(0.25)))
     assert canvas.ax.yaxis.get_major_formatter()(np.log10(0.25), 0) == "0.25"
     assert vmin < vmax
     assert canvas._colorbar is not None
     assert canvas._rotation_label is not None
     assert canvas._rotation_label.get_text() == "Elev 30°, Azim -60°"
+
+    # Regression: X/Y Range used to only narrow the 3D axes' own viewport
+    # (`Axes3D.set_xlim`/`set_ylim`) without touching the plotted geometry,
+    # so a Range narrower than the full data still built (and drew)
+    # `plot_surface`/the waterfall curtains at their full original size --
+    # the surface visibly poked out past the narrowed box walls (reported:
+    # "Waterfall/Surf에서 range를 바꾸니까 axis 밖으로 삐져나와"). The
+    # source arrays must be trimmed to the requested range *before* any
+    # geometry is built from them. Excluding x=0.0 from the requested range
+    # this time (unlike the xlim=(-1.0, 20.0) case just above, which
+    # deliberately kept it) means the X log-transform, attempted only
+    # against the now-trimmed (all-positive) data, succeeds instead of
+    # falling back -- a direct consequence of trimming happening first.
+    canvas.render_surface(
+        x, y, z, mode="surf", xlabel="Time, s", ylabel="Q, 1/A", zlabel="Intensity",
+        xscale="log", yscale="log", xlim=(1.0, 20.0), ylim=(0.15, 0.25),
+    )
+    assert canvas.axis_log_fallback == []
+    assert canvas.ax.get_xlim() == pytest.approx((0.0, np.log10(20.0)))
+    assert canvas.ax.get_ylim() == pytest.approx((np.log10(0.15), np.log10(0.25)))
 
     # Regression check for the reported "가운데 있지 않고" bug:
     # `figure.colorbar(..., ax=self.ax, shrink=..., pad=...)` (matplotlib's
