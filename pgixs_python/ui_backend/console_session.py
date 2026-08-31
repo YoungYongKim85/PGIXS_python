@@ -799,11 +799,32 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
         range_plus = float(payload.get("range_plus", 1.0))
         use_median = str(payload.get("mean_or_median", "Mean")).strip().lower() == "median"
         n_angle_bins = int(payload.get("n_angle_bins", default_n_angle_bins))
+        mapping = str(payload.get("mapping", "Pixel")).strip()
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid azimuthal parameters: {exc}"}
 
-    data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    if mapping == "Pixel":
+        data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    else:
+        # Same independence already given to the line/accumulation/cake
+        # cuts: cut the actual Qxy/Qz-regridded (Itrans) image, not the
+        # raw pixel data relabeled -- Itrans's own masked beamstop column
+        # and low-coverage bilinear-splat gaps fan out into the "missing
+        # wedge" visible in the Qxy/Qz 2D display at large Qz, which a
+        # pixel-space cut would never see (reported: "range를 선택하여
+        # azimuthal을 했는데... 90도 부근에 missing wedge가 있음에도
+        # 연결되서 그렸어" -- because it was still silently cutting the
+        # raw pixel image regardless of Map format).
+        try:
+            data_for_1d, _ = _q_space_cut_inputs(mapping)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
     beam_pos = _SESSION.calibration["beam_pos"]
+    # `pixel`/Range(-/+) are always real pixel-index radii regardless of
+    # Map format (see console_widget.py's own _pixel_radius_to_q_radius --
+    # only the *display* circle needs a Q-space radius) -- Itrans is
+    # index-aligned 1:1 with the pixel grid, so this radius_range already
+    # addresses the same ring of array cells in either data source.
     radius_range = (pixel + range_minus, pixel + range_plus)
 
     result = angular_profile(
@@ -819,9 +840,11 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
         "angle": result.angle_axis,
         "intensity": result.intensity,
         "coverage": result.coverage,
+        "mapping": mapping,
     }
     return {
         "ok": True,
+        "mapping": mapping,
         "radius_range": list(result.radius_range),
         "coverage_diagnostics": _coverage_summary(result.coverage),
         "preview": {

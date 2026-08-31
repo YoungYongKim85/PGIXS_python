@@ -1710,6 +1710,22 @@ class ConsoleWidget(QWidget):
         # the (left, right, bottom, top) the last full render used --
         # stable across live Y/Z-Range edits, since those only crop the
         # view (set_axis_limits), never touch this stored extent.
+        #
+        # Also clear any Position/Draw/Azimuthal-ring overlay -- a line or
+        # circle drawn earlier otherwise stays on screen indefinitely
+        # (nothing else ever clears it), and Update is the control the user
+        # reaches for to get back to a plain image (reported: "라인을
+        # 그렸다가, Update누르면 라인이 없는 퓨어이미지가 되게 해줘"). Must
+        # also disarm Position mode, not just wipe the artists -- every live
+        # display control (Y-Range/Z-Range/Colormap/...) re-renders through
+        # _render_image, which redraws the line whenever _position_mode is
+        # still "line" (see its own tail), so leaving it armed brought the
+        # "cleared" line right back on the next Y/Z-Range edit (reported:
+        # "update누르면 선이 없어지는데, Y-range, Z-range를 바꾸면 다시
+        # 나오네"). Matches _on_load_finished's own reset-to-clean-state
+        # pattern (clear_overlays + _position_mode = None together).
+        self.image_canvas.clear_overlays()
+        self._position_mode = None
         if self._current_image_extent is None:
             return
         left, right, bottom, top = self._current_image_extent
@@ -1833,11 +1849,29 @@ class ConsoleWidget(QWidget):
         if self._position_mode == "line":
             px, pz = self._display_xy_to_pixel_offset(x, y)
             raw_angle = (math.degrees(math.atan2(-(pz - beam_z), -(px - beam_y))) + 360.0) % 360.0
-            angle = self._mode_corrected_angle(raw_angle)
+            # `_display_xy_to_pixel_offset` already resolves a Q-space
+            # click into a genuine (unflipped) pixel offset -- the same
+            # "no further correction needed" case as raw/uncentered pixel
+            # mode, where raw_angle already IS the physical angle.
+            # Applying `_mode_corrected_angle` on top of that (which
+            # centered-pixel mode still needs, since its own identity
+            # passthrough leaves the display's y-flip uncorrected) mirrored
+            # the angle a *second* time, landing the drawn line 180deg away
+            # from the clicked ring/feature (reported: "Qxy/Qz map에서
+            # 똑같은 위치에 클릭하여 line을 그리면... 다른곳에 라인이
+            # 그려져").
+            angle = raw_angle if self._axis_mode == "q" else self._mode_corrected_angle(raw_angle)
             self.line_angle_spin.setValue(angle)
             self._set_status(f"Line position clicked at ({x:.1f}, {y:.1f}) -> angle {angle:.2f} deg.", True)
         elif self._position_mode == "azimuthal":
-            radius = math.hypot(x - beam_y, y - beam_z)
+            # Same conversion the "line" branch above already applies --
+            # in Q-space (Qxy/Qz) display mode, (x, y) are Q values, not
+            # pixel coordinates, so hypot-ing them directly against the
+            # pixel beam center put a Q-magnitude straight into a
+            # pixel-radius field (reported: "Qxy/Qz 모드일때... 클릭하면
+            # Q값이 아닌 pixel값에 Q값이 들어가서 이상한 곳에 포지션이 생겨").
+            px, pz = self._display_xy_to_pixel_offset(x, y)
+            radius = math.hypot(px - beam_y, pz - beam_z)
             self.azi_pixel_spin.setValue(radius)
             self._set_status(f"Azimuthal position clicked at ({x:.1f}, {y:.1f}) -> radius {radius:.1f} px.", True)
 
@@ -1931,8 +1965,33 @@ class ConsoleWidget(QWidget):
         # was already using it correctly (radius_range = pixel +/- range).
         r_minus = max(0.0, pixel + self.azi_range_minus_spin.value())
         r_plus = max(0.0, pixel + self.azi_range_plus_spin.value())
+        if self._axis_mode == "q":
+            # azi_pixel_spin/Range(-/+) are always real pixel counts, but in
+            # Qxy/Qz display mode the image's own axes are scaled in Q
+            # units -- a circle radius of e.g. 200 (pixels) drawn directly
+            # on a plot whose visible span is a few 1/A landed far outside
+            # the view, reading as "nothing drawn" (reported: "Qxy/Qz
+            # map에서 Azimuthal process에 Draw가 되고 있지 않아"). Convert
+            # each pixel radius to its equivalent Q-space radius first --
+            # exact, since the uniform Q-space grid scales isotropically
+            # (console_q_space_point's own d_q factor applies the same way
+            # in every direction from the beam).
+            r_minus = self._pixel_radius_to_q_radius(r_minus)
+            r_plus = self._pixel_radius_to_q_radius(r_plus)
         self.image_canvas.draw_beam_circle(center, r_minus)
         self.image_canvas.draw_beam_circle(center, r_plus)
+
+    def _pixel_radius_to_q_radius(self, radius_px: float) -> float:
+        """The Q-space distance from the beam origin that a circle of
+        `radius_px` real pixels maps to -- exact, since
+        `console_q_space_point`'s uniform grid scales isotropically (any
+        direction from the beam by the same pixel distance lands the same
+        Q distance from the origin)."""
+
+        result = cs.console_q_space_point({"col": self.beam_y_spin.value() + radius_px, "row": self.beam_z_spin.value()})
+        if not result.get("ok"):
+            return radius_px
+        return math.hypot(result["qx"], result["qy"])
 
     def _update_azi_q_label(self) -> None:
         """Show the Q value at the current Azimuthal pixel radius, sampled
@@ -1962,6 +2021,7 @@ class ConsoleWidget(QWidget):
             "range_minus": self.azi_range_minus_spin.value(),
             "range_plus": self.azi_range_plus_spin.value(),
             "mean_or_median": self.azi_meanmedian_combo.currentText(),
+            "mapping": self.map_format_combo.currentText(),
         }
         result = cs.console_azimuthal_1d(payload)
         if not result.get("ok"):

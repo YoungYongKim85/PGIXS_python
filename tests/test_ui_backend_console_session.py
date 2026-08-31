@@ -535,6 +535,42 @@ def test_console_azimuthal_1d_trxs_sweeps_full_360(tmp_path):
     assert angle.max() > 180.0
 
 
+def test_console_azimuthal_1d_qxyqz_mapping_runs_independently(tmp_path):
+    """Regression: the Azimuthal Process ran against the raw pixel data
+    regardless of Map format, unlike the line/cake/accumulation cuts fixed
+    earlier -- so a "missing wedge" gap plainly visible in the Qxy/Qz 2D
+    display (Itrans's masked beamstop column + low-coverage bilinear-splat
+    cells) never showed up as a break in the resulting azimuthal curve
+    (reported: "90도 부근에 mising wedge가 있음에도 견결되서 그렸어").
+    "Qxy/Qz" must now cut the actual Q-remapped (Itrans) image, same as
+    console_line_1d's own mapping branch."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
+
+    pixel_payload = cs.console_azimuthal_1d(
+        {"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 32, "mapping": "Pixel"}
+    )
+    assert pixel_payload["ok"], pixel_payload.get("message")
+    assert pixel_payload["mapping"] == "Pixel"
+    pixel_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    qspace_payload = cs.console_azimuthal_1d(
+        {"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 32, "mapping": "Qxy/Qz"}
+    )
+    assert qspace_payload["ok"], qspace_payload.get("message")
+    assert qspace_payload["mapping"] == "Qxy/Qz"
+    qspace_intensity = np.asarray(cs.get_session().last_curve["intensity"])
+
+    assert qspace_intensity.shape != pixel_intensity.shape or not np.allclose(
+        qspace_intensity, pixel_intensity, equal_nan=True
+    )
+
+
 def test_console_grid_remove_requires_loaded_data():
     cs.reset_session()
 

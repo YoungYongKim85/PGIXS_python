@@ -889,6 +889,49 @@ def test_update_resets_range_to_full_extent_keeps_other_settings(qapp, tmp_path)
     assert console.image_canvas.ax.xaxis.label.get_fontsize() == 20.0
 
 
+def test_update_clears_a_previously_drawn_line_overlay(qapp, tmp_path):
+    """Reported live: "라인을 그렸다가, Update누르면 라인이 없는 퓨어이미지가
+    되게 해줘" -- a line/wedge/circle drawn via Position+Draw (or Azimuthal
+    Draw) had no way to go away short of switching Map format or reloading.
+    Update is the button the user already reaches for to get back to a
+    plain view (see test_update_resets_range_to_full_extent_keeps_other_settings),
+    so it now also wipes any overlay currently on the image and disarms
+    Position mode (see test_update_stays_clear_after_a_live_range_edit for
+    why disarming, not just wiping the artists, is required)."""
+
+    console = _load_test_frame(tmp_path)
+    console._arm_position_mode("line")
+    console._draw_line_overlay()
+    assert len(console.image_canvas._overlay_artists) > 0
+
+    console._on_update_clicked()
+
+    assert len(console.image_canvas._overlay_artists) == 0
+    assert console._position_mode is None
+
+
+def test_update_stays_clear_after_a_live_range_edit(qapp, tmp_path):
+    """Regression: Update alone made the line disappear, but every other
+    display control (Y-Range/Z-Range/Colormap/...) re-renders live through
+    _apply_display_settings -> _render_image, which redraws the line
+    whenever _position_mode is still "line" -- so the "cleared" line came
+    right back the moment Y-Range or Z-Range was edited afterward
+    (reported: "update누르면 선이 없어지는데, Y-range, Z-range를 바꾸면
+    다시 나오네"). Update must disarm Position mode, not just wipe the
+    artists once, so a later live-display edit stays clear too."""
+
+    console = _load_test_frame(tmp_path)
+    console._arm_position_mode("line")
+    console._draw_line_overlay()
+    console._on_update_clicked()
+    assert len(console.image_canvas._overlay_artists) == 0
+
+    console.yrange_min_spin.setValue(2.0)
+    console.yrange_max_spin.setValue(18.0)
+
+    assert len(console.image_canvas._overlay_artists) == 0
+
+
 def test_load_info_recenters_pixel_axis_on_beam_position(qapp, tmp_path):
     """Regression, verified against GIXS_gui.m's Openinfo_Callback: once
     Load Info has set the beam position, the pixel-mode axis re-centers on
@@ -1478,6 +1521,91 @@ def test_display_xy_to_pixel_offset_q_mode_round_trips_through_real_qmap(qapp, t
 
     assert px == pytest.approx((col + 1) - beam_y)
     assert pz == pytest.approx((row + 1) - beam_z)
+
+
+def test_azimuthal_position_click_in_q_mode_sets_a_pixel_radius_not_a_q_value(qapp, tmp_path):
+    """Regression: "Qxy/Qz 모드일때, Azimuthal 프로세스에서 포지션을 정해서
+    클릭하면 Q값이 아닌 pixel값에 Q값이 들어가서 이상한 곳에 포지션이 생겨" --
+    _on_image_clicked's azimuthal branch hypot'd the click's raw display
+    (x, y) straight against the pixel beam center, which in Q-space mode
+    are Q values (Angstrom^-1), not pixel coordinates -- azi_pixel_spin
+    ended up holding a Q magnitude instead of a real pixel radius."""
+
+    import math
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    beam_y, beam_z = 12.0, 10.0
+    console.beam_y_spin.setValue(beam_y)
+    console.beam_z_spin.setValue(beam_z)
+    qmap_result = cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": beam_y, "beam_z": beam_z})
+    assert qmap_result["ok"], qmap_result.get("message")
+
+    console._axis_mode = "q"
+    console.map_format_combo.blockSignals(True)
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    console.map_format_combo.blockSignals(False)
+
+    session = cs.get_session()
+    row, col = 3, 15  # an arbitrary pixel away from the beam and the array edges
+    qr_value = float(session.qmap["qr"][row, col])
+    qz_value = float(session.qmap["qz"][row, col])
+    expected_radius = math.hypot((col + 1) - beam_y, (row + 1) - beam_z)
+
+    console._arm_position_mode("azimuthal")
+    console._on_image_clicked(qr_value, qz_value)
+
+    # azi_pixel_spin only keeps 1 decimal place, so compare with that
+    # precision in mind rather than an exact/relative match.
+    assert console.azi_pixel_spin.value() == pytest.approx(expected_radius, abs=0.05)
+    # The old bug would have set this to hypot(qr_value, qz_value) instead --
+    # a wildly different, tiny Q-space magnitude, not a pixel count.
+    assert console.azi_pixel_spin.value() != pytest.approx(math.hypot(qr_value, qz_value), rel=1e-2)
+
+
+def test_azi_draw_in_q_mode_draws_circles_scaled_to_q_not_raw_pixel_radii(qapp, tmp_path):
+    """Regression: "Qxy/Qz map에서 Azimuthal process에 Draw가 되고 있지
+    않아" -- azi_pixel_spin/Range(-/+) are always real pixel counts, but
+    _on_azi_draw_clicked drew a Circle patch of that same radius directly
+    on the Q-space-scaled axes in Qxy/Qz mode, landing far outside the
+    visible (a few 1/A wide) plot -- it read as nothing being drawn at
+    all. Circle radii must be converted to their Q-space equivalent first."""
+
+    import math
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame(tmp_path)
+    beam_y, beam_z = 12.0, 10.0
+    console.beam_y_spin.setValue(beam_y)
+    console.beam_z_spin.setValue(beam_z)
+    qmap_result = cs.console_qmap({"incident_angle_deg": 0.0, "beam_y": beam_y, "beam_z": beam_z})
+    assert qmap_result["ok"], qmap_result.get("message")
+
+    console._axis_mode = "q"
+    console.map_format_combo.blockSignals(True)
+    console.map_format_combo.setCurrentText("Qxy/Qz")
+    console.map_format_combo.blockSignals(False)
+
+    console.azi_pixel_spin.setValue(10.0)
+    console.azi_range_minus_spin.setValue(-2.0)
+    console.azi_range_plus_spin.setValue(4.0)
+
+    console._on_azi_draw_clicked()
+
+    circles = console.image_canvas._overlay_artists
+    assert len(circles) == 2
+    radii = sorted(c.get_radius() for c in circles)
+
+    expected = sorted(
+        console._pixel_radius_to_q_radius(r) for r in (10.0 - 2.0, 10.0 + 4.0)
+    )
+    assert radii[0] == pytest.approx(expected[0], rel=1e-4)
+    assert radii[1] == pytest.approx(expected[1], rel=1e-4)
+    # The old bug would have drawn radii of 8/14 (raw pixel counts) --
+    # confirm these are genuinely different, much smaller Q-space values.
+    assert radii[1] < 1.0
 
 
 def test_line_overlay_reflects_pos_move_offset(qapp, tmp_path):
@@ -2127,3 +2255,38 @@ def test_cakecut_overlay_in_q_mode_shows_two_distinct_wedge_lines(qapp, tmp_path
     finite = np.isfinite(y1) & np.isfinite(y2)
     assert finite.sum() > 1
     assert not np.allclose(y1[finite], y2[finite])
+
+
+def test_line_overlay_and_click_agree_in_q_mode_too(qapp, tmp_path):
+    """Regression reported live, with a screenshot of the "1D process"
+    Position click working correctly in Pixel mode but landing the drawn
+    line on the wrong side of the rings once Map format was Qxy/Qz: "Qxy/Qz
+    map에서 똑같은 위치에 클릭하여 line을 그리면... 다른곳에 라인이
+    그려져." Root cause: `_on_image_clicked`'s "line" branch always mirrored
+    the click angle a second time via `_mode_corrected_angle`, but in Q
+    mode `_display_xy_to_pixel_offset` (unlike centered-pixel mode's plain
+    identity passthrough) already fully resolves the display's y-flip into
+    a genuine unflipped pixel offset -- stacking the mirror on top of that
+    doubled it, landing every clicked line 180deg from where it should be.
+
+    Same true end-to-end round trip as
+    test_line_overlay_and_click_agree_in_beam_centered_pixel_mode_too: draw
+    the overlay for a target angle via _draw_line_overlay, then feed its
+    far endpoint back through _on_image_clicked (as if the user clicked
+    there) and confirm line_angle_spin recovers the original target
+    angle -- this is exactly "click the same feature the line already
+    passes through and expect the line to stay there."""
+
+    console = _load_test_frame_in_q_mode(tmp_path)
+
+    for target_angle in (30.0, 90.0, 140.0, 200.0):
+        console.cakecut_check.setChecked(False)
+        console.line_angle_spin.setValue(target_angle)
+        console.image_canvas.clear_overlays()
+        console._draw_line_overlay()
+        (line,) = console.image_canvas._overlay_artists
+        xdata, ydata = line.get_xdata(), line.get_ydata()
+
+        console._arm_position_mode("line")
+        console._on_image_clicked(xdata[1], ydata[1])
+        assert console.line_angle_spin.value() == pytest.approx(target_angle % 360.0, abs=1e-2), f"angle={target_angle}"
