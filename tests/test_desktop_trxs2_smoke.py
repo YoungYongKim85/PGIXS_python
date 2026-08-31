@@ -267,6 +267,7 @@ def test_trxs2_widget_qcal_circular_exec_and_background_subtraction_end_to_end(q
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
 
     _qcal_sync(widget, monkeypatch)
     assert "q-Cal applied" in widget.status_label.text()
@@ -309,6 +310,7 @@ def test_trxs2_widget_normalize_1d_combo_applies_live(qapp, tmp_path, monkeypatc
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _circular_exec_sync(widget, monkeypatch)
 
@@ -332,6 +334,7 @@ def test_trxs2_widget_line_exec_disables_save_1d_std(qapp, tmp_path, monkeypatch
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
 
     widget.circ_std_check.setChecked(True)
@@ -353,6 +356,7 @@ def test_trxs2_widget_azimuthal_exec_and_subtraction(qapp, tmp_path, monkeypatch
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
 
     widget.azi_pixel_spin.setValue(60.0)
@@ -449,6 +453,7 @@ def test_trxs2_widget_1d_heatmap_opens_after_circular_exec(qapp, tmp_path, monke
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _circular_exec_sync(widget, monkeypatch)
 
@@ -472,6 +477,7 @@ def test_trxs2_widget_heatmap_save_image_writes_a_png(qapp, tmp_path, monkeypatc
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _circular_exec_sync(widget, monkeypatch)
 
@@ -569,6 +575,7 @@ def test_trxs2_widget_azimuthal_position_button_click_sets_pix_and_arms_overlay(
     _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     session.corrected = True
 
     widget._arm_position_mode("azimuthal")
@@ -593,6 +600,7 @@ def test_trxs2_widget_line_position_button_click_sets_angle_and_arms_overlay(qap
     _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     session.corrected = True
 
     widget._arm_position_mode("line")
@@ -667,6 +675,7 @@ def test_trxs2_widget_auto_refresh_extends_circular_series(qapp, tmp_path, monke
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _circular_exec_sync(widget, monkeypatch)
     assert session.last_1d["intensity"].shape[0] == 2
@@ -699,6 +708,7 @@ def test_trxs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monke
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _circular_exec_sync(widget, monkeypatch)
     widget.azi_pixel_spin.setValue(60.0)
@@ -735,6 +745,7 @@ def test_trxs2_widget_save_1d_std_enabled_after_circular_exec_with_std(qapp, tmp
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
 
     widget.circ_std_check.setChecked(True)

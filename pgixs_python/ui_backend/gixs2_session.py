@@ -109,6 +109,13 @@ class GIXS2Session:
     q_stack: np.ndarray | None = None
     grid_removed: bool = False
     corrected: bool = False
+    # Set True only by a *successful* gixs2_load_info -- gixs2_qcal refuses
+    # to run without it, since `calibration` above always holds plausible-
+    # looking placeholder values even before Load Info ever runs, and
+    # silently q-Cal'ing against those produces a wrong-but-not-obviously-
+    # wrong q-map (reported: "Load Info에 파일이 들어가 있지 않으면, q-cal이
+    # 되지 않도록 해줘").
+    calibration_loaded: bool = False
     roi_list: list[tuple[int, int, int, int]] = field(default_factory=list)
     last_1d: dict[str, Any] | None = None
     last_azimuthal: dict[str, Any] | None = None
@@ -393,6 +400,7 @@ def gixs2_load_info(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.calibration["energy_kev"] = float(calibration.energy_kev)
     _SESSION.calibration["sdd_mm"] = float(calibration.sdd)
     _SESSION.calibration["pixel_mm"] = float(calibration.pixel_size)
+    _SESSION.calibration_loaded = True
 
     return {"ok": True, "path": path, "calibration": dict(_SESSION.calibration)}
 
@@ -519,6 +527,8 @@ def _change_ai_frame_factor(
 def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.stack is None:
         return {"ok": False, "message": "Load a series first."}
+    if not _SESSION.calibration_loaded:
+        return {"ok": False, "message": "Run Load Info first."}
 
     try:
         energy_kev = float(payload.get("energy_kev", _SESSION.calibration["energy_kev"]))

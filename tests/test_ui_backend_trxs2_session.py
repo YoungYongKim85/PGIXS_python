@@ -55,6 +55,7 @@ def _load_series(tmp_path, **kwargs):
 def _qcal(center, sdd_mm=300.0, energy_kev=9.5):
     session = ts.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": sdd_mm, "energy_kev": energy_kev})
+    session.calibration_loaded = True
     result = ts.trxs2_qcal({})
     assert result["ok"], result.get("message")
     return result
@@ -199,6 +200,25 @@ def test_trxs2_qcal_refuses_a_second_run_without_a_new_series(tmp_path):
 def test_trxs2_qcal_requires_a_loaded_series():
     result = ts.trxs2_qcal({})
     assert not result["ok"]
+
+
+def test_trxs2_qcal_requires_load_info_first(tmp_path):
+    """Regression: "Load Info에 파일이 들어가 있지 않으면, q-cal이 되지
+    않도록 해줘" -- `session.calibration` always holds plausible-looking
+    placeholder values even before Load Info ever runs, so q-Cal must
+    refuse to run against those rather than silently producing a wrong-
+    but-not-obviously-wrong q-map."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center)
+    session = ts.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+
+    result = ts.trxs2_qcal({})
+
+    assert not result["ok"]
+    assert "Load Info" in result["message"]
+    assert session.qmap is None
 
 
 # ----------------------------------------------------------------------
@@ -410,6 +430,7 @@ def test_trxs2_line_exec_matches_single_frame_console_plain_angle_cut(tmp_path):
     console.data = session.corrected_stack[0]
     console.qmap = {"q": session.qmap["q"]}
     console.calibration["beam_pos"] = center
+    console.calibration_loaded = True
     console_result = cs.console_line_1d({"angle_deg": 90.0})
     assert console_result["ok"], console_result.get("message")
 
@@ -448,6 +469,7 @@ def test_trxs2_azimuthal_exec_matches_single_frame_console_0_360_result(tmp_path
     _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = ts.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
 
     result = ts.trxs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
     assert result["ok"], result.get("message")
@@ -458,6 +480,7 @@ def test_trxs2_azimuthal_exec_matches_single_frame_console_0_360_result(tmp_path
     console.data = session.stack[0]
     console.qmap = {"q": np.ones_like(session.stack[0])}  # console_azimuthal_1d only needs qmap not-None
     console.calibration.update({"beam_pos": center})
+    console.calibration_loaded = True
     console_result = cs.console_azimuthal_1d({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
     assert console_result["ok"], console_result.get("message")
 

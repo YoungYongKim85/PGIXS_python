@@ -49,6 +49,7 @@ def test_console_load_returns_preview_and_calibration(tmp_path):
     _write_synthetic_frame(frame_path)
 
     payload = _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     assert payload["ok"]
     assert payload["shape"] == [48, 48]
@@ -66,11 +67,31 @@ def test_console_qmap_requires_loaded_data():
     assert "Load a detector image" in payload["message"]
 
 
+def test_console_qmap_requires_load_info_first(tmp_path):
+    """Regression: "Load Info에 파일이 들어가 있지 않으면, q-cal이 되지
+    않도록 해줘" -- `_SESSION.calibration` always holds plausible-looking
+    placeholder values even before Load Info ever runs, so q-Cal must
+    refuse to run against those rather than silently producing a wrong-
+    but-not-obviously-wrong q-map."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+
+    payload = cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})
+
+    assert not payload["ok"]
+    assert "Load Info" in payload["message"]
+    assert cs.get_session().qmap is None
+
+
 def test_console_qmap_computes_q_range(tmp_path):
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
@@ -86,6 +107,7 @@ def test_console_qspace_image_requires_qmap(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_qspace_image({})
 
@@ -98,6 +120,7 @@ def test_console_qspace_image_returns_regridded_preview(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_qspace_image({"mapping": "Qxy/Qz"})
@@ -118,6 +141,7 @@ def test_console_qspace_image_supports_qy_qz_mapping(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_qspace_image({"mapping": "Qy/Qz"})
@@ -131,6 +155,7 @@ def test_console_qspace_image_works_for_trxs(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})
 
     payload = cs.console_qspace_image({})
@@ -143,6 +168,7 @@ def test_console_q_space_point_requires_qmap(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_q_space_point({"col": 24.0, "row": 24.0})
 
@@ -163,6 +189,7 @@ def test_console_q_space_point_and_pixel_from_q_space_round_trip(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     forward = cs.console_q_space_point({"col": 30.0, "row": 15.0})
@@ -179,6 +206,7 @@ def test_console_polar_image_requires_qmap(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_polar_image({})
 
@@ -191,6 +219,7 @@ def test_console_polar_image_returns_polar_preview(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_polar_image({"mapping": "Qxy/Qz"})
@@ -214,6 +243,7 @@ def test_console_polar_image_supports_qy_qz_mapping(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_polar_image({"mapping": "Qy/Qz"})
@@ -231,6 +261,7 @@ def test_console_polar_image_gixs_sweeps_only_0_to_180(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path, mode="gixs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_polar_image({"mapping": "Qxy/Qz"})
@@ -247,6 +278,7 @@ def test_console_polar_image_trxs_sweeps_full_360(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})
 
     payload = cs.console_polar_image({"mapping": "Qy/Qz"})
@@ -271,6 +303,7 @@ def test_console_line_1d_returns_curve(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_line_1d({"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0})
@@ -286,6 +319,7 @@ def test_console_line_1d_accumulation_returns_curve(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_line_1d({"angle_deg": 90.0, "accumulation": True, "accum_minus": -2.0, "accum_plus": 2.0})
@@ -299,6 +333,7 @@ def test_console_line_1d_accumulation_and_cakecut_are_mutually_exclusive(tmp_pat
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_line_1d({"accumulation": True, "cakecut": True})
@@ -312,6 +347,7 @@ def test_console_line_1d_accumulation_requires_axis_aligned_angle(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_line_1d({"angle_deg": 45.0, "accumulation": True})
@@ -329,6 +365,7 @@ def test_console_line_1d_pos_move_shifts_axis_aligned_cut_but_not_diagonal(tmp_p
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     baseline = cs.console_line_1d({"angle_deg": 90.0})
@@ -368,6 +405,7 @@ def test_console_line_1d_qxyqz_mapping_runs_an_independent_cakecut(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     pixel_payload = cs.console_line_1d(
@@ -394,6 +432,7 @@ def test_console_line_1d_qxyqz_mapping_runs_an_independent_accumulation_cut(tmp_
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     pixel_payload = cs.console_line_1d(
@@ -421,6 +460,7 @@ def test_console_line_1d_qyqz_mapping_also_runs_independently(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     pixel_payload = cs.console_line_1d(
@@ -445,6 +485,7 @@ def test_console_azimuthal_1d_returns_curve(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_azimuthal_1d({"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 16})
@@ -463,6 +504,7 @@ def test_console_azimuthal_1d_gixs_sweeps_only_0_to_180(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path, mode="gixs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_azimuthal_1d({"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 16})
@@ -481,6 +523,7 @@ def test_console_azimuthal_1d_trxs_sweeps_full_360(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
 
     payload = cs.console_azimuthal_1d({"pixel": 10.0, "range_minus": -3.0, "range_plus": 3.0, "n_angle_bins": 16})
@@ -515,6 +558,7 @@ def test_console_normalize_none_method_previews_then_commits(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     preview = cs.console_normalize({"method": "None", "confirm": False})
     assert preview["ok"]
@@ -535,6 +579,7 @@ def test_console_save_requires_qmap(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_save({})
 
@@ -548,6 +593,7 @@ def test_console_save_writes_files_and_round_trips(tmp_path):
     _write_synthetic_frame(frame_path)
     out_dir = tmp_path / "out"
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
     cs.console_line_1d({"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0})
 
@@ -571,6 +617,7 @@ def test_console_save_creates_stem_named_subfolder(tmp_path):
     _write_synthetic_frame(frame_path)
     out_dir = tmp_path / "out"
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
     cs.console_line_1d({"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0})
 
@@ -589,6 +636,7 @@ def test_console_save_curve_creates_stem_named_subfolder(tmp_path):
     _write_synthetic_frame(frame_path)
     out_dir = tmp_path / "out"
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})
     cs.console_line_1d({"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0})
 
@@ -611,6 +659,7 @@ def test_curve_filename_labels_kind_and_angle(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path, shape=(64, 64))
     _load(frame_path)
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0, "incident_angle_deg": 0.2})
 
     # Line cut at a negative angle -- filename must stay filesystem-safe.
@@ -625,6 +674,7 @@ def test_curve_filename_labels_kind_and_angle(tmp_path):
     assert Path(payload["curve_path"]).name == "frame_1D_azimuthal.csv"
 
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
     cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.0})
     payload = cs.console_save_curve({"out_dir": str(tmp_path)})
@@ -638,6 +688,7 @@ def test_console_load_defaults_to_gixs_mode(tmp_path):
     _write_synthetic_frame(frame_path)
 
     payload = _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     assert payload["mode"] == "gixs"
     assert cs.get_session().mode == "gixs"
@@ -649,6 +700,7 @@ def test_console_load_accepts_trxs_mode(tmp_path):
     _write_synthetic_frame(frame_path)
 
     payload = _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
 
     assert payload["mode"] == "trxs"
     assert cs.get_session().mode == "trxs"
@@ -659,6 +711,7 @@ def test_console_qmap_uses_trxs_physics_without_incident_angle(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path)
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})
 
@@ -682,6 +735,7 @@ def test_console_circular_average_returns_curve_and_nulls_low_coverage(tmp_path)
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path, shape=(64, 64))
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
 
     payload = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.99})
@@ -705,6 +759,7 @@ def test_console_set_circular_mask_rejects_shape_mismatch(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path, shape=(20, 20))
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
 
     payload = cs.console_set_circular_mask({"mask": np.ones((5, 5), dtype=bool)})
 
@@ -717,6 +772,7 @@ def test_console_set_circular_mask_accepts_and_clears(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path, shape=(20, 20))
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
 
     mask = np.zeros((20, 20), dtype=bool)
     mask[5:10, 5:10] = True
@@ -742,6 +798,7 @@ def test_console_circular_average_applies_mask(tmp_path):
     frame_path = tmp_path / "frame.h5"
     data = _write_synthetic_frame(frame_path, shape=(64, 64))
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
 
     unmasked = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.0})
@@ -765,6 +822,7 @@ def test_console_load_clears_circular_mask(tmp_path):
     frame_path = tmp_path / "frame.h5"
     _write_synthetic_frame(frame_path, shape=(20, 20))
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     mask = np.ones((20, 20), dtype=bool)
     assert cs.console_set_circular_mask({"mask": mask})["ok"]
     assert cs.get_session().circular_mask is not None
@@ -772,6 +830,7 @@ def test_console_load_clears_circular_mask(tmp_path):
     frame_path_2 = tmp_path / "frame2.h5"
     _write_synthetic_frame(frame_path_2, shape=(20, 20), seed=7)
     _load(frame_path_2, mode="trxs")
+    cs.get_session().calibration_loaded = True
 
     assert cs.get_session().circular_mask is None
 
@@ -782,6 +841,7 @@ def test_console_save_trxs_mode_has_no_incident_angle(tmp_path):
     _write_synthetic_frame(frame_path)
     out_dir = tmp_path / "out"
     _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
     cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})
 
     payload = cs.console_save({"out_dir": str(out_dir)})
@@ -806,6 +866,7 @@ def test_console_load_transposes_relative_to_raw_load(tmp_path):
 
     raw = load_image_file(frame_path)
     payload = _load(frame_path)
+    cs.get_session().calibration_loaded = True
 
     assert payload["ok"]
     assert tuple(payload["shape"]) == raw.data.shape[::-1]
@@ -826,6 +887,7 @@ def test_console_grid_remove_works_after_display_transpose(tmp_path):
     # mask shape (2070, 2167), exactly like a real detector file.
     _write_synthetic_frame(frame_path, shape=(2167, 2070))
     _load(frame_path, detector="Eiger4M")
+    cs.get_session().calibration_loaded = True
     loaded_shape = cs.get_session().data.shape
 
     payload = cs.console_grid_remove({})
@@ -1013,11 +1075,13 @@ def test_set_session_isolates_two_independent_sessions(tmp_path):
 
     cs.set_session(gixs_session)
     gixs_payload = _load(gixs_frame, mode="gixs")
+    cs.get_session().calibration_loaded = True
     assert gixs_payload["ok"]
     assert cs.get_session() is gixs_session
 
     cs.set_session(trxs_session)
     trxs_payload = _load(trxs_frame, mode="trxs")
+    cs.get_session().calibration_loaded = True
     assert trxs_payload["ok"]
     assert cs.get_session() is trxs_session
 

@@ -732,6 +732,7 @@ def _load_test_frame(tmp_path):
     )
     assert result["ok"], result.get("message")
     console._on_load_finished(result)
+    cs.get_session().calibration_loaded = True
     return console
 
 
@@ -766,6 +767,7 @@ def _load_test_frame_trxs(tmp_path):
     )
     assert result["ok"], result.get("message")
     console._on_load_finished(result)
+    cs.get_session().calibration_loaded = True
     return console
 
 
@@ -922,6 +924,7 @@ def test_load_info_recenters_pixel_axis_on_beam_position(qapp, tmp_path):
     # just the widget -- otherwise the next console_load()'s calibration
     # response pulls the old default and clobbers the widget again.
     cs.get_session().calibration["beam_pos"] = (beam_y, beam_z)
+    cs.get_session().calibration_loaded = True
     console.beam_y_spin.setValue(beam_y)
     console.beam_z_spin.setValue(beam_z)
     console._pixel_centered = True
@@ -1006,6 +1009,7 @@ def test_zplot_marks_its_column_on_the_2d_image(qapp, tmp_path):
 
     # Beam-centered mode: display x = target_col - beam_y = offset itself.
     cs.get_session().calibration["beam_pos"] = (10.0, console.beam_z_spin.value())
+    cs.get_session().calibration_loaded = True
     console._pixel_centered = True
     console._render_pixel_image()
     console.ai_ypix_spin.setValue(3.0)
@@ -1199,6 +1203,7 @@ def test_line_plot_uses_full_resolution_curve_not_json_preview(qapp, tmp_path):
     )
     assert result["ok"], result.get("message")
     console._on_load_finished(result)
+    cs.get_session().calibration_loaded = True
 
     qmap_result = cs.console_qmap({"incident_angle_deg": 0.0})
     assert qmap_result["ok"], qmap_result.get("message")
@@ -2072,6 +2077,7 @@ def test_cakecut_overlay_in_q_mode_shows_two_distinct_wedge_lines(qapp, tmp_path
     )
     assert result["ok"], result.get("message")
     console._on_load_finished(result)
+    cs.get_session().calibration_loaded = True
     beam_y, beam_z = 120.0, 100.0
     console.beam_y_spin.setValue(beam_y)
     console.beam_z_spin.setValue(beam_z)

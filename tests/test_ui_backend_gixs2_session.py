@@ -232,10 +232,29 @@ def test_gixs2_auto_refresh_finds_new_files_for_a_substring_prefix_series(tmp_pa
     assert gs.get_session().stack.shape[0] == 5
 
 
+def test_gixs2_qcal_requires_load_info_first(tmp_path):
+    """Regression: "Load Info에 파일이 들어가 있지 않으면, q-cal이 되지
+    않도록 해줘" -- `session.calibration` always holds plausible-looking
+    placeholder values even before Load Info ever runs, so q-Cal must
+    refuse to run against those rather than silently producing a wrong-
+    but-not-obviously-wrong q-map."""
+
+    _load_series(tmp_path, n_frames=2, center=(100.5, 100.5))
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": (100.5, 100.5), "sdd_mm": 300.0, "energy_kev": 9.5})
+
+    result = gs.gixs2_qcal({})
+
+    assert not result["ok"]
+    assert "Load Info" in result["message"]
+    assert session.qmap is None
+
+
 def test_gixs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
     _load_series(tmp_path, n_frames=2, center=(100.5, 100.5))
     session = gs.get_session()
     session.calibration.update({"beam_pos": (100.5, 100.5), "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
 
     result = gs.gixs2_qcal({})
 
@@ -249,6 +268,7 @@ def test_gixs2_qcal_change_ai_produces_per_frame_q_stack(tmp_path):
     _load_series(tmp_path, n_frames=3, center=(100.5, 100.5))
     session = gs.get_session()
     session.calibration.update({"beam_pos": (100.5, 100.5), "sdd_mm": 300.0, "energy_kev": 9.5, "incident_angle_deg": 0.1})
+    session.calibration_loaded = True
 
     result = gs.gixs2_qcal({"change_ai": True, "ai_step": 0.05})
 
@@ -288,6 +308,7 @@ def test_gixs2_qcal_switching_back_to_static_clears_change_ai_state(tmp_path):
     _load_series(tmp_path, n_frames=2, center=(100.5, 100.5))
     session = gs.get_session()
     session.calibration.update({"beam_pos": (100.5, 100.5), "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({"change_ai": True, "ai_step": 0.05})["ok"]
 
     result = gs.gixs2_qcal({"change_ai": False})
@@ -308,6 +329,7 @@ def test_gixs2_linecut_exec_change_ai_uses_per_frame_q_map(tmp_path):
     _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5, "incident_angle_deg": 0.1})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({"change_ai": True, "ai_step": 0.05})["ok"]
 
     result = gs.gixs2_linecut_exec({"angle_deg": 90.0})
@@ -322,6 +344,7 @@ def test_gixs2_auto_refresh_change_ai_extends_aivar_and_q_stack(tmp_path):
     _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5, "incident_angle_deg": 0.1})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({"change_ai": True, "ai_step": 0.05})["ok"]
     assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
     original_intensity = session.last_1d["intensity"].copy()
@@ -359,6 +382,7 @@ def test_gixs2_linecut_exec_reports_and_clears_load_progress(tmp_path):
     _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 70.0, 80.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
 
     seen = []
@@ -396,6 +420,7 @@ def test_gixs2_linecut_exec_end_to_end(tmp_path):
     _load_series(tmp_path, n_frames=3, center=center, radii=radii)
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
 
     result = gs.gixs2_linecut_exec({"angle_deg": 90.0})
@@ -412,6 +437,7 @@ def test_gixs2_azimuthal_exec_end_to_end(tmp_path):
     _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
 
     result = gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
 
@@ -429,6 +455,7 @@ def test_gixs2_azimuthal_exec_reports_and_clears_load_progress(tmp_path):
     _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 70.0, 80.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
 
     seen = []
     original_process = gs.process_azimuthal_stack
@@ -552,6 +579,7 @@ def test_gixs2_set_x_axis_angle_mode_prefers_change_ai_ramp_over_logged_metadata
     _load_series_angle_mode(tmp_path, n_frames=4, center=center)
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     qcal_result = gs.gixs2_qcal({"incident_angle_deg": 0.1, "change_ai": True, "ai_step": 0.05})
     assert qcal_result["ok"], qcal_result.get("message")
 
@@ -571,6 +599,7 @@ def test_gixs2_set_x_axis_angle_mode_time_submode_still_overrides_change_ai(tmp_
     _load_series_angle_mode(tmp_path, n_frames=3, center=center)
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({"incident_angle_deg": 0.1, "change_ai": True, "ai_step": 0.05})["ok"]
 
     result = gs.gixs2_set_x_axis({"sub_mode": "Time"})
@@ -587,6 +616,7 @@ def test_gixs2_set_x_axis_angle_mode_without_change_ai_falls_back_to_logged_meta
     _load_series_angle_mode(tmp_path, n_frames=2, center=center)
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({"incident_angle_deg": 0.1, "change_ai": False})["ok"]
 
     result = gs.gixs2_set_x_axis({})
@@ -604,6 +634,7 @@ def test_gixs2_save_1d_writes_a_file(tmp_path):
     _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
     assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
 
@@ -625,6 +656,7 @@ def test_gixs2_save_creates_a_series_named_subfolder_as_csv(tmp_path):
     files, _ = _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 65.0, 70.0], prefix="RUN01")
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
     assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
     assert gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})["ok"]
@@ -648,6 +680,7 @@ def test_gixs2_save_integration_uses_active_auto_met(tmp_path):
     _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
     assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
     assert gs.gixs2_set_x_axis({})["ok"]
@@ -677,6 +710,7 @@ def test_gixs2_auto_refresh_appends_only_new_frames(tmp_path):
     files, _ = _load_series(tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
     assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
     original_intensity = session.last_1d["intensity"].copy()
@@ -705,6 +739,7 @@ def test_gixs2_ai_from_pixel_and_back(tmp_path):
     _load_series(tmp_path, n_frames=1)
     session = gs.get_session()
     session.calibration.update({"sdd_mm": 300.0, "pixel_mm": 0.075})
+    session.calibration_loaded = True
 
     result = gs.gixs2_ai_from_pixel({"pix": 100.0})
     assert result["ok"], result.get("message")

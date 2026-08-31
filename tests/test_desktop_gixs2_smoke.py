@@ -345,6 +345,7 @@ def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch
     assert len(widget.image_canvas._overlay_artists) == 0
     session = gs.get_session()
     session.calibration.update({"beam_pos": (beam_y, beam_z), "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     assert session.corrected
     assert len(widget.image_canvas._overlay_artists) == 0
@@ -431,6 +432,7 @@ def test_gixs2_widget_qcal_and_exec_1d_end_to_end(qapp, tmp_path, monkeypatch):
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
 
     _qcal_sync(widget, monkeypatch)
     assert "q-Cal applied" in widget.status_label.text()
@@ -611,6 +613,7 @@ def test_gixs2_widget_1d_plot_uses_series_colormap_with_colorbar(qapp, tmp_path,
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
 
     widget.phi_spin.setValue(90.0)
@@ -645,6 +648,7 @@ def test_gixs2_widget_1d_plot_colorbar_uses_x_axis_label_after_set_x_axis(qapp, 
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
@@ -668,6 +672,7 @@ def test_gixs2_widget_1d_scale_combo_toggles_log_axes(qapp, tmp_path, monkeypatc
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
@@ -770,6 +775,7 @@ def test_gixs2_widget_set_x_axis_refreshes_both_1d_and_azimuthal_colorbars(qapp,
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
@@ -857,6 +863,7 @@ def test_gixs2_widget_change_ai_checkbox_wires_into_qcal(qapp, tmp_path, monkeyp
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
 
     widget.change_ai_check.setChecked(True)
     widget.ai_step_spin.setValue(0.05)
@@ -988,6 +995,7 @@ def test_gixs2_widget_set_x_axis_and_integration_plot(qapp, tmp_path, monkeypatc
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _exec_1d_sync(widget)
 
@@ -1023,6 +1031,7 @@ def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monke
     _load_series_into_widget(widget, tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     _exec_1d_sync(widget)
     _exec_azi_sync(widget)
@@ -1202,6 +1211,7 @@ def test_gixs2_widget_ai_pix_deg_sync(qapp, tmp_path):
     widget = GIXS2Widget()
     _load_series_into_widget(widget, tmp_path, n_frames=1)
     gs.get_session().calibration.update({"sdd_mm": 300.0, "pixel_mm": 0.075})
+    gs.get_session().calibration_loaded = True
 
     widget.ai_pix_spin.setValue(100.0)
     widget._on_ai_pix_changed()
@@ -1278,6 +1288,7 @@ def test_gixs2_widget_azimuthal_position_button_click_sets_pix_and_arms_overlay(
     _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     session.corrected = True
 
     widget._arm_position_mode("azimuthal")
@@ -1316,6 +1327,7 @@ def test_gixs2_widget_1d_position_button_click_sets_angle_and_arms_overlay(qapp,
     _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
     session.corrected = True
 
     widget._arm_position_mode("line")
@@ -1351,6 +1363,7 @@ def test_gixs2_widget_azimuthal_overlay_hidden_until_armed_then_tracks_range_liv
     _load_series_into_widget(widget, tmp_path, n_frames=1, center=center, radii=[60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
 
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
@@ -1455,6 +1468,7 @@ def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qa
     _load_series_into_widget(widget, tmp_path, n_frames=3, center=center, radii=[60.0, 60.0, 60.0])
     session = gs.get_session()
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
     _qcal_sync(widget, monkeypatch)
     widget.phi_spin.setValue(90.0)
     _exec_1d_sync(widget)
