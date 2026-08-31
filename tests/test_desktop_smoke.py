@@ -45,6 +45,14 @@ def test_main_window_constructs_with_seven_tabs(qapp):
     assert window.tabs.tabText(6) == "Penetration Depth"
 
 
+def test_main_window_uses_the_intrologo_icon(qapp):
+    from pgixs_python.desktop.main_window import MainWindow
+
+    window = MainWindow()
+
+    assert not window.windowIcon().isNull()
+
+
 def test_gixs_console_has_incidence_and_footprint_widgets(qapp):
     console = ConsoleWidget(gixs_config())
     assert console.ai_pix_spin is not None

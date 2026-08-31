@@ -5,15 +5,21 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from pgixs_python.desktop.main_window import MainWindow
+from pgixs_python.desktop.main_window import _ICON_PATH, MainWindow
 from pgixs_python.desktop.theme import STYLESHEET, build_light_palette
 
 
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("PGIXS Python")
+    # Windows' taskbar icon follows the QApplication-level icon (a window's
+    # own setWindowIcon alone only reliably updates its title bar) -- set
+    # both from the same file so the taskbar and every window agree.
+    if _ICON_PATH.exists():
+        app.setWindowIcon(QIcon(str(_ICON_PATH)))
     # Custom QSS on top of Windows' native "windowsvista"/"windows11" style
     # is a known source of subcontrol quirks (spin box up/down button hit
     # regions in particular). Fusion is Qt's style built to support full

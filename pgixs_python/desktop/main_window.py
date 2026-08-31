@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget
 
 from pgixs_python.desktop.console_widget import ConsoleWidget, gixs_config, trxs_config
@@ -11,11 +14,16 @@ from pgixs_python.desktop.sddcal_widget import SDDcalWidget
 from pgixs_python.desktop.trxs2_widget import TrXS2Widget
 from pgixs_python.desktop.xtrans_widget import XTransWidget
 
+# pgixs_python/desktop/main_window.py -> pgixs_python/Intrologo.png
+_ICON_PATH = Path(__file__).resolve().parent.parent / "Intrologo.png"
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PGIXS Python")
+        if _ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(_ICON_PATH)))
         self.resize(1480, 940)
 
         self.tabs = QTabWidget()
