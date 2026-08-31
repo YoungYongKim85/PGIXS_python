@@ -677,26 +677,52 @@ def test_trxs2_save_1d_writes_a_file(tmp_path):
     assert Path(result["path"]).exists()
 
 
-def test_trxs2_save_1d_std_requires_std_enabled(tmp_path):
+def test_trxs2_save_1d_interleaves_std_columns_when_enabled(tmp_path):
+    """Regression: "Save 1D STD를 따로 세이브 하기보다는... Save 1D에서
+    Column을 q, 1st data, 1st std, 2nd data, 2nd std 식으로 세이브 되면
+    좋을 것 같아" -- when Circular Exec's Std checkbox populated
+    session.last_1d["std"], Save 1D interleaves each frame's data and std
+    column in one file instead of a separate Save 1D STD file."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    _qcal(center)
+    assert ts.trxs2_circular_exec({"calc_std": True})["ok"]
+    session = ts.get_session()
+    rendered = session.last_1d["rendered"]
+    std = session.last_1d["std"]
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    result = ts.trxs2_save_1d({"directory": str(out_dir)})
+    assert result["ok"], result.get("message")
+    path = Path(result["path"])
+    assert path.exists()
+    assert "_1D_STD" not in path.name  # no separate STD file anymore
+
+    header = path.read_text().splitlines()[0].split(",")
+    assert header == ["Q_1/A", "frame1", "frame1_STD", "frame2", "frame2_STD"]
+
+    table = np.loadtxt(path, delimiter=",", skiprows=1)
+    np.testing.assert_allclose(table[:, 1], rendered[0], rtol=1e-5)
+    np.testing.assert_allclose(table[:, 2], std[0], rtol=1e-5, equal_nan=True)
+    np.testing.assert_allclose(table[:, 3], rendered[1], rtol=1e-5)
+    np.testing.assert_allclose(table[:, 4], std[1], rtol=1e-5, equal_nan=True)
+
+
+def test_trxs2_save_1d_omits_std_columns_when_not_enabled(tmp_path):
     center = (100.5, 100.5)
     _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
     _qcal(center)
     assert ts.trxs2_circular_exec({"calc_std": False})["ok"]
 
-    result = ts.trxs2_save_1d_std({"directory": str(tmp_path)})
-    assert not result["ok"]
-
-    ts.reset_session()
-    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
-    _qcal(center)
-    assert ts.trxs2_circular_exec({"calc_std": True})["ok"]
-
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    result = ts.trxs2_save_1d_std({"directory": str(out_dir)})
+    result = ts.trxs2_save_1d({"directory": str(out_dir)})
     assert result["ok"], result.get("message")
-    assert Path(result["path"]).exists()
-    assert "_1D_STD" in Path(result["path"]).name
+
+    header = Path(result["path"]).read_text().splitlines()[0].split(",")
+    assert header == ["Q_1/A", "frame1", "frame2"]
 
 
 def test_trxs2_save_creates_a_series_named_subfolder_as_csv(tmp_path):

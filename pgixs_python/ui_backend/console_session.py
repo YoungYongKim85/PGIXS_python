@@ -780,23 +780,31 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.qmap is None or _SESSION.data is None:
         return {"ok": False, "message": "Run q-Map Cal. first."}
 
+    # GIXS's grazing-incidence geometry only ever scatters above the
+    # horizon -- the lower half-circle is symmetric-empty, so restrict the
+    # sweep the same way MATLAB GIXS_gui.m does (`theta = 0:0.2:180`).
+    # TrXS's transmission geometry uses the full ring, matching TrXS_gui.m.
+    angle_range = (0.0, 180.0) if _SESSION.mode == "gixs" else (0.0, 360.0)
+    # Default bin count gives a 1deg/bin resolution regardless of sweep
+    # span -- a single literal default shared between the 180deg (GIXS) and
+    # 360deg (TrXS) sweeps left TrXS at a coarser 2deg/bin (180 bins over
+    # 360deg) even though GIXS's own 180-over-180 was already 1deg/bin
+    # (reported: "azimuthal에서 angle간에 2도간격으로 되어 있는데, 1도간격으로
+    # 만들어줘").
+    default_n_angle_bins = int(angle_range[1] - angle_range[0])
+
     try:
         pixel = float(payload.get("pixel", 202.0))
         range_minus = float(payload.get("range_minus", -1.0))
         range_plus = float(payload.get("range_plus", 1.0))
         use_median = str(payload.get("mean_or_median", "Mean")).strip().lower() == "median"
-        n_angle_bins = int(payload.get("n_angle_bins", 180))
+        n_angle_bins = int(payload.get("n_angle_bins", default_n_angle_bins))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid azimuthal parameters: {exc}"}
 
     data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
     beam_pos = _SESSION.calibration["beam_pos"]
     radius_range = (pixel + range_minus, pixel + range_plus)
-    # GIXS's grazing-incidence geometry only ever scatters above the
-    # horizon -- the lower half-circle is symmetric-empty, so restrict the
-    # sweep the same way MATLAB GIXS_gui.m does (`theta = 0:0.2:180`).
-    # TrXS's transmission geometry uses the full ring, matching TrXS_gui.m.
-    angle_range = (0.0, 180.0) if _SESSION.mode == "gixs" else (0.0, 360.0)
 
     result = angular_profile(
         data_for_1d,

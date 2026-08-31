@@ -337,12 +337,12 @@ class TrXS2Widget(QWidget):
 
         layout.addWidget(_divider("Save"))
         self.save_1d_button = QPushButton("Save 1D")
+        self.save_1d_button.setToolTip(
+            "If Circular Exec ran with Std checked, each frame's data and std columns are interleaved "
+            "(Q, frame1, frame1_STD, frame2, frame2_STD, ...) in this one file."
+        )
         self.save_1d_button.clicked.connect(lambda: self._save(ts.trxs2_save_1d, self.oned_canvas))
-        self.save_1d_std_button = QPushButton("Save 1D STD")
-        self.save_1d_std_button.setEnabled(False)
-        self.save_1d_std_button.setToolTip("Enabled once Circular Exec has run with Std checked (Line cut has no Std column).")
-        self.save_1d_std_button.clicked.connect(lambda: self._save(ts.trxs2_save_1d_std))
-        layout.addWidget(_row(self.save_1d_button, self.save_1d_std_button))
+        layout.addWidget(self.save_1d_button)
         self.save_azi_button = QPushButton("Save Azi")
         self.save_azi_button.clicked.connect(lambda: self._save(ts.trxs2_save_azimuthal, self.azi_canvas))
         layout.addWidget(self.save_azi_button)
@@ -604,7 +604,6 @@ class TrXS2Widget(QWidget):
         self._pixel_centered = False
         self._active_overlay = None
         self._position_mode = None
-        self.save_1d_std_button.setEnabled(False)
         self._render_image()
         self._mark_ok(self.load_button, True)
         # New raw data invalidates whatever q-Cal/Grid Remove/series import
@@ -720,7 +719,6 @@ class TrXS2Widget(QWidget):
             return
         self.n_files_label.setText(f"# of Files: {result['n_files']}")
         self._current_image_data = None
-        self.save_1d_std_button.setEnabled(False)
         self._render_image()
         self._mark_ok(self.set_table_button, True)
         self._mark_ok(self.qcal_button, False)
@@ -1169,8 +1167,6 @@ class TrXS2Widget(QWidget):
             self._set_status(result.get("message", "Circular Exec failed."), False)
             return
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
-        session = ts.get_session()
-        self.save_1d_std_button.setEnabled(session.last_1d is not None and session.last_1d.get("std") is not None)
         self._set_status(f"Circular series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
     def _on_line_exec_clicked(self) -> None:
@@ -1190,9 +1186,6 @@ class TrXS2Widget(QWidget):
             self._set_status(result.get("message", "Line Exec failed."), False)
             return
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
-        # Line cut has no Std column at all (matches trxs2_session's own
-        # `"std": None` -- only Circular Average ever populates it).
-        self.save_1d_std_button.setEnabled(False)
         self._set_status(f"1D Line series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
     def _on_azimuthal_exec_clicked(self) -> None:

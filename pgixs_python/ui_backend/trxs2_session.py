@@ -761,7 +761,11 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
         range_minus = float(payload.get("range_minus", -1.0))
         range_plus = float(payload.get("range_plus", 1.0))
         use_median = str(payload.get("mean_or_median", "Mean")).strip().lower() == "median"
-        n_angle_bins = int(payload.get("n_angle_bins", 180))
+        # 360 (not GIXS2's 180) gives a 1deg/bin resolution over TrXS's own
+        # full 360deg sweep -- a shared 180-bin default across both modes
+        # left TrXS at a coarser 2deg/bin (reported: "azimuthal에서
+        # angle간에 2도간격으로 되어 있는데, 1도간격으로 만들어줘").
+        n_angle_bins = int(payload.get("n_angle_bins", 360))
         parallel = bool(payload.get("parallel", False))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid azimuthal parameters: {exc}"}
@@ -956,7 +960,16 @@ def trxs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
     Subtraction-applied at render time) -- unlike `gixs2_save_1d`, which
     re-derives its own normalization fresh at save time, matching MATLAB's
     own `Saveget3_Callback`, which saves whatever `param.data1dstackN`
-    already holds rather than recomputing it."""
+    already holds rather than recomputing it.
+
+    When Circular Exec's Std checkbox populated `session.last_1d["std"]`
+    (only Circular Average ever does -- Line cut has no std column, same
+    as MATLAB's own `std1dstack`), each frame's std column is interleaved
+    right after its own data column -- Q, frame1, frame1_STD, frame2,
+    frame2_STD, ... -- in this one file, rather than a separate Save 1D
+    STD file (reported: "Save 1D STD를 따로 세이브 하기보다는... Save 1D에서
+    Column을 q, 1st data, 1st std, 2nd data, 2nd std 식으로 세이브 되면
+    좋을 것 같아")."""
 
     if _SESSION.last_1d is None or _SESSION.last_1d.get("rendered") is None:
         return {"ok": False, "message": "Run Circular/Line Exec first."}
@@ -964,29 +977,22 @@ def trxs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if not directory:
         return {"ok": False, "message": "Choose a save directory."}
 
+    rendered = _SESSION.last_1d["rendered"]
+    std = _SESSION.last_1d.get("std")
+    labels = _column_labels()
+    if std is not None:
+        n_frames = rendered.shape[0]
+        matrix = np.empty((2 * n_frames, rendered.shape[1]), dtype=np.float32)
+        matrix[0::2] = rendered
+        matrix[1::2] = std
+        column_labels = [item for label in labels for item in (label, f"{label}_STD")]
+    else:
+        matrix = rendered
+        column_labels = labels
+
     path = _save_path(directory, "_1D.csv")
     try:
-        save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", _SESSION.last_1d["rendered"], _column_labels())
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": str(exc)}
-    return {"ok": True, "path": str(path)}
-
-
-def trxs2_save_1d_std(payload: dict[str, Any]) -> dict[str, Any]:
-    """Save 1D+STD: the per-frame standard-deviation matrix Circular Exec
-    computes when its Std checkbox is on -- only ever populated by Circular
-    Average (Line cut has no std column, matching MATLAB's own
-    `std1dstack`, built only inside `CircularAve2_Callback`)."""
-
-    if _SESSION.last_1d is None or _SESSION.last_1d.get("std") is None:
-        return {"ok": False, "message": "Run Circular Exec with Std enabled first."}
-    directory = str(payload.get("directory", "")).strip()
-    if not directory:
-        return {"ok": False, "message": "Choose a save directory."}
-
-    path = _save_path(directory, "_1D_STD.csv")
-    try:
-        save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", _SESSION.last_1d["std"], _column_labels())
+        save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", matrix, column_labels)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc)}
     return {"ok": True, "path": str(path)}
@@ -1218,7 +1224,6 @@ __all__ = [
     "trxs2_render_azimuthal",
     "trxs2_roi_exec",
     "trxs2_save_1d",
-    "trxs2_save_1d_std",
     "trxs2_save_azimuthal",
     "trxs2_save_integration",
     "trxs2_save_x_axis",

@@ -154,7 +154,6 @@ def test_trxs2_widget_constructs(qapp):
     assert widget.tmode_combo.count() == 3
     assert not widget.parallel_check.isChecked()
     assert not widget.subtract_check.isChecked()
-    assert not widget.save_1d_std_button.isEnabled()
 
 
 def test_trxs2_widget_no_incidence_angle_controls(qapp):
@@ -327,7 +326,7 @@ def test_trxs2_widget_normalize_1d_combo_applies_live(qapp, tmp_path, monkeypatc
     np.testing.assert_allclose(widget.oned_canvas.ax.get_lines()[0].get_ydata(), none_y)
 
 
-def test_trxs2_widget_line_exec_disables_save_1d_std(qapp, tmp_path, monkeypatch):
+def test_trxs2_widget_line_exec_clears_std_data(qapp, tmp_path, monkeypatch):
     ts.reset_session()
     widget = TrXS2Widget()
     center = (100.5, 100.5)
@@ -339,13 +338,12 @@ def test_trxs2_widget_line_exec_disables_save_1d_std(qapp, tmp_path, monkeypatch
 
     widget.circ_std_check.setChecked(True)
     _circular_exec_sync(widget, monkeypatch)
-    assert widget.save_1d_std_button.isEnabled()
+    assert session.last_1d["std"] is not None
 
     widget.line_angle_spin.setValue(90.0)
     _line_exec_sync(widget, monkeypatch)
 
     assert "1D Line series" in widget.status_label.text()
-    assert not widget.save_1d_std_button.isEnabled()
     assert session.last_1d["std"] is None
 
 
@@ -738,7 +736,12 @@ def test_trxs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monke
     assert xaxis_csv.exists()
 
 
-def test_trxs2_widget_save_1d_std_enabled_after_circular_exec_with_std(qapp, tmp_path, monkeypatch):
+def test_trxs2_widget_save_1d_interleaves_std_columns(qapp, tmp_path, monkeypatch):
+    """Regression: "Save 1D STD를 따로 세이브 하기보다는... Save 1D에서
+    Column을 q, 1st data, 1st std, 2nd data, 2nd std 식으로 세이브 되면
+    좋을 것 같아" -- Save 1D alone (no separate Save 1D STD button) writes
+    interleaved data/std columns once Circular Exec's Std checkbox ran."""
+
     ts.reset_session()
     widget = TrXS2Widget()
     center = (100.5, 100.5)
@@ -751,12 +754,22 @@ def test_trxs2_widget_save_1d_std_enabled_after_circular_exec_with_std(qapp, tmp
     widget.circ_std_check.setChecked(True)
     _circular_exec_sync(widget, monkeypatch)
 
-    assert widget.save_1d_std_button.isEnabled()
-
     widget._last_dir = str(tmp_path)
-    widget.save_1d_std_button.click()
-    std_csv = tmp_path / "ABCD" / "ABCD_1D_STD.csv"
-    assert std_csv.exists()
+    widget.save_1d_button.click()
+    csv_1d = tmp_path / "ABCD" / "ABCD_1D.csv"
+    assert csv_1d.exists()
+    header = csv_1d.read_text().splitlines()[0].split(",")
+    # Column labels come from the series' own X-axis (Temperature here,
+    # already set by rendering) rather than the "frame1"/"frame2" fallback
+    # -- each data column is still immediately followed by its own _STD one.
+    assert header[0] == "Q_1/A"
+    assert len(header) == 1 + 2 * session.last_1d["rendered"].shape[0]
+    for i, label in enumerate(header[1:]):
+        if i % 2 == 0:
+            assert not label.endswith("_STD")
+        else:
+            assert label == f"{header[1 + i - 1]}_STD"
+    assert not (tmp_path / "ABCD" / "ABCD_1D_STD.csv").exists()
 
 
 def test_trxs2_widget_four_quadrants_have_equal_stretch(qapp):
