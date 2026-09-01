@@ -8,15 +8,19 @@ The primary interface is a PySide6 desktop app (SDD Calibration / GIXS /
 GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs).
 
 **End users** (no Python install needed): download the build for your OS
-from this repo's [Releases](../../releases) page (built by
+below, or browse all versions on the [Releases](../../releases) page.
+These links always point to the latest release (built by
 `.github/workflows/build.yml` whenever a `vX.Y.Z` tag is pushed):
 
-- **Windows**: unzip `PGIXS-windows.zip`, run `PGIXS.exe`.
-- **macOS**: unzip `PGIXS-macos.zip`, drag `PGIXS.app` to Applications. The
-  build isn't code-signed/notarized, so the first launch needs
-  right-click -> Open (or `xattr -d com.apple.quarantine PGIXS.app`) to get
-  past Gatekeeper's "unidentified developer" warning.
-- **Linux**: `tar xzf PGIXS-linux.tar.gz && ./PGIXS/PGIXS`.
+- **Windows**: download [PGIXS-windows.zip](../../releases/latest/download/PGIXS-windows.zip),
+  unzip it, run `PGIXS.exe`.
+- **macOS**: download [PGIXS-macos.zip](../../releases/latest/download/PGIXS-macos.zip),
+  unzip it, drag `PGIXS.app` to Applications. The build isn't
+  code-signed/notarized, so the first launch needs right-click -> Open
+  (or `xattr -d com.apple.quarantine PGIXS.app`) to get past Gatekeeper's
+  "unidentified developer" warning.
+- **Linux**: download [PGIXS-linux.tar.gz](../../releases/latest/download/PGIXS-linux.tar.gz),
+  then `tar xzf PGIXS-linux.tar.gz && ./PGIXS/PGIXS`.
 
 **From source** (development):
 
