@@ -975,12 +975,19 @@ class ConsoleWidget(QWidget):
     def _current_extent(self, h_start: float, h_end: float, v_start: float, v_end: float) -> tuple[float, float, float, float]:
         return (h_start, h_end, v_end, v_start)
 
-    def _render_pixel_image(self, keep_limits: bool = False) -> None:
+    def _render_pixel_image(self, keep_limits: bool = False, data_override: np.ndarray | None = None) -> None:
         self._activate()
         session = cs.get_session()
         if session.data is None:
             return
-        data = session.corrected_data if session.corrected_data is not None else session.data
+        # `data_override` shows something other than the committed session
+        # state -- currently just BKG sub./Norm.'s own pre-confirm preview
+        # (see _on_subtract_clicked) -- without needing to actually commit
+        # it to `session.data` first (and then have to un-commit it again
+        # if the user discards).
+        data = data_override if data_override is not None else (
+            session.corrected_data if session.corrected_data is not None else session.data
+        )
         rows, cols = data.shape
         self._axis_mode = "pixel"
         if self._pixel_centered:
@@ -1462,6 +1469,24 @@ class ConsoleWidget(QWidget):
         if not preview.get("ok"):
             self._set_status(preview.get("message", "Normalization failed."), False)
             return
+        # Show the actual subtracted/normalized result on the 2D Image
+        # Plot Viewer *before* asking -- the confirmation dialog's text
+        # alone gave no way to judge the result (reported: "메시지만
+        # 나오고 subtracted 또는 normalized image가 어떤지 나오지
+        # 않아"). Not yet committed to session state, so a "No" below just
+        # re-renders the actual (unchanged) data -- no un-commit needed.
+        preview_array = cs.get_session().pending_normalize_preview
+        if preview_array is not None:
+            # Same reasoning as the commit branch below -- Contrast holding
+            # onto the previous data's min/max would make this preview
+            # look blank or blown out, defeating the point of showing it.
+            self.cmin_spin.blockSignals(True)
+            self.cmax_spin.blockSignals(True)
+            self.cmin_spin.setValue(0.0)
+            self.cmax_spin.setValue(0.0)
+            self.cmin_spin.blockSignals(False)
+            self.cmax_spin.blockSignals(False)
+            self._render_pixel_image(data_override=preview_array)
         keep = QMessageBox.question(
             self,
             "Confirmation",
@@ -1471,6 +1496,7 @@ class ConsoleWidget(QWidget):
         )
         if keep != QMessageBox.Yes:
             self._set_status("Normalization discarded.", True)
+            self._render_pixel_image()
             return
         self._activate()
         committed = cs.console_normalize({**payload, "confirm": True})
@@ -1480,6 +1506,12 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
+        # console_normalize just dropped the now-stale corrected_data (it
+        # was built from the pre-normalization image) -- flag q-Map Cal.
+        # as needing a re-run so its correction gets reapplied to the new
+        # data, matching the "not done yet" indicator a fresh Load Data
+        # already resets it to.
+        self._mark_ok(self.qmap_button, False)
         # Background subtraction routinely changes the data's whole
         # intensity scale (raw counts vs. a subtracted/normalized
         # difference) -- Contrast holding onto whatever min/max applied to

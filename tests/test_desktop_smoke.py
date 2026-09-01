@@ -199,6 +199,94 @@ def test_contrast_spin_boxes_keep_precision_for_small_subtracted_values(qapp, tm
     assert (console.cmin_spin.value(), console.cmax_spin.value()) == (cmin, cmax)
 
 
+def test_subtract_after_qcal_actually_updates_the_displayed_image(qapp, tmp_path, monkeypatch):
+    """Regression: "TrXS에서 백그라운드 데이터를 넣어서 BKGsub. & Norm을
+    누르면 바뀐 이미지를 유지하겠냐고 나오는데, 사실 이미지가 바뀌지
+    않고 메시지 박스만 나와" -- if q-Map Cal. already ran, its cached
+    corrected_data (built from the pre-normalization image) took priority
+    over the freshly normalized data in _render_pixel_image's own
+    fallback, so the confirmation dialog worked but the visible image
+    never changed. console_normalize now drops that stale copy on
+    confirm; the widget must also flag q-Map Cal. as needing a re-run so
+    the user isn't left thinking the (uncorrected) image on screen already
+    has the detector correction applied."""
+
+    import h5py
+    import numpy as np
+    from PySide6.QtWidgets import QMessageBox
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    qcal_result = cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 12.0, "beam_z": 10.0})
+    assert qcal_result["ok"], qcal_result.get("message")
+    console._mark_ok(console.qmap_button, True)
+    assert cs.get_session().corrected_data is not None
+
+    bkg_path = tmp_path / "bkg.h5"
+    bkg_data = np.random.default_rng(99).uniform(1, 5, size=(20, 24)).astype(np.float32)
+    with h5py.File(bkg_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=bkg_data[None, :, :])
+    bkg_result = cs.console_background_load({"directory": str(tmp_path), "filename": bkg_path.name, "multishot": False})
+    assert bkg_result["ok"], bkg_result.get("message")
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    console._on_subtract_clicked()
+
+    assert cs.get_session().corrected_data is None
+    assert console.qmap_button.property("state") != "ok"
+    # The rendered image is now genuinely the new (normalized) data, not
+    # the stale pre-normalization corrected copy.
+    np.testing.assert_array_equal(console._current_image_data, cs.get_session().data)
+
+
+def test_subtract_shows_the_preview_before_asking_and_reverts_on_discard(qapp, tmp_path, monkeypatch):
+    """Regression: "이러한 메시지만 나오고 subtracted 또는 normalized
+    image가 어떤지 나오지 않아" -- the confirmation dialog's text alone
+    gave no way to judge the background-subtracted/normalized result
+    before deciding Yes/No. The 2D Image Plot Viewer must already show
+    the real preview by the time the dialog appears, and discarding
+    ("No") must put the actual (unchanged) data back on screen -- not
+    leave the discarded preview showing."""
+
+    import h5py
+    import numpy as np
+    from PySide6.QtWidgets import QMessageBox
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    original_data = cs.get_session().data.copy()
+
+    bkg_path = tmp_path / "bkg.h5"
+    bkg_data = np.random.default_rng(99).uniform(1, 5, size=(20, 24)).astype(np.float32)
+    with h5py.File(bkg_path, "w") as handle:
+        handle.create_dataset("entry/data/data", data=bkg_data[None, :, :])
+    bkg_result = cs.console_background_load({"directory": str(tmp_path), "filename": bkg_path.name, "multishot": False})
+    assert bkg_result["ok"], bkg_result.get("message")
+
+    seen_at_dialog_time = {}
+
+    def fake_question(*_args, **_kwargs):
+        # By the time the dialog would appear, the canvas must already be
+        # showing the real preview -- capture it here rather than after
+        # _on_subtract_clicked returns, so this can't pass by accident
+        # just because the later commit path also renders something.
+        seen_at_dialog_time["image"] = console._current_image_data.copy()
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(fake_question))
+    console._on_subtract_clicked()
+
+    expected_preview = original_data - bkg_data  # method="None", plus_data=1.0 default
+    np.testing.assert_allclose(seen_at_dialog_time["image"], expected_preview)
+    # Discarded -- session state (and the canvas) must be back to the
+    # real, unchanged data, not left showing the rejected preview.
+    assert not cs.get_session().normalized
+    np.testing.assert_array_equal(cs.get_session().data, original_data)
+    np.testing.assert_array_equal(console._current_image_data, original_data)
+
+
 def test_trxs_circular_mask_draw_start_and_reject_outside_pixel_mode(qapp, tmp_path, monkeypatch):
     """Draw Mask opens its own dedicated window (port of MATLAB's
     `get_modern_mask`) rather than drawing inline on the small "2D Image

@@ -100,6 +100,17 @@ class ConsoleSession:
     )
     qmap: dict[str, np.ndarray] | None = None
     angle_map: np.ndarray | None = None
+    # Full-resolution BKG sub./Norm. preview (console_normalize's own
+    # `confirm=False` call) -- the JSON `preview` field in that response
+    # is downsampled for the web UI's transport, which the desktop widget
+    # never needed for any *other* render (it always re-reads full data
+    # from this session instead); stashing it here lets the widget show
+    # the real result on the 2D Image Plot Viewer *before* the keep/
+    # discard confirmation dialog, instead of the dialog's text alone
+    # (reported: "메시지만 나오고 subtracted 또는 normalized image가
+    # 어떤지 나오지 않아"). Cleared once confirmed (the result moves into
+    # `data` itself) or discarded.
+    pending_normalize_preview: np.ndarray | None = None
     normalized: bool = False
     grid_removed: bool = False
     # Set True only by a *successful* console_load_info -- console_qmap
@@ -371,6 +382,7 @@ def console_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": report.message}
 
     if not confirm:
+        _SESSION.pending_normalize_preview = preview
         return {
             "ok": True,
             "requires_confirm": True,
@@ -380,6 +392,21 @@ def console_normalize(payload: dict[str, Any]) -> dict[str, Any]:
 
     _SESSION.data = preview
     _SESSION.normalized = True
+    _SESSION.pending_normalize_preview = None
+    # `corrected_data` (if q-Map Cal. already ran) was built from the
+    # *pre*-normalization `data` -- the widget's own render always prefers
+    # `corrected_data` over `data` when it's set, so leaving it as-is here
+    # made BKG sub. & Norm's confirmation dialog appear to do nothing at
+    # all (reported: "BKGsub. & Norm을 누르면 바뀐 이미지를 유지하겠냐고
+    # 나오는데, 사실 이미지가 바뀌지 않고 메시지 박스만 나와"). The
+    # detector-correction factor itself only depends on geometry, not
+    # data, so it's still valid -- but this port never re-caches it
+    # outside q-Map Cal. to reapply here, so the simplest correct fix is
+    # to drop the stale corrected copy (the render then falls back to the
+    # now-current `data`) and let the qmap_button's own "needs re-run"
+    # indicator (see console_widget.py's _on_subtract_clicked) prompt the
+    # user to redo q-Map Cal. for a freshly-corrected image.
+    _SESSION.corrected_data = None
     return {
         "ok": True,
         "message": f"Applied {report.method} normalization.",
@@ -648,12 +675,30 @@ def _q_space_cut_inputs(mapping: str) -> tuple[np.ndarray, np.ndarray]:
         if "qy" not in qmap or "qz" not in qmap:
             raise ValueError("Qy/Qz map is not available.")
         result = image_transform_q_tr(data_for_transform, qmap["qy"], qmap["qz"], beam_pos, pixel_mm, wavelength_a, sdd_mm)
-    else:
-        horizontal_map = qmap.get("qy") if mapping == "Qy/Qz" else qmap.get("qr")
-        if horizontal_map is None or "qz" not in qmap:
-            raise ValueError(f"{mapping} map is not available.")
-        result = image_transform_q_gi(data_for_transform, horizontal_map, qmap["qz"], beam_pos, pixel_mm, wavelength_a, sdd_mm)
+        # `result.horizontal_axis`/`vertical_axis` are `image_transform_q_tr`'s
+        # own small-angle-linear (`d_q * pixel_index`) approximation --
+        # accurate near the beam but off by ~8% at a 200mm SDD's detector
+        # corner (confirmed against qmap_trxs's real geometry). TrXS's
+        # flat-detector, normal-incidence transmission makes the true |Q|
+        # exactly a function of radial *pixel* distance from the beam
+        # alone (2theta = atan(R_px*pixel_mm/sdd_mm), q = 2*k0*sin(theta)
+        # -- confirmed azimuthally symmetric to <0.5%), so correcting just
+        # this *label* -- not the regridded image, or anything cutting/
+        # clicking/drawing against it -- makes every cut sample's reported
+        # Q exact everywhere, including the corners, with nothing else
+        # changed (reported: "실제 Qmap이... 광각으로 갈수록 벌어져...
+        # 코너 쪽만 정밀했으면 좋겠어, 전체적으로는 지금도 충분해").
+        d_q = (2.0 * np.pi * pixel_mm) / (wavelength_a * sdd_mm)
+        radius_px = np.hypot(result.horizontal_axis[np.newaxis, :], result.vertical_axis[:, np.newaxis]) / d_q
+        two_theta = np.arctan(radius_px * pixel_mm / sdd_mm)
+        k0 = 2.0 * np.pi / wavelength_a
+        q_magnitude = (2.0 * k0 * np.sin(two_theta / 2.0)).astype(np.float32)
+        return result.image, q_magnitude
 
+    horizontal_map = qmap.get("qy") if mapping == "Qy/Qz" else qmap.get("qr")
+    if horizontal_map is None or "qz" not in qmap:
+        raise ValueError(f"{mapping} map is not available.")
+    result = image_transform_q_gi(data_for_transform, horizontal_map, qmap["qz"], beam_pos, pixel_mm, wavelength_a, sdd_mm)
     q_magnitude = np.hypot(result.horizontal_axis[np.newaxis, :], result.vertical_axis[:, np.newaxis]).astype(np.float32)
     return result.image, q_magnitude
 

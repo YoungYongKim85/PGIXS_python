@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import pytest
 
+from pgixs_python.calibration.sdd import wavelength_from_energy_kev
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.two_d_info import load_two_d_info_h5
 from pgixs_python.ui_backend import console_session as cs
@@ -480,6 +481,48 @@ def test_console_line_1d_qyqz_mapping_also_runs_independently(tmp_path):
     )
 
 
+def test_console_line_1d_trxs_reports_the_true_q_not_a_small_angle_approximation(tmp_path):
+    """Regression: TrXS's Qy/Qz Line/Cake/Accumulation cut labeled each
+    sample with image_transform_q_tr's own small-angle-linear (d_q *
+    pixel_index) axis value -- an approximation, off by several percent
+    at the detector corners at a moderate SDD and much more at a short
+    one (reported: "실제 Qmap이... 광각으로 갈수록 벌어져... 코너 쪽만
+    정밀했으면 좋겠어"). TrXS's flat-detector, normal-incidence geometry
+    makes the true |Q| an exact closed-form function of radial pixel
+    distance alone (2theta = atan(R_px*pixel_mm/sdd_mm), q =
+    2*k0*sin(theta)) -- confirmed azimuthally symmetric to <0.5% against
+    qmap_trxs's real per-pixel values -- so _q_space_cut_inputs must
+    report that instead."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
+    beam_y, beam_z = 24.0, 24.0
+    sdd_mm = 5.0  # short SDD -- exaggerates the small-angle approximation's error
+    energy_kev = 9.5
+    assert cs.console_qmap({"energy_kev": energy_kev, "sdd_mm": sdd_mm, "beam_y": beam_y, "beam_z": beam_z})["ok"]
+
+    pixel_mm = float(cs.get_session().calibration["pixel_mm"])
+    wavelength_a = wavelength_from_energy_kev(energy_kev)
+    k0 = 2.0 * np.pi / wavelength_a
+
+    _, q_magnitude = cs._q_space_cut_inputs("Qy/Qz")
+
+    row, col = 0, 0  # the 48x48 frame's far corner from the beam
+    radius_px = np.hypot((col + 1) - beam_y, (row + 1) - beam_z)
+    two_theta = np.arctan(radius_px * pixel_mm / sdd_mm)
+    expected_q = 2.0 * k0 * np.sin(two_theta / 2.0)
+    linear_approx_q = (2.0 * np.pi * pixel_mm / (wavelength_a * sdd_mm)) * radius_px
+
+    assert q_magnitude[row, col] == pytest.approx(expected_q, rel=1e-4)
+    # Confirms the fix actually changed the reported value (not merely
+    # that the new formula matches itself) -- the old linear approximation
+    # is meaningfully larger at this short an SDD, this far from the beam.
+    assert linear_approx_q > expected_q * 1.05
+
+
 def test_console_azimuthal_1d_returns_curve(tmp_path):
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -608,6 +651,36 @@ def test_console_normalize_none_method_previews_then_commits(tmp_path):
     again = cs.console_normalize({"method": "None", "confirm": True})
     assert not again["ok"]
     assert "already" in again["message"]
+
+
+def test_console_normalize_invalidates_a_stale_corrected_data_from_an_earlier_qcal(tmp_path):
+    """Regression: "BKGsub. & Norm을 누르면 바뀐 이미지를 유지하겠냐고
+    나오는데, 사실 이미지가 바뀌지 않고 메시지 박스만 나와" -- if q-Map
+    Cal. already ran (setting corrected_data from the *pre*-normalization
+    image), console_widget.py's own render always prefers corrected_data
+    over data when it's set, so committing a background subtraction left
+    the displayed image showing the old, stale corrected copy even though
+    session.data itself was genuinely updated. confirm=true must drop the
+    stale corrected_data so the render falls back to the now-current
+    data."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
+    assert cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0})["ok"]
+    assert cs.get_session().corrected_data is not None
+
+    bkg_path = tmp_path / "bkg.h5"
+    _write_synthetic_frame(bkg_path, seed=1)
+    assert cs.console_background_load({"directory": str(tmp_path), "filename": bkg_path.name})["ok"]
+
+    assert cs.console_normalize({"method": "None", "confirm": False})["ok"]
+    committed = cs.console_normalize({"method": "None", "confirm": True})
+
+    assert committed["ok"], committed.get("message")
+    assert cs.get_session().corrected_data is None
 
 
 def test_console_save_requires_qmap(tmp_path):
