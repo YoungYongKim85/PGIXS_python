@@ -27,8 +27,9 @@ validation_outputs/
 *.png
 *.jpg
 *.jpeg
-# App icon asset -- a real tracked file, not generated test/output imagery.
+# App icon assets -- real tracked files, not generated test/output imagery.
 !pgixs_python/Intrologo.png
+!packaging/icon_master.png
 
 # Real beamline datasets used for local manual testing (~19GB) -- never
 # meant to be tracked, only individual *.h5/*.mat above were being ignored

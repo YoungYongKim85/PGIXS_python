@@ -1,0 +1,96 @@
+name: Build desktop app
+
+# Builds the PySide6 desktop app (packaging/pgixs.spec) for Windows,
+# macOS, and Linux. PyInstaller never cross-compiles, so this runs the
+# same build once per OS runner instead of trying to build all three from
+# one machine.
+#
+# Triggers on a version tag (v*, e.g. v0.1.0) to also publish a GitHub
+# Release with all three builds attached, or manually via
+# workflow_dispatch for a test build without cutting a release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset_name: PGIXS-windows
+          - os: macos-latest
+            asset_name: PGIXS-macos
+          - os: ubuntu-latest
+            asset_name: PGIXS-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Linux Qt runtime libraries
+        if: runner.os == 'Linux'
+        # PySide6 (a full Qt runtime) needs these system libraries present
+        # to even start on a bare Ubuntu runner -- without them the frozen
+        # binary fails at launch with missing .so errors, not at build time.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Build
+        run: python -m PyInstaller packaging/pgixs.spec --noconfirm --distpath packaging/dist --workpath packaging/build
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path packaging/dist/PGIXS -DestinationPath ${{ matrix.asset_name }}.zip
+        shell: pwsh
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        # Zip the .app bundle (not the loose COLLECT folder) so Finder/the
+        # Dock treat it as one double-clickable application on unzip.
+        run: ditto -c -k --sequesterRsrc --keepParent packaging/dist/PGIXS.app ${{ matrix.asset_name }}.zip
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar -C packaging/dist -czf ${{ matrix.asset_name }}.tar.gz PGIXS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}.zip
+            ${{ matrix.asset_name }}.tar.gz
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" artifacts/* --title "${{ github.ref_name }}" --generate-notes

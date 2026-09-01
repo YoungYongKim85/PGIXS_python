@@ -2,6 +2,40 @@
 
 This folder is the Python port workspace for PGIXS Tab1 only.
 
+## Desktop app
+
+The primary interface is a PySide6 desktop app (SDD Calibration / GIXS /
+GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs).
+
+**End users** (no Python install needed): download the build for your OS
+from this repo's [Releases](../../releases) page (built by
+`.github/workflows/build.yml` whenever a `vX.Y.Z` tag is pushed):
+
+- **Windows**: unzip `PGIXS-windows.zip`, run `PGIXS.exe`.
+- **macOS**: unzip `PGIXS-macos.zip`, drag `PGIXS.app` to Applications. The
+  build isn't code-signed/notarized, so the first launch needs
+  right-click -> Open (or `xattr -d com.apple.quarantine PGIXS.app`) to get
+  past Gatekeeper's "unidentified developer" warning.
+- **Linux**: `tar xzf PGIXS-linux.tar.gz && ./PGIXS/PGIXS`.
+
+**From source** (development):
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pgixs_python.desktop.app
+```
+
+**Building a standalone package yourself**, e.g. to test a change before
+tagging a release (PyInstaller never cross-compiles -- this produces a
+build for whichever OS you run it on):
+
+```powershell
+python -m pip install pyinstaller
+pyinstaller packaging/pgixs.spec --noconfirm
+```
+
+The result is `packaging/dist/PGIXS` (`PGIXS.app` on macOS).
+
 Use `docs/python_tab1_port_plan.md` as the active work tracker before each
 implementation step.
 Use `docs/cli_core_stabilization_checklist.md` as the UI readiness checklist.
