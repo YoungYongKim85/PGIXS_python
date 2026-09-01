@@ -1,6 +1,9 @@
-# PGIXS Python Port
+# PGIXS Python
 
-This folder is the Python port workspace for PGIXS Tab1 only.
+PGIXS is available as two feature-equivalent implementations: a **MATLAB
+version** (the original) and this **Python version** -- a cross-platform
+desktop app that needs no MATLAB license. This repository is the Python
+version's workspace, currently covering Tab1 only.
 
 ## Desktop app
 

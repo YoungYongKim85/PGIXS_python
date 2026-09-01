@@ -1,8 +1,10 @@
 # PGIXS Python 데스크탑 앱 사용자 매뉴얼
 
-이 문서는 PGIXS Python 데스크탑 앱(PySide6 GUI, MATLAB PGIXS를 대체하는 프로그램)의
-상세 사용자 매뉴얼이다. 앱은 **SDD Calibration / GIXS / GIXS-series / TrXS /
-TrXS-series / XTrans / Penetration Depth** 7개 탭으로 구성된다.
+PGIXS는 **MATLAB 버전**과 **Python 버전** 두 가지로 제공된다. 이 문서는 그중
+Python 버전(PySide6 데스크탑 GUI)의 상세 사용자 매뉴얼이다. MATLAB 버전과 기능이
+동등하며, MATLAB 라이선스 없이 Windows/macOS/Linux 어디서나 실행할 수 있다. 앱은
+**SDD Calibration / GIXS / GIXS-series / TrXS / TrXS-series / XTrans /
+Penetration Depth** 7개 탭으로 구성된다.
 
 > 설치/다운로드 방법은 리포지토리 루트의 `README.md`를 참고한다 (Windows/macOS/Linux
 > 실행 파일을 Releases 페이지에서 받거나, 소스에서 `python -m pgixs_python.desktop.app`로
@@ -58,8 +60,8 @@ GIXS 탭이나 TrXS 탭에서 파일을 불러오는 동안에는(백그라운�
 
 ## 2. SDD Calibration 탭
 
-MATLAB `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)의 이식이다.
-캘리브런트 링 이미지를 불러와서 빔 중심을 잡고, 방사형(radial) 또는 라인 프로파일을
+MATLAB 버전의 `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)과
+동일한 워크플로우를 따른다. 캘리브런트 링 이미지를 불러와서 빔 중심을 잡고, 방사형(radial) 또는 라인 프로파일을
 뽑아 링 피크를 가우시안 피팅한 뒤 SDD를 계산하고, GIXS/TrXS의 **Load Info**가 읽는
 캘리브레이션 파일을 저장하는 탭이다.
 
@@ -408,7 +410,7 @@ Play/Heatmap 다이얼로그의 컨트롤 구성은 GIXS-series와 동일하다.
 ## 6. XTrans 탭
 
 검출기 이미지를 불러오지 않는 독립 계산기. 화학식과 밀도를 입력하면 광자 에너지
-범위에 걸쳐 투과율/임계각/SLD를 계산한다. MATLAB `XTrans_GUI.m`의 이식이며, 내부적으로
+범위에 걸쳐 투과율/임계각/SLD를 계산한다. MATLAB 버전의 `XTrans_GUI.m`과 동일한 워크플로우를 따르며, 내부적으로
 CXRO/Henke 산란인자 테이블 기반의 `refrac()` 함수를 사용한다.
 
 ### 6.1 입력
@@ -447,7 +449,7 @@ CXRO/Henke 산란인자 테이블 기반의 `refrac()` 함수를 사용한다.
 ## 7. Penetration Depth 탭
 
 역시 독립 계산기. 고정된 광자 에너지에서 입사각(incidence angle) 범위에 따른
-X-ray 침투 깊이를 계산한다. MATLAB `Penetration_GUI.m`의 이식이며, XTrans와 마찬가지로
+X-ray 침투 깊이를 계산한다. MATLAB 버전의 `Penetration_GUI.m`과 동일한 워크플로우를 따르며, XTrans와 마찬가지로
 `refrac()`을 사용한다.
 
 ### 7.1 입력
