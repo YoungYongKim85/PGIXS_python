@@ -85,6 +85,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      # `gh release create --generate-notes` shells out to `git` itself
+      # (to work out the commit range for the auto-generated notes) --
+      # without a checkout, there's no .git here at all and it fails with
+      # "fatal: not a git repository" before ever touching the artifacts.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
