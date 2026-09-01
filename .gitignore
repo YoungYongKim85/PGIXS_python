@@ -31,6 +31,10 @@ validation_outputs/
 !pgixs_python/Intrologo.png
 !packaging/icon_master.png
 
+# Manual figures (docs/desktop_manual_ko.md/.docx) -- real tracked
+# placeholder/screenshot assets, not generated test/output imagery.
+!docs/figures/*.png
+
 # Real beamline datasets used for local manual testing (~19GB) -- never
 # meant to be tracked, only individual *.h5/*.mat above were being ignored
 # so the folder itself still showed as untracked.

@@ -71,10 +71,14 @@ MATLAB `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)의 이식�
 - **Detector** 콤보 — `Eiger4M`, `MarCCD`, `MX170HS`, `PI-CCD`, `MAR345` 중 선택.
 - **LOAD IMAGE DATA** 버튼 — 캘리브런트 이미지를 불러온다. 불러오면 Center [Y, Z]가 자동으로 채워지고, 범위/커브/피팅 상태가 초기화된다.
 
+![FIGURE 01: SDD Calibration -- LOAD IMAGE DATA 직후 전체 화면 (캘리브런트 이미지 로드 상태)](figures/fig01.png)
+
 **Manual Calibration**
 
 - **Center [Y, Z]** — 빔 중심 좌표 두 필드.
 - **Set C** 버튼 — 2D 이미지를 클릭해서 그 위치를 중심으로 설정.
+
+![FIGURE 02: SDD Calibration -- Set C로 클릭해 중심을 지정한 2D Image Plot (십자선 표시)](figures/fig02.png)
 - **Update Center** 버튼 — 위 Center [Y, Z]에 직접 입력한 값을 그대로 적용.
 - **Y_Plot (Fit)** / **Z_Plot (Fit)** — 현재 중심을 지나는 Y방향/Z방향 라인 프로파일을 뽑아 "1D Result" 패널에 그린다.
 - **Rad.Ave (Fit)** — 중심 기준 방사형(azimuthal 평균) 프로파일을 뽑는다.
@@ -87,10 +91,14 @@ MATLAB `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)의 이식�
 - **Offset: -** — 마지막 피팅 결과 표시 라벨.
 - **Apply to Center** 버튼 — 방금 한 Y_Plot/Z_Plot 피팅 결과(offset)를 Center [Y, Z]에 반영한다.
 
+![FIGURE 03: SDD Calibration -- Rad.Ave (Fit) -> Gaussian Fit 실행 후 1D Result (피팅 커브 오버레이)](figures/fig03.png)
+
 **Smart Auto Run**
 
 - **SMART AUTO RUN** 버튼 — Center [Y, Z]가 대략 맞은 상태에서 누르면, 빔 중심을 자동으로 미세 조정하고, 캘리브레이션 링들을 자동으로 탐색해서 SDD까지 한 번에 계산해준다(로컬 refinement이므로 중심이 너무 많이 틀어져 있으면 먼저 Manual Calibration으로 대략 맞춰야 한다).
 - 결과 **후보 테이블**(Candidate table) — 컬럼: **Radius, Order, Coverage, R2, SDD, Use**. 찾은 링 후보들과 각각 채택 여부("Yes"/"No")가 표시된다.
+
+![FIGURE 04: SDD Calibration -- SMART AUTO RUN 실행 후 Candidate table (후보 링 목록)](figures/fig04.png)
 
 **Calc SDD** (수동 계산 / Smart Auto Run과 공유되는 입력값)
 
@@ -134,6 +142,10 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 | Map format | Pixel / Qxy/Qz / Qy/Qz | Pixel / Qy/Qz |
 | Azimuthal Process 각도 스윕 범위 | 0~180° (grazing incidence는 수평선 위쪽만 산란) | 0~360° (전체 링) |
 
+![FIGURE 05: GIXS 탭 -- 실제 프레임 로드 후 탭 전체 화면](figures/fig05.png)
+
+![FIGURE 06: TrXS 탭 -- 실제 프레임 로드 후 탭 전체 화면](figures/fig06.png)
+
 ### 3.1 왼쪽 패널 — 공통 섹션
 
 **Directory / Set**
@@ -167,6 +179,8 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 - **\*Data / Normalization** 줄 — `plus_data`(배경에 곱해줄 배율) + Normalization 콤보(`None`/`IC`/`BC`).
 - **BKG sub. && Norm** 버튼 — 먼저 미리보기(preview)를 계산해서 2D Image Plot에 바로 보여주고, "Preview computed. Keep this background-subtracted/normalized result?" 확인창이 뜬다. **No**를 누르면 원래(변경 안 된) 이미지로 되돌아가고, **Yes**를 누르면 확정되어 Contrast가 자동 재설정되고 Map format이 Pixel로 리셋되며, q-Map Cal.을 다시 실행해야 한다는 표시가 뜬다(보정된 데이터가 정규화 이전 값으로 계산돼 있어서 그대로 두면 최신 값을 안 씀).
 
+![FIGURE 10: GIXS/TrXS Background -- BKG sub. && Norm.의 Yes/No 확인 다이얼로그](figures/fig10.png)
+
 **Map format / q-Map Cal.**
 
 - Map format 콤보(모드별 옵션은 위 표 참고). GIXS에는 "q uncertainty" 체크박스도 같은 줄에 있는데, 실제로는 아무 기능에도 연결돼 있지 않다(사용 안 해도 됨).
@@ -180,6 +194,9 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Min coverage** — 이 값보다 커버리지(유효 픽셀 비율)가 낮은 q-bin은 NaN 처리한다 (기본 0.80).
 - **Median** / **Std** 체크박스 — 평균 대신 중앙값 사용 / 표준편차도 함께 계산.
 - **Draw Mask** 버튼 — 별도의 큰 다이얼로그 창이 열리고, 2D 이미지 위에 폴리곤을 클릭으로 그린다(더블클릭 또는 시작점 재클릭으로 닫힘). 폴리곤 **안쪽**은 Circular Average 계산에서 제외된다. Map format이 Pixel이어야 사용 가능.
+
+![FIGURE 09: TrXS Circular Process -- "Draw Mask" 다이얼로그에서 폴리곤을 그리는 중인 화면](figures/fig09.png)
+
 - **Clear Mask** 버튼 — 마스크 해제.
 - **Plot (Circular Average)** 버튼 — 지정한 각도 범위(+마스크)로 q-binned 평균을 계산해 1D Result에 그린다.
 
@@ -192,6 +209,8 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Median** 체크박스 — 공통.
 - **Position** / **Line** / **1d Plot** 버튼 — Position은 2D 이미지를 클릭해 Line angle을 설정하는 모드를 켠다. Line은 실제 컷을 실행하지 않고 현재 설정된 라인/쐐기/밴드 오버레이만 그린다. **1d Plot**이 실제로 컷을 계산(`console_line_1d`)해서 q vs. intensity를 1D Result에 그린다.
 
+![FIGURE 07: GIXS/TrXS 1D Plot Process -- 2D Image에 Cakecut 쐐기 오버레이가 그려진 상태](figures/fig07.png)
+
 ### 3.4 왼쪽 패널 — Azimuthal Process (공통)
 
 - **Pixel / Range(-/+)** — 빔 중심에서 이 픽셀 반경 ± Range만큼의 링(밴드)을 지정.
@@ -199,6 +218,8 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Position** 버튼 + **Mean/Median** 콤보 — Position은 클릭한 지점의 빔 중심까지 거리로 반경을 설정. Mean/Median은 각도별 평균 방식 선택.
 - **Draw** 버튼 — pixel±range 두 원을 2D 이미지에 그린다(Qxy/Qz 표시 모드면 Q 반경으로 자동 환산해서 그림).
 - **Plot** 버튼 — 각도별로 binning한 intensity를 계산해서 angle [deg] vs. intensity를 1D Result에 그린다. **GIXS는 0~180°만 스윕**(grazing incidence 특성상 수평선 위쪽만 산란), **TrXS는 0~360° 전체**를 스윕한다.
+
+![FIGURE 08: GIXS/TrXS Azimuthal Process -- 2D Image에 Azimuthal 링(pix +/- range) 오버레이 + 1D Result 결과 커브](figures/fig08.png)
 
 ### 3.5 오른쪽 패널
 
@@ -240,6 +261,8 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/각도 스캔 시리즈를 통째로
 불러와서 프레임마다 같은 처리를 반복하고, 결과를 시리즈 곡선(matrix)으로 보여준다.
 
+![FIGURE 11: GIXS-series -- 4분할 뷰어 전체 화면 (시리즈 로드 후)](figures/fig11.png)
+
 ### 4.1 왼쪽 패널 — Serial Data Parameters / Load
 
 - **Directory** + **Set** 버튼.
@@ -247,6 +270,8 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 - **Insitu** 콤보 — `Time` / `Temperature` / `Angle` / `LowTemp.`. 이 선택에 따라 나중에 X-Axis/Auto 섹션의 Sub-mode 콤보 항목이 바뀐다 (예: Temperature 선택 시 Temperature1/2/3 + Time).
 - **LOAD DATA** 버튼 — 시리즈의 프레임 하나(.h5)를 선택하는 파일 다이얼로그가 열린다.
 - **Filename** 입력창(파일명 접두어, 기본값 "ABCD") + **Set / Table** 버튼 — 같은 접두어를 가진 파일들을 전부 찾아서 **"File List (Series)"** 다이얼로그(체크박스 목록, Select All/Deselect All/Import/Cancel)를 연다. **Import**를 누르면 체크된 파일들을 전부 시리즈로 불러온다(진행률 다이얼로그 표시).
+
+![FIGURE 12: GIXS-series Load -- Set / Table의 "File List (Series)" 체크박스 다이얼로그](figures/fig12.png)
 - **# of Files: 0** 라벨, **Parallel loading** 체크박스 (여러 파일을 스레드로 동시에 불러오기).
 - **Load Info** 버튼 — 캘리브레이션 JSON을 불러오고, 2D 이미지 표시를 빔 중심 기준으로 재조정.
 - **Grid Rmv** 버튼 — 시리즈 전체에 그리드 보정 적용.
@@ -276,6 +301,9 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 ### 4.5 Region of Interest
 
 - **N. ROI** 콤보(1~5) + **Draw ROI** 버튼 — 별도 창이 열리고, ROI 개수만큼 사각형을 순서대로 드래그해서 그린다(빨강/초록/파랑/주황/보라 순으로 색이 자동 배정됨). 그리면 프레임별 ROI 합계가 계산되고, 2D 이미지 위에도 같은 색 사각형이 표시된다.
+
+![FIGURE 15: GIXS-series ROI -- Draw ROI 창에서 사각형을 드래그하는 중인 화면](figures/fig15.png)
+
 - **Normalize** 콤보(`None`/`IC`/`BC`) — Series Integration Viewer의 ROI 곡선에 적용.
 
 ### 4.6 X-Axis / Auto
@@ -294,11 +322,16 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 ### 4.8 오른쪽 패널 — 4분할 뷰어
 
 - **2D Image Plot Viewer** (좌상단) — 불러온 전체 프레임의 평균("Average of N frame(s)"). Scale/Colormap, Contrast(0/0이면 자동), **Play** 버튼(프레임별로 하나씩 훑어보는 **"Frame Viewer (Play)"** 창이 열림 — 슬라이더로 프레임 넘기며 확인, 열 때의 Contrast/Colormap/Scale이 고정됨).
+
+![FIGURE 13: GIXS-series -- Frame Viewer (Play) 다이얼로그](figures/fig13.png)
+
 - **1D Plot Viewer** (우상단) — 프레임마다의 1D 컷 커브를 전부 겹쳐서, 시리즈 X축 값 기준 색상(colorbar)으로 표시. Scale(`Linear`/`Logy`/`Logxy`), Colormap, **Heatmap** 버튼(Q vs. X축 히트맵 창).
 - **Azimuthal Plot Viewer** (좌하단) — 프레임별 azimuthal 프로파일을 같은 방식으로 표시. Colormap, **Heatmap** 버튼(Angle vs. X축 히트맵 창).
 - **Series Integration Viewer** (우하단) — 프레임마다 적분값 하나를 X축에 대해 표시. ROI를 마지막으로 실행했으면 ROI별 곡선(색 매칭), 아니면 1D/Azimuthal 커브의 적분값. Scale, **Re-Plot Series** 버튼.
 
 **Heatmap 다이얼로그** (1D/Azimuthal 공통 구조): Plot Type(`Heatmap`/`Surf`/`Waterfall`), Colormap, X/Y/Z Scale, Curtain Color(`Intensity`/`Frame Index`, Waterfall 전용), X Range/Y Range/Contrast, **Save Image** 버튼. 열었을 때 데이터를 스냅샷하며, 이후 Exec Cut/Exec Azi를 다시 돌려도 실시간으로 갱신되지 않는다.
+
+![FIGURE 14: GIXS-series -- Heatmap 다이얼로그 (1D 또는 Azimuthal)](figures/fig14.png)
 
 ---
 
@@ -306,6 +339,8 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incidence transmission
 기하구조에 맞게 조정돼 있다.
+
+![FIGURE 16: TrXS-series -- 4분할 뷰어 전체 화면 (시리즈 로드 후)](figures/fig16.png)
 
 ### 5.1 왼쪽 패널 — Serial Data Parameters (TrXS) / Load
 
@@ -315,6 +350,8 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 - **# of Files: 0**, **Parallel** 체크박스.
 - **Background** 버튼 — 배경 프레임 하나를 선택하면, 같은 시리즈 접두어를 가진 파일들을 전부 평균해서 배경 프레임으로 만들고, 본 스택과 같은 검출기 보정을 적용한다.
 - **Subtraction** 체크박스 — 켜면 매 프레임 커브에서 배경의 커브를 실시간으로 빼서 보여준다(다시 계산할 필요 없이 즉시 반영).
+
+![FIGURE 17: TrXS-series Background -- Background 로드 후 Subtraction 체크박스가 켜진 상태](figures/fig17.png)
 - **Load Info**, **Grid Rmv** — GIXS-series와 동일한 개념.
 - **q-Cal.** 버튼 — GIXS-series와 달리 **입사각 캘리브레이션 자체가 없다** (TrXS는 normal-incidence transmission이라 필요 없음).
 
@@ -403,6 +440,8 @@ CXRO/Henke 산란인자 테이블 기반의 `refrac()` 함수를 사용한다.
 - **Result Plot** — 계산된 값 vs. 에너지 커브.
 - **Controls** — X Scale(`linear`/`log`), Y Scale(`linear`/`log`), Grid On 체크박스 — 모두 재계산 없이 즉시 반영.
 
+![FIGURE 18: XTrans -- RUN CALCULATION 실행 후 Result Plot (예: Transmittance 커브)](figures/fig18.png)
+
 ---
 
 ## 7. Penetration Depth 탭
@@ -443,6 +482,8 @@ depth[nm] = Lp / 10
 
 - **Result Plot** — Penetration Depth (nm) vs. Incidence Angle (deg), **임계각 위치에 빨간 세로 기준선**이 함께 그려진다 (임계각 전후로 깊이가 어떻게 달라지는지 한눈에 보기 위함).
 - **Controls** — Y Scale(`linear`/`log`) — X축(각도)은 항상 linear라 X Scale 콤보는 없다. Grid On 체크박스.
+
+![FIGURE 19: Penetration Depth -- Result Plot (임계각 빨간 세로선 포함)](figures/fig19.png)
 
 ---
 
