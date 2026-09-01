@@ -5,6 +5,8 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
+from pgixs_python.calibration.sdd import wavelength_from_energy_kev
+from pgixs_python.qmap.transform import image_transform_q_gi
 from pgixs_python.ui_backend import gixs2_session as gs
 
 
@@ -484,6 +486,109 @@ def test_gixs2_azimuthal_exec_reports_and_clears_load_progress(tmp_path):
         {"ok": True, "active": True, "current": 3, "total": 3, "label": "Azimuthal"},
     ]
     assert gs.gixs2_load_progress() == {"ok": True, "active": False}
+
+
+def test_gixs2_azimuthal_exec_reflect_missing_wedge_regrids_each_frame(tmp_path):
+    """Regression: "Azimuthal에서 우리는 Qxy/Qz로 변형된 맵에서 azimuthal을
+    하는것이 아닌 pixel map에서 바로 진행해. 그러다 보니 missing
+    wedge파트가 관과돼" -- and a first attempt at a cheap fix (excluding a
+    geometry-only "gap" pixel mask from the plain pixel-space cut) turned
+    out not to work at all ("그림과 같이 딱히 반영된것 같지 않은데?"), since
+    every real pixel really does hold real data -- only genuinely
+    regridding each frame onto the Qxy/Qz grid (image_transform_q_gi, the
+    same regrid the single-frame console's own Qxy/Qz cut uses) can
+    reproduce the real coverage holes. `reflect_missing_wedge=True` must
+    hand process_azimuthal_stack a stack of regridded frames, not the
+    plain corrected_stack."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({})["ok"]
+    original_stack = session.corrected_stack.copy()
+
+    captured = {}
+    original_process = gs.process_azimuthal_stack
+
+    def spying_process_azimuthal_stack(stack, *args, **kwargs):
+        captured["stack"] = stack.copy()
+        return original_process(stack, *args, **kwargs)
+
+    gs.process_azimuthal_stack = spying_process_azimuthal_stack
+    try:
+        result = gs.gixs2_azimuthal_exec(
+            {"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0, "reflect_missing_wedge": True}
+        )
+    finally:
+        gs.process_azimuthal_stack = original_process
+
+    assert result["ok"], result.get("message")
+    regridded_stack = captured["stack"]
+    # Genuinely different data (a real regrid), not the plain stack
+    # relabeled -- and corrected_stack itself untouched (shared by every
+    # other cut type, none of which regrid).
+    assert not np.allclose(regridded_stack, original_stack, equal_nan=True)
+    assert np.allclose(session.corrected_stack, original_stack, equal_nan=True)
+    # Matches a hand-rolled regrid of the same frames via the same
+    # underlying transform the single-frame console's own Qxy/Qz cut uses.
+    expected_0 = image_transform_q_gi(
+        original_stack[0], session.qmap["qr"], session.qmap["qz"], center, session.calibration["pixel_mm"],
+        wavelength_from_energy_kev(session.calibration["energy_kev"]), session.calibration["sdd_mm"],
+    ).image
+    np.testing.assert_allclose(regridded_stack[0], expected_0, equal_nan=True)
+
+
+def test_gixs2_azimuthal_exec_reflect_missing_wedge_requires_plain_qcal(tmp_path):
+    """"Change ai" only keeps the scalar |Q| magnitude per frame
+    (q_stack), not qr/qz separately, so there is nothing to regrid
+    against -- reflect_missing_wedge must fail clearly there instead of
+    silently falling back to the plain pixel-space cut."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({"change_ai": True, "ai_step": 0.05})["ok"]
+
+    result = gs.gixs2_azimuthal_exec(
+        {"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0, "reflect_missing_wedge": True}
+    )
+
+    assert not result["ok"]
+    assert "Change ai" in result["message"]
+
+
+def test_gixs2_azimuthal_exec_default_still_uses_the_plain_pixel_space_cut(tmp_path):
+    """The default (reflect_missing_wedge left False/omitted) must be
+    byte-identical to the pre-existing plain pixel-space behavior -- this
+    is strictly an opt-in second mode, not a change to the default."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({})["ok"]
+    original_stack = session.corrected_stack.copy()
+
+    captured = {}
+    original_process = gs.process_azimuthal_stack
+
+    def spying_process_azimuthal_stack(stack, *args, **kwargs):
+        captured["stack"] = stack
+        return original_process(stack, *args, **kwargs)
+
+    gs.process_azimuthal_stack = spying_process_azimuthal_stack
+    try:
+        result = gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
+    finally:
+        gs.process_azimuthal_stack = original_process
+
+    assert result["ok"], result.get("message")
+    np.testing.assert_array_equal(captured["stack"], original_stack)
 
 
 def test_gixs2_roi_exec_matches_hand_computed_sum(tmp_path):

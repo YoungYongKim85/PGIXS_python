@@ -354,6 +354,13 @@ class GIXS2Widget(QWidget):
         self.azi_mean_median_combo.addItems(["Mean", "Median"])
         _size_combo(self.azi_mean_median_combo, _COMBO_CHARS)
         layout.addWidget(_field("Mean/Median", self.azi_mean_median_combo, label_width=88))
+        self.azi_reflect_missing_wedge_check = QCheckBox("Reflect missing wedge (Qxy/Qz)")
+        self.azi_reflect_missing_wedge_check.setToolTip(
+            "Regrid every frame onto the Qxy/Qz grid before cutting, so a real coverage gap near Qxy=0 shows up "
+            "as a break in the curve -- off by default (plain pixel-space cut, no gap) since regridding every "
+            "frame is slower and needs a plain q-Cal (not \"Change ai\")."
+        )
+        layout.addWidget(self.azi_reflect_missing_wedge_check)
 
         self.exec_azi_button = QPushButton("Exec Azi")
         self.exec_azi_button.clicked.connect(self._on_exec_azi_clicked)
@@ -1366,6 +1373,7 @@ class GIXS2Widget(QWidget):
             "range_minus": self.azi_minus_spin.value(),
             "range_plus": self.azi_plus_spin.value(),
             "mean_or_median": self.azi_mean_median_combo.currentText(),
+            "reflect_missing_wedge": self.azi_reflect_missing_wedge_check.isChecked(),
         }
         self.exec_azi_button.setEnabled(False)
         self._start_progress_dialog("Running azimuthal profile...", window_title="Exec Azi")

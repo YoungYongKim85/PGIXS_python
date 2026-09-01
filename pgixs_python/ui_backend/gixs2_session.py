@@ -46,6 +46,7 @@ from pgixs_python.processing.grid_remove import grid_remove
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.gixs import qmap_gixs
+from pgixs_python.qmap.transform import image_transform_q_gi
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
 from pgixs_python.ui_backend.series_processing import (
     compute_experiment_x_axis,
@@ -629,6 +630,57 @@ def _data_for_processing() -> np.ndarray:
     return _SESSION.corrected_stack if _SESSION.corrected_stack is not None else _SESSION.stack
 
 
+def _q_remap_stack(stack: np.ndarray, progress_label: str) -> np.ndarray | None:
+    """Regrid every frame in `stack` onto the same uniform Qxy/Qz grid the
+    single-frame console's own Q-space cut uses (`image_transform_q_gi`;
+    see console_session.py's `_q_space_cut_inputs`), so a plain radius/
+    angle cut against the *result* genuinely reflects the display's real
+    Q-space coverage gaps -- including the "missing wedge" near Qxy=0.
+
+    A plain pixel-space cut can never show this gap no matter which
+    pixels get excluded: every real detector pixel holds a real count, so
+    there is nothing "missing" in pixel space to begin with. The gap is
+    purely an artifact of interpolating that real pixel data onto a
+    uniform Q grid finer, near the pole, than the pixel sampling can
+    actually support -- an earlier attempt at a cheap geometry-only
+    exclusion mask confirmed this: it only ever excluded the exact
+    beamstop column, never anything resembling the wedge actually visible
+    on screen (reported, with the fix shown live and still not reflected:
+    "그림과 같이 딱히 반영된것 같지 않은데?"). Only genuinely regridding
+    each frame -- not merely excluding some of its pixels -- can produce
+    the same holes the display shows.
+
+    Costs one `image_transform_q_gi` bilinear splat per frame -- run only
+    when Azimuthal Process's own "Reflect missing wedge" checkbox opts in
+    (reported: "미싱웻지 반영 모드와 반영되지 않은 모드 2가지가 있으면
+    좋을 것 같아"), using the same background-thread + progress-dialog
+    Exec Azi already runs its normal per-frame loop under, so this
+    doesn't freeze the UI, just takes longer.
+
+    Only available after a plain q-Cal, where `qmap` holds one shared
+    qr/qz for the whole series -- "Change ai" recomputes qr/qz per frame
+    and only keeps the scalar |Q| magnitude (`q_stack`), not qr/qz
+    separately, so there is nothing to regrid against there; returns None
+    in that case."""
+
+    if _SESSION.qmap is None:
+        return None
+    cal = _SESSION.calibration
+    beam_pos = (float(cal["beam_pos"][0]), float(cal["beam_pos"][1]))
+    pixel_mm = float(cal["pixel_mm"])
+    wavelength_a = wavelength_from_energy_kev(float(cal["energy_kev"]))
+    sdd_mm = float(cal["sdd_mm"])
+    qr = _SESSION.qmap["qr"]
+    qz = _SESSION.qmap["qz"]
+
+    n_frames = stack.shape[0]
+    remapped = np.empty_like(stack)
+    for i in range(n_frames):
+        remapped[i] = image_transform_q_gi(stack[i], qr, qz, beam_pos, pixel_mm, wavelength_a, sdd_mm).image
+        _set_load_progress(i + 1, n_frames, progress_label)
+    return remapped
+
+
 # ----------------------------------------------------------------------
 # 1D / Azimuthal / ROI series exec
 # ----------------------------------------------------------------------
@@ -700,6 +752,7 @@ def gixs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
         range_plus = float(payload.get("range_plus", 1.0))
         use_median = str(payload.get("mean_or_median", "Mean")).strip().lower() == "median"
         n_angle_bins = int(payload.get("n_angle_bins", 180))
+        reflect_missing_wedge = bool(payload.get("reflect_missing_wedge", False))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid azimuthal parameters: {exc}"}
 
@@ -712,14 +765,24 @@ def gixs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
 
     _SESSION.load_progress = None
     try:
-        result = process_azimuthal_stack(_data_for_processing(), center=beam_pos, progress_callback=_report, **kwargs)
+        stack = _data_for_processing()
+        if reflect_missing_wedge:
+            stack = _q_remap_stack(stack, "Azimuthal (Qxy/Qz remap)")
+            if stack is None:
+                return {"ok": False, "message": 'Reflect missing wedge needs a plain q-Cal (not "Change ai").'}
+        result = process_azimuthal_stack(stack, center=beam_pos, progress_callback=_report, **kwargs)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
     finally:
         _SESSION.load_progress = None
 
+    # `reflect_missing_wedge` is kept separate from `kwargs` -- `kwargs`
+    # is splatted straight into `process_azimuthal_stack` by both this
+    # call and `_extend_active_curve`'s Auto Refresh replay, and that
+    # function has no such parameter of its own.
     _SESSION.last_azimuthal = {
-        "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage, "params": kwargs,
+        "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage,
+        "params": kwargs, "reflect_missing_wedge": reflect_missing_wedge,
     }
     _SESSION.auto_met = "azimuthal"
     return {
@@ -1079,7 +1142,12 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
             _SESSION.last_1d["coverage"] = np.vstack([_SESSION.last_1d["coverage"], extra.coverage])
             return True
         if _SESSION.auto_met == "azimuthal" and _SESSION.last_azimuthal is not None:
-            extra = process_azimuthal_stack(new_frames, center=beam_pos, **_SESSION.last_azimuthal["params"])
+            frames = new_frames
+            if _SESSION.last_azimuthal.get("reflect_missing_wedge"):
+                frames = _q_remap_stack(frames, "Azimuthal (Qxy/Qz remap)")
+                if frames is None:
+                    return False
+            extra = process_azimuthal_stack(frames, center=beam_pos, **_SESSION.last_azimuthal["params"])
             if extra.x_axis.shape != _SESSION.last_azimuthal["x_axis"].shape:
                 return False
             _SESSION.last_azimuthal["intensity"] = np.vstack([_SESSION.last_azimuthal["intensity"], extra.intensity])

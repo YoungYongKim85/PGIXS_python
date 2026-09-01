@@ -97,6 +97,7 @@ def _exec_azi_sync(widget):
         "range_minus": widget.azi_minus_spin.value(),
         "range_plus": widget.azi_plus_spin.value(),
         "mean_or_median": widget.azi_mean_median_combo.currentText(),
+        "reflect_missing_wedge": widget.azi_reflect_missing_wedge_check.isChecked(),
     }
     result = gs.gixs2_azimuthal_exec(payload)
     widget._on_exec_azi_finished(result)
@@ -482,8 +483,18 @@ def test_gixs2_widget_exec_1d_and_azi_run_in_background_with_progress_dialog(qap
 
     assert captured["fn"] is gs.gixs2_azimuthal_exec
     assert captured["payload"]["pixel"] == widget.azi_pix_spin.value()
+    assert captured["payload"]["reflect_missing_wedge"] is False
     assert not widget.exec_azi_button.isEnabled()
     assert widget._progress_dialog is not None
+
+    widget._stop_progress_dialog()
+    widget.exec_azi_button.setEnabled(True)
+    captured.clear()
+
+    widget.azi_reflect_missing_wedge_check.setChecked(True)
+    widget._on_exec_azi_clicked()
+
+    assert captured["payload"]["reflect_missing_wedge"] is True
 
     widget._stop_progress_dialog()
 
