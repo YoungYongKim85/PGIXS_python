@@ -5,7 +5,9 @@ This folder is the Python port workspace for PGIXS Tab1 only.
 ## Desktop app
 
 The primary interface is a PySide6 desktop app (SDD Calibration / GIXS /
-GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs).
+GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs). See
+[docs/desktop_manual_ko.md](docs/desktop_manual_ko.md) for a detailed
+(Korean) user manual covering every tab.
 
 **End users** (no Python install needed): download the build for your OS
 below, or browse all versions on the [Releases](../../releases) page.
