@@ -26,6 +26,18 @@ repo_root = Path(SPECPATH).resolve().parent
 # icon (what Explorer/Finder/the Dock show before the app even launches).
 intrologo = repo_root / "pgixs_python" / "Intrologo.png"
 
+# Non-Python data files each read from disk at runtime via a
+# Path(__file__)-relative lookup (see refrac.py's/corrections.py's own
+# _DATA_DIR) -- PyInstaller only bundles what's explicitly listed here,
+# so leaving these out (as the first build did) doesn't fail until
+# someone actually exercises XTrans/Penetration Depth or a "Change ai"
+# q-Cal and hits a "not in the table list" / missing-file error for data
+# that's really just never made it into the frozen app at all (reported:
+# "XTrans나 Pnentration depth계산에서 Element 'C'는 not in the table
+# list라고 뜨네").
+atomic_scattering_factor_dir = repo_root / "pgixs_python" / "physics" / "data" / "atomic_scattering_factor"
+processing_data_dir = repo_root / "pgixs_python" / "processing" / "data"
+
 if sys.platform == "win32":
     app_icon = str(repo_root / "packaging" / "icon.ico")
 elif sys.platform == "darwin":
@@ -37,7 +49,11 @@ a = Analysis(
     [str(repo_root / "packaging" / "entry_point.py")],
     pathex=[str(repo_root)],
     binaries=[],
-    datas=[(str(intrologo), "pgixs_python")],
+    datas=[
+        (str(intrologo), "pgixs_python"),
+        (str(atomic_scattering_factor_dir), "pgixs_python/physics/data/atomic_scattering_factor"),
+        (str(processing_data_dir), "pgixs_python/processing/data"),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
