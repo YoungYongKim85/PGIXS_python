@@ -948,11 +948,23 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
     below = np.isfinite(coverage) & (coverage < min_coverage)
     intensity[below] = np.nan
 
+    # `sector_average` already computes this whenever calc_std=True (see
+    # its own calc_std param) -- it just never made it past this function
+    # before, so the widget's Std checkbox had nothing to actually plot
+    # (reported: "Std가 켜고 프로세스 했을때, 1D Result에서 Y축 errorbar
+    # plot이 되면 좋을 것 같아"). Same low-coverage mask as intensity, so
+    # a bin nulled out above doesn't still carry a stray error bar.
+    std = None
+    if calc_std:
+        std = np.asarray(result.std, dtype=np.float32).copy()
+        std[below] = np.nan
+
     _SESSION.last_curve = {
         "kind": "circular",
         "q": result.q_axis,
         "intensity": intensity,
         "coverage": coverage,
+        "std": std,
     }
     return {
         "ok": True,
@@ -964,6 +976,7 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
             "q": downsample_1d_for_json(result.q_axis, max_points=600),
             "intensity": downsample_1d_for_json(intensity, max_points=600),
             "coverage": downsample_1d_for_json(coverage, max_points=600),
+            "std": downsample_1d_for_json(std, max_points=600) if std is not None else None,
         },
     }
 

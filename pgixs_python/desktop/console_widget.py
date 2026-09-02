@@ -1800,7 +1800,7 @@ class ConsoleWidget(QWidget):
     # ------------------------------------------------------------------
     # 1D Result: X/Y scale (live) + Save
     # ------------------------------------------------------------------
-    def _render_curve(self, x: np.ndarray, y: np.ndarray, *, xlabel: str = "") -> None:
+    def _render_curve(self, x: np.ndarray, y: np.ndarray, *, xlabel: str = "", yerr: np.ndarray | None = None) -> None:
         """Every 1D Result render (z-plot, Line, Azimuthal, Circular) goes
         through here so the ColorScale-style X/Y log toggles apply
         uniformly, not just to whichever curve happened to be plotted
@@ -1812,6 +1812,7 @@ class ConsoleWidget(QWidget):
             xlabel=xlabel,
             xlog=self.curve_xscale_combo.currentText() == "Log",
             ylog=self.curve_yscale_combo.currentText() == "Log",
+            yerr=yerr,
         )
 
     def _apply_curve_scales(self) -> None:
@@ -2114,7 +2115,9 @@ class ConsoleWidget(QWidget):
             self._set_curve_status(result.get("message", "Circular average failed."), False)
             return
         curve = cs.get_session().last_curve
-        self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]")
+        std = curve.get("std")
+        yerr = np.asarray(std) if self.circ_std_check.isChecked() and std is not None else None
+        self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]", yerr=yerr)
         diag = result.get("coverage_diagnostics", {})
         mask_note = " (mask applied)" if result.get("mask_active") else ""
         self._set_curve_status(

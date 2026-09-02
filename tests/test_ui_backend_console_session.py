@@ -854,6 +854,37 @@ def test_console_circular_average_returns_curve_and_nulls_low_coverage(tmp_path)
     assert cs.get_session().last_curve["kind"] == "circular"
 
 
+def test_console_circular_average_calc_std_populates_last_curve_std(tmp_path):
+    """Regression: "Std가 켜고 프로세스 했을때, 1D Result에서 Y축
+    errorbar plot이 되면 좋을 것 같아" -- sector_average already computes
+    a per-bin std whenever calc_std=True, but console_circular_average
+    discarded it before it ever reached last_curve, so the Std checkbox
+    had nothing for the widget to plot as error bars. calc_std=True must
+    now populate last_curve["std"] (and calc_std=False must leave it
+    None, not an all-NaN array, so the widget can tell "not computed"
+    apart from "computed but every bin masked out")."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(64, 64))
+    _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
+
+    without_std = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "calc_std": False})
+    assert without_std["ok"], without_std.get("message")
+    assert cs.get_session().last_curve["std"] is None
+    assert without_std["preview"]["std"] is None
+
+    with_std = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "calc_std": True})
+    assert with_std["ok"], with_std.get("message")
+    std = cs.get_session().last_curve["std"]
+    assert std is not None
+    assert std.shape == np.asarray(cs.get_session().last_curve["intensity"]).shape
+    assert np.any(np.isfinite(std))
+    assert with_std["preview"]["std"] is not None
+
+
 def test_console_set_circular_mask_requires_loaded_data():
     cs.reset_session()
 

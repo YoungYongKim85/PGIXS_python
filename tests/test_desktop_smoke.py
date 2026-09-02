@@ -352,6 +352,36 @@ def test_trxs_circular_mask_polygon_complete_sets_and_clears_mask(qapp, tmp_path
     assert console.circ_mask_status_label.text() == "Mask: none"
 
 
+def test_circular_plot_draws_error_bars_only_when_std_is_checked(qapp, tmp_path):
+    """Regression: "TrXS에서 Circular Process에서... Std가 켜고 프로세스
+    했을때, 1D Result에서 Y축 errorbar plot이 되면 좋을 것 같아" -- the
+    Std checkbox already asked the backend to compute a per-bin std, but
+    nothing ever rendered it. With Std checked, the 1D Result curve must
+    be drawn via Axes.errorbar (a real ErrorbarContainer, not just a plain
+    Line2D); with Std unchecked, it must stay a plain line exactly as
+    before (no error bars where the user didn't ask for them)."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    beam_y, beam_z = 12.0, 10.0
+    console.beam_y_spin.setValue(beam_y)
+    console.beam_z_spin.setValue(beam_z)
+    qcal_result = cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": beam_y, "beam_z": beam_z})
+    assert qcal_result["ok"], qcal_result.get("message")
+    console.circ_angle_min_spin.setValue(0.0)
+    console.circ_angle_max_spin.setValue(360.0)
+    console.circ_min_coverage_spin.setValue(0.0)
+
+    console.circ_std_check.setChecked(False)
+    console._on_circular_clicked()
+    assert len(console.curve_canvas.ax.containers) == 0
+
+    console.circ_std_check.setChecked(True)
+    console._on_circular_clicked()
+    assert len(console.curve_canvas.ax.containers) == 1
+
+
 def test_circ_sector_overlay_draws_live_as_angle_spins_change(qapp, tmp_path):
     """Regression: "Draw 버튼이 아닌 이건 바로 라인이 그어지고 진행이 되면 좋을 것
     같아" -- editing Ang. Avg min/max must redraw the sector boundary rays
