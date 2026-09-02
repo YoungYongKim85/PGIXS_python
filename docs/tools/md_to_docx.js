@@ -1,18 +1,13 @@
 // Minimal Markdown -> docx converter tailored to docs/desktop_manual_ko.md's
 // own subset of Markdown (headings, tables, bullet/numbered lists, bold,
-// inline code, fenced code blocks, blockquotes, hr, ![alt](relative/path.png)
-// images with the alt text rendered as a caption). Not a general parser --
-// re-run this after editing the .md instead of hand-editing the .docx.
-//
-// Usage (from the repo root):
-//   npm install docx    (one-time, not a runtime dependency of the app)
-//   node docs/tools/md_to_docx.js docs/desktop_manual_ko.md docs/desktop_manual_ko.docx
+// inline code, fenced code blocks, blockquotes, hr). Not a general parser.
 const fs = require("fs");
 const path = require("path");
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, BorderStyle, AlignmentType, ShadingType, TabStopType, TabStopPosition,
   ExternalHyperlink, LevelFormat, convertInchesToTwip, ImageRun,
+  Footer, PageNumber, TableOfContents,
 } = require("docx");
 
 const srcPath = process.argv[2];
@@ -191,12 +186,33 @@ function table(rows, colWidths) {
 }
 
 let i = 0;
+let inToc = false; // see the "## 목차" special-case below
 while (i < lines.length) {
   const line = lines[i];
 
-  if (line.startsWith("# ")) { heading(line.slice(2), HeadingLevel.TITLE); i++; continue; }
-  if (line.startsWith("### ")) { heading(line.slice(4), HeadingLevel.HEADING_3); i++; continue; }
-  if (line.startsWith("## ")) { heading(line.slice(3), HeadingLevel.HEADING_2); i++; continue; }
+  if (line.startsWith("# ")) { inToc = false; heading(line.slice(2), HeadingLevel.TITLE); i++; continue; }
+  if (line.startsWith("### ")) { inToc = false; heading(line.slice(4), HeadingLevel.HEADING_3); i++; continue; }
+  if (line.startsWith("## ")) {
+    inToc = false;
+    const text = line.slice(3);
+    heading(text, HeadingLevel.HEADING_2);
+    i++;
+    if (text.trim() === "목차") {
+      // Word can compute and paginate this itself (and keep it clickable)
+      // far better than a hand-typed list of markdown anchor links, which
+      // don't resolve once converted -- skip the .md's own numbered list
+      // right below this heading (still useful as a plain-text fallback
+      // in the .md/GitHub rendering) and insert a native TOC field
+      // instead. Readers need to right-click -> "Update Field" (or F9)
+      // once if Word doesn't refresh it automatically on open.
+      inToc = true;
+      children.push(new TableOfContents("", { hyperlink: true, headingStyleRange: "2-3" }));
+      children.push(new Paragraph({ spacing: { after: 160 }, children: [new TextRun("")] }));
+    }
+    continue;
+  }
+
+  if (inToc && /^\d+\.\s/.test(line)) { i++; continue; }
 
   if (line.trim() === "---") { hr(); i++; continue; }
 
@@ -280,6 +296,18 @@ const doc = new Document({
         size: { width: 11906, height: 16838 }, // A4 in DXA
         margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 }, // ~0.8in
       },
+    },
+    footers: {
+      default: new Footer({
+        children: [new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: BODY_SIZE - 3 }),
+            new TextRun({ text: " / ", font: FONT, size: BODY_SIZE - 3 }),
+            new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: BODY_SIZE - 3 }),
+          ],
+        })],
+      }),
     },
     children,
   }],

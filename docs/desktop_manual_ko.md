@@ -81,6 +81,7 @@ MATLAB 버전의 `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)�
 - **Set C** 버튼 — 2D 이미지를 클릭해서 그 위치를 중심으로 설정.
 
 ![FIGURE 02: SDD Calibration -- Set C로 클릭해 중심을 지정한 2D Image Plot (십자선 표시)](figures/fig02.png)
+
 - **Update Center** 버튼 — 위 Center [Y, Z]에 직접 입력한 값을 그대로 적용.
 - **Y_Plot (Fit)** / **Z_Plot (Fit)** — 현재 중심을 지나는 Y방향/Z방향 라인 프로파일을 뽑아 "1D Result" 패널에 그린다.
 - **Rad.Ave (Fit)** — 중심 기준 방사형(azimuthal 평균) 프로파일을 뽑는다.
@@ -274,6 +275,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 - **Filename** 입력창(파일명 접두어, 기본값 "ABCD") + **Set / Table** 버튼 — 같은 접두어를 가진 파일들을 전부 찾아서 **"File List (Series)"** 다이얼로그(체크박스 목록, Select All/Deselect All/Import/Cancel)를 연다. **Import**를 누르면 체크된 파일들을 전부 시리즈로 불러온다(진행률 다이얼로그 표시).
 
 ![FIGURE 12: GIXS-series Load -- Set / Table의 "File List (Series)" 체크박스 다이얼로그](figures/fig12.png)
+
 - **# of Files: 0** 라벨, **Parallel loading** 체크박스 (여러 파일을 스레드로 동시에 불러오기).
 - **Load Info** 버튼 — 캘리브레이션 JSON을 불러오고, 2D 이미지 표시를 빔 중심 기준으로 재조정.
 - **Grid Rmv** 버튼 — 시리즈 전체에 그리드 보정 적용.
@@ -354,6 +356,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 - **Subtraction** 체크박스 — 켜면 매 프레임 커브에서 배경의 커브를 실시간으로 빼서 보여준다(다시 계산할 필요 없이 즉시 반영).
 
 ![FIGURE 17: TrXS-series Background -- Background 로드 후 Subtraction 체크박스가 켜진 상태](figures/fig17.png)
+
 - **Load Info**, **Grid Rmv** — GIXS-series와 동일한 개념.
 - **q-Cal.** 버튼 — GIXS-series와 달리 **입사각 캘리브레이션 자체가 없다** (TrXS는 normal-incidence transmission이라 필요 없음).
 
