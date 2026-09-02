@@ -188,6 +188,11 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 
 - Map format 콤보(모드별 옵션은 위 표 참고). GIXS에는 **"q uncertainty"** 체크박스도 같은 줄에 있다 — 켠 상태로 **FP**(Footprint, mm)가 0보다 크게 설정돼 있으면, footprint를 SDD의 ±FP/2 불확실성으로 취급해서(시료 위 조사 영역이 넓을수록 검출기까지의 실효 경로 길이가 퍼진다는 원리) q 좌표 자체의 불확실성(q_std)을 계산한다. 표준편차는 `range / sqrt(12)`(균일분포 공식)로 계산한다 — 일반적인 GIXS 조건(수백 nm 이하 시료 두께, ~60um 수직 빔 크기)에서는 footprint 조사 분포가 각도와 무관하게 거의 균일(uniform)하기 때문이다. footprint 하나만 반영한 근사 지표이며(빔 발산각·에너지 대역폭 등은 미포함), 데이터(카운트) 통계와는 무관한 순수 기하학적 값이라는 점에 유의한다.
 - **q-Map Cal.** 버튼 — Energy/SDD/Center/(GIXS는 입사각·Footprint까지) 기준으로 pixel→Q 변환을 계산한다. 완료되면 **Q range: … to … 1/A** 라벨이 갱신되고, Map format 전환과 Polar 뷰가 가능해진다. "q uncertainty"가 켜져 있으면 q_std도 함께 계산된다.
+- **q-Map Cal.이 적용하는 detector correction** — Q 변환과 동시에, 원본 세기(raw intensity)를 다음 두 보정 인자로 나눠서 `corrected_data`를 만든다(2D Image Plot과 이후의 모든 1D 컷은 이 보정된 데이터를 사용한다):
+  - **Solid angle 보정** — 픽셀마다 빔 중심에서 보는 입체각(solid angle)이 달라서(중심에서 멀수록·기울어질수록 작아짐) 생기는 세기 편차를 보정한다(최댓값 1로 정규화).
+  - **Polarization 보정** — 방사광은 수평 편광이라고 가정하고(수평 편광 비율 100%), 산란 방향에 따른 편광 인자를 보정한다.
+  - 이 두 인자를 곱한 것이 총 보정 인자이며, `보정된 세기 = 원본 세기 / (solid angle × polarization)`으로 계산한다.
+  - 참고: 캡톤(Kapton) 창 투과율·실리콘(Eiger4M) 센서 흡수 보정 함수도 코드베이스에 존재하지만, 이 q-Map Cal.(단일 프레임 GIXS/TrXS, 그리고 GIXS-series의 일반 q-Cal)에는 적용되지 않는다 — GIXS-series의 "Change ai"(입사각을 프레임마다 바꿔가며 스캔하는 모드) q-Cal에서만 함께 적용된다. 공기 흡수(air absorption) 보정은 이 포팅에 구현돼 있지 않다.
 
 ### 3.2 왼쪽 패널 — TrXS 전용: Circular Process
 
@@ -195,7 +200,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 
 - **Ang. Avg (min/max)** — 평균낼 각도 범위(기본 0°~360°). 값을 바꾸면 2D 이미지 위에 섹터 경계선이 실시간으로 그려진다.
 - **Min coverage** — 이 값보다 커버리지(유효 픽셀 비율)가 낮은 q-bin은 NaN 처리한다 (기본 0.80).
-- **Median** / **Std** 체크박스 — 평균 대신 중앙값 사용 / 표준편차도 함께 계산.
+- **Median** / **Std** 체크박스 — 평균 대신 중앙값 사용 / 표준편차도 함께 계산. **Std**를 켜고 **Plot (Circular Average)**을 실행하면, 1D Result에 계산된 표준편차가 **Y축(intensity) error bar**로 표시된다(각도 범위와 무관하게 Std 체크 여부로만 결정됨).
 - **Draw Mask** 버튼 — 별도의 큰 다이얼로그 창이 열리고, 2D 이미지 위에 폴리곤을 클릭으로 그린다(더블클릭 또는 시작점 재클릭으로 닫힘). 폴리곤 **안쪽**은 Circular Average 계산에서 제외된다. Map format이 Pixel이어야 사용 가능.
 
 ![FIGURE 09: TrXS Circular Process -- "Draw Mask" 다이얼로그에서 폴리곤을 그리는 중인 화면](figures/fig09.png)
@@ -497,7 +502,8 @@ depth[nm] = Lp / 10
 
 | 용어 | 의미 |
 | --- | --- |
-| **q-Map Cal. / q-Cal** | 검출기 픽셀 좌표를 Q-space(역격자 공간) 좌표로 변환하는 계산. GIXS는 입사각을 반영해서 Qxy/Qz를 계산하고, TrXS는 normal-incidence 기준으로 Qy/Qz를 계산한다. |
+| **q-Map Cal. / q-Cal** | 검출기 픽셀 좌표를 Q-space(역격자 공간) 좌표로 변환하는 계산. GIXS는 입사각을 반영해서 Qxy/Qz를 계산하고, TrXS는 normal-incidence 기준으로 Qy/Qz를 계산한다. 동시에 solid angle × polarization 보정 인자로 세기를 나눠 `corrected_data`를 만든다(캡톤/실리콘 흡수 보정은 GIXS-series "Change ai" q-Cal에서만 추가로 적용된다). |
+| **q uncertainty (q_std)** | GIXS 전용. Footprint(FP)를 SDD의 ±FP/2 불확실성으로 취급해 구한 q 좌표 자체의 근사 불확실성. 1D Plot Process의 X축 error bar와 저장 시 `q_standard_deviation` 컬럼으로 반영된다. Cakecut과는 함께 쓸 수 없다(계산 자체를 건너뜀). footprint 하나만 반영한 근사치이며, 데이터 통계(카운트 오차)와는 무관한 순수 기하학적 값이다. |
 | **Map format (Pixel / Qxy·Qy / Qz)** | 2D 이미지를 픽셀 좌표로 볼지, Q-space 균일 그리드로 리그리딩해서 볼지 선택. Q-space 모드에서는 Line/Cake/Accumulation/Azimuthal 컷이 실제로 리그리딩된 이미지를 잘라서 pixel-space와 독립적인 결과를 낸다. |
 | **Grid Remove** | Eiger4M 등 일부 검출기의 물리적 모듈 간격(그리드)을 보정하는 처리. |
 | **Background / Normalization** | 배경 프레임을 빼고(subtraction), IC(ion chamber)/BC(beam counter) 값으로 정규화하는 처리. |
