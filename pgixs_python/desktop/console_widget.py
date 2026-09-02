@@ -1540,6 +1540,7 @@ class ConsoleWidget(QWidget):
             "beam_z": self.beam_z_spin.value(),
             "incident_angle_deg": self.ai_deg_spin.value() if self.ai_deg_spin is not None else 0.0,
             "footprint_mm": self.footprint_spin.value() if self.footprint_spin is not None else 0.0,
+            "q_uncertainty": self.q_uncertain_check.isChecked() if self.q_uncertain_check is not None else False,
         }
         result = cs.console_qmap(payload)
         if not result.get("ok"):
@@ -1800,7 +1801,10 @@ class ConsoleWidget(QWidget):
     # ------------------------------------------------------------------
     # 1D Result: X/Y scale (live) + Save
     # ------------------------------------------------------------------
-    def _render_curve(self, x: np.ndarray, y: np.ndarray, *, xlabel: str = "", yerr: np.ndarray | None = None) -> None:
+    def _render_curve(
+        self, x: np.ndarray, y: np.ndarray, *, xlabel: str = "",
+        yerr: np.ndarray | None = None, xerr: np.ndarray | None = None,
+    ) -> None:
         """Every 1D Result render (z-plot, Line, Azimuthal, Circular) goes
         through here so the ColorScale-style X/Y log toggles apply
         uniformly, not just to whichever curve happened to be plotted
@@ -1813,6 +1817,7 @@ class ConsoleWidget(QWidget):
             xlog=self.curve_xscale_combo.currentText() == "Log",
             ylog=self.curve_yscale_combo.currentText() == "Log",
             yerr=yerr,
+            xerr=xerr,
         )
 
     def _apply_curve_scales(self) -> None:
@@ -1976,13 +1981,18 @@ class ConsoleWidget(QWidget):
         # crosshair lands on a masked point. `last_curve` is the real,
         # full-resolution float array (masked points are NaN, not None).
         curve = cs.get_session().last_curve
-        self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]")
+        q_std = curve.get("q_std")
+        xerr = np.asarray(q_std) if q_std is not None else None
+        self._render_curve(np.asarray(curve["q"]), np.asarray(curve["intensity"]), xlabel="q [1/A]", xerr=xerr)
         diag = result.get("coverage_diagnostics", {})
-        self._set_curve_status(
+        status = (
             f"Line 1D ready. Coverage median {diag.get('coverage_median', 'n/a')}, "
-            f"low bins {diag.get('low_bin_count', 0)}, drops {diag.get('drop_bin_count', 0)}.",
-            True,
+            f"low bins {diag.get('low_bin_count', 0)}, drops {diag.get('drop_bin_count', 0)}."
         )
+        warning = result.get("warning")
+        if warning:
+            status += f" Warning: {warning}"
+        self._set_curve_status(status, True)
 
     # ------------------------------------------------------------------
     # Azimuthal Process

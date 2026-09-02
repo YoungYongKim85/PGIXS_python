@@ -825,6 +825,7 @@ class CurveCanvas(QWidget):
         marker: str | None = None,
         markersize: float = 5.0,
         yerr: np.ndarray | None = None,
+        xerr: np.ndarray | None = None,
     ) -> None:
         self._reset_axes()
         # Explicit float64 (not just np.asarray(x)) matters when a caller
@@ -837,15 +838,18 @@ class CurveCanvas(QWidget):
         # non-finite point.
         self._data_x = np.asarray(x, dtype=np.float64)
         self._data_y = np.asarray(y, dtype=np.float64)
-        if yerr is not None:
+        if yerr is not None or xerr is not None:
             # errorbar (not plot) draws the same line/marker style plus a
-            # vertical bar per point -- e.g. Circular Process's Std
-            # checkbox result (reported: "Std가 켜고 프로세스 했을때, 1D
-            # Result에서 Y축 errorbar plot이 되면 좋을 것 같아"). NaN
-            # points (masked/low-coverage bins) simply get no bar, same as
-            # a plain plot() already breaks the line at NaN.
+            # bar per point -- yerr for e.g. Circular Process's Std
+            # checkbox (reported: "Std가 켜고 프로세스 했을때, 1D Result에서
+            # Y축 errorbar plot이 되면 좋을 것 같아"), xerr for GIXS's q
+            # uncertainty (reported: "1D result에 x축 errorbar가 있으면
+            # 좋겠어"). NaN points (masked/low-coverage bins) simply get no
+            # bar, same as a plain plot() already breaks the line at NaN.
             self.ax.errorbar(
-                self._data_x, self._data_y, yerr=np.asarray(yerr, dtype=np.float64),
+                self._data_x, self._data_y,
+                yerr=np.asarray(yerr, dtype=np.float64) if yerr is not None else None,
+                xerr=np.asarray(xerr, dtype=np.float64) if xerr is not None else None,
                 color="#1d5c9e", linewidth=1.4, marker=marker, markersize=markersize,
                 markerfacecolor="#1d5c9e", markeredgecolor="#1d5c9e",
                 ecolor="#1d5c9e", elinewidth=0.9, capsize=2.5, alpha=0.9,

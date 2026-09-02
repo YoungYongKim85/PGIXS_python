@@ -13,6 +13,12 @@ class OneDExport:
     x: np.ndarray
     intensity: np.ndarray
     std: np.ndarray | None = None
+    # Uncertainty on `x` itself (e.g. GIXS's footprint-driven q-resolution,
+    # "q uncertainty") -- kept as its own field rather than overloading
+    # `std` (which existing callers already use for the *intensity*
+    # uncertainty), so a reader of the exported file can't mistake a q
+    # resolution column for an intensity error bar or vice versa.
+    x_std: np.ndarray | None = None
     counts: np.ndarray | None = None
     coverage: np.ndarray | None = None
     x_label: str = "q"
@@ -55,6 +61,13 @@ def build_1d_table(data: OneDExport, include_diagnostics: bool = False) -> tuple
             raise ValueError("std must have the same length as x.")
         columns.append("standard_deviation")
         arrays.append(std)
+
+    if data.x_std is not None:
+        x_std = _as_1d(data.x_std, "x_std")
+        if x_std.size != x.size:
+            raise ValueError("x_std must have the same length as x.")
+        columns.append(f"{data.x_label}_standard_deviation")
+        arrays.append(x_std)
 
     if include_diagnostics:
         if data.counts is not None:

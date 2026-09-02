@@ -427,6 +427,7 @@ def console_qmap(payload: dict[str, Any]) -> dict[str, Any]:
         beam_z = float(payload.get("beam_z", _SESSION.calibration["beam_pos"][1]))
         incident_angle_deg = float(payload.get("incident_angle_deg", _SESSION.calibration["incident_angle_deg"]))
         footprint_mm = float(payload.get("footprint_mm", _SESSION.calibration.get("footprint_mm", 1.0)))
+        q_uncertainty = bool(payload.get("q_uncertainty", False))
         apply_correction = bool(payload.get("apply_correction", True))
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid calibration input: {exc}"}
@@ -460,6 +461,46 @@ def console_qmap(payload: dict[str, Any]) -> dict[str, Any]:
                 incident_angle_deg=incident_angle_deg,
             )
             qmap = {"qy": qy, "qr": qr, "qz": qz, "q": q, "tth2d": tth2d, "af2d": af2d}
+            if q_uncertainty and footprint_mm > 0:
+                # Port of GIXS_gui.m's calculateGIXSQUncertainty: a finite
+                # illuminated footprint on the sample means photons
+                # scattered from different points along it travel
+                # different effective path lengths to the detector, so
+                # it's treated as a +/-FP/2 spread in SDD -- recompute the
+                # Q maps at each SDD extreme and derive an approximate
+                # 1-sigma q uncertainty from the resulting range. `q`
+                # above is already hypot(qr, qz) -- exactly MATLAB's
+                # "Qxy/Qz" case -- so no separate combination step is
+                # needed to match it.
+                #
+                # Divisor: MATLAB's own convention divides by 4 (the
+                # min<->max range treated as ~4 sigma, i.e. a roughly
+                # Gaussian illumination profile). For typical GIXS
+                # conditions -- sample thickness of order hundreds of nm
+                # or less, a ~60um vertical beam -- the illuminated
+                # footprint is effectively uniform across its length
+                # regardless of incidence angle (confirmed: "샘플 두께는
+                # 약 수백 나노 또는 그이하 사이즈이고, 빔사이즈는 vertical로만
+                # 60um정도 이기때문에... 거의 uniform하게 들어오지"), so a
+                # uniform distribution's actual std (range / sqrt(12)) is
+                # used here instead of MATLAB's Gaussian-shaped /4 --
+                # about 13% larger than MATLAB's own number for the same
+                # geometry.
+                sdd_lo = max(sdd_mm - footprint_mm / 2.0, 1e-3)
+                sdd_hi = sdd_mm + footprint_mm / 2.0
+                qy_lo, qr_lo, qz_lo, q_lo, _, _ = qmap_gixs(
+                    det_y=n_cols, det_z=n_rows, beam_pos=(beam_y, beam_z),
+                    pixel_mm=pixel_mm, sdd_mm=sdd_lo, k0=k0, incident_angle_deg=incident_angle_deg,
+                )
+                qy_hi, qr_hi, qz_hi, q_hi, _, _ = qmap_gixs(
+                    det_y=n_cols, det_z=n_rows, beam_pos=(beam_y, beam_z),
+                    pixel_mm=pixel_mm, sdd_mm=sdd_hi, k0=k0, incident_angle_deg=incident_angle_deg,
+                )
+                uniform_divisor = np.sqrt(12.0)
+                qmap["q_std"] = np.abs(q_hi - q_lo) / uniform_divisor
+                qmap["qr_std"] = np.abs(qr_hi - qr_lo) / uniform_divisor
+                qmap["qz_std"] = np.abs(qz_hi - qz_lo) / uniform_divisor
+                qmap["qy_std"] = np.abs(qy_hi - qy_lo) / uniform_divisor
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc)}
 
@@ -744,15 +785,19 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     # axis-aligned offset ray once y/z-pos move is nonzero), an angular
     # Cakecut wedge (never affected by y/z-pos move, matching MATLAB), and
     # a perpendicular-band Accumulation cut (axis-aligned only, offset by
-    # y/z-pos move).
+    # y/z-pos move). Factored into a closure over the resolved geometry so
+    # the exact same cut can be replayed against a *second* array below
+    # (the per-pixel q-uncertainty map, if q-Map Cal. computed one) without
+    # duplicating the branch logic -- same geometry, different "data".
     axis_aligned = angle_deg in (0.0, 90.0, 180.0)
-    try:
+
+    def _run_cut(values: np.ndarray):
         if accumulation:
             if not axis_aligned:
-                return {"ok": False, "message": "Accumulation cut only supports angle 0, 90, or 180 degrees."}
+                raise ValueError("Accumulation cut only supports angle 0, 90, or 180 degrees.")
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
-            result = accumulation_average(
-                data_for_1d,
+            return accumulation_average(
+                values,
                 q_for_1d,
                 center=beam_pos,
                 angle_deg=angle_deg,
@@ -761,9 +806,9 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
                 band_plus=accum_plus,
                 use_median=use_median,
             )
-        elif cakecut:
-            result = cake_average(
-                data_for_1d,
+        if cakecut:
+            return cake_average(
+                values,
                 q_for_1d,
                 angle_map,
                 center=beam_pos,
@@ -771,10 +816,10 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
                 angle_range=(range_minus, range_plus),
                 use_median=use_median,
             )
-        elif axis_aligned and (y_pos_move != 0.0 or z_pos_move != 0.0):
+        if axis_aligned and (y_pos_move != 0.0 or z_pos_move != 0.0):
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
-            result = accumulation_average(
-                data_for_1d,
+            return accumulation_average(
+                values,
                 q_for_1d,
                 center=beam_pos,
                 angle_deg=angle_deg,
@@ -783,21 +828,64 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
                 band_plus=0.0,
                 use_median=use_median,
             )
-        else:
-            result = cake_average(
-                data_for_1d,
-                q_for_1d,
-                angle_map,
-                center=beam_pos,
-                reference_angle=angle_deg,
-                angle_range=(-1.0, 1.0),
-                use_median=use_median,
-            )
+        return cake_average(
+            values,
+            q_for_1d,
+            angle_map,
+            center=beam_pos,
+            reference_angle=angle_deg,
+            angle_range=(-1.0, 1.0),
+            use_median=use_median,
+        )
+
+    try:
+        result = _run_cut(data_for_1d)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
 
     if not result.is_valid:
         return {"ok": False, "message": "No pixels selected for this line/cake-cut geometry."}
+
+    # GIXS's "q uncertainty" checkbox (see console_qmap) -- only meaningful
+    # against the true per-pixel map, so Q-space (Qxy/Qz-independent) cuts
+    # don't carry it. Port of GIXS_gui.m's Anglecut1d_giplus: the same cut
+    # geometry is replayed against the per-pixel q_std map to get a q_std
+    # value per output bin, right alongside the intensity value.
+    #
+    # Cakecut is excluded outright (not just warned about, unlike MATLAB's
+    # own "Cakecut not working for Q uncertainty!"): a wedge spans a real
+    # spread of q directions, and simply averaging per-pixel q_std across
+    # it the same way intensity is averaged isn't real error propagation
+    # (variances would need combining in quadrature, not averaged
+    # directly) -- confirmed not physically meaningful for this app's use
+    # (reported: "cake_cut에서는 당연히 반영하면 안돼").
+    q_std_curve = None
+    q_uncertainty_warning = None
+    q_std_map = _SESSION.qmap.get("q_std") if mapping == "Pixel" else None
+    if q_std_map is not None and cakecut:
+        q_uncertainty_warning = "Q uncertainty not computed for Cakecut."
+    elif q_std_map is not None:
+        try:
+            # accumulation_average's own output can be *shorter* than
+            # data_for_1d's own cut: which output bins survive depends
+            # partly on whether that specific call's own reduced value
+            # ends up finite (see its `keep` mask), not on geometry
+            # alone. q_std_map is purely geometric and almost never NaN,
+            # unlike real detector data (masked/gap/grid-removed
+            # pixels), so run unmasked it silently kept extra bins the
+            # real intensity cut dropped -- a shape mismatch that crashed
+            # errorbar() outright (reported live, with the traceback:
+            # "xerr (shape: (1700,)) must be... whose shape matches x
+            # (shape: (1690,))"). Matching data_for_1d's own NaN pattern
+            # onto q_std_map first makes both calls drop exactly the same
+            # positions; the shape check after is a defensive fallback in
+            # case some other divergence still slips through.
+            masked_q_std_map = np.where(np.isfinite(data_for_1d), q_std_map, np.nan).astype(np.float32)
+            std_result = _run_cut(masked_q_std_map)
+            if std_result.intensity.shape == result.intensity.shape:
+                q_std_curve = std_result.intensity
+        except ValueError:
+            q_std_curve = None
 
     _SESSION.last_curve = {
         "kind": "line",
@@ -806,6 +894,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         "coverage": result.coverage,
         "angle_deg": angle_deg,
         "mapping": mapping,
+        "q_std": q_std_curve,
     }
     return {
         "ok": True,
@@ -813,10 +902,12 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         "angle_range": list(result.angle_range),
         "mapping": mapping,
         "coverage_diagnostics": _coverage_summary(result.coverage),
+        "warning": q_uncertainty_warning,
         "preview": {
             "q": downsample_1d_for_json(result.q_axis, max_points=600),
             "intensity": downsample_1d_for_json(result.intensity, max_points=600),
             "coverage": downsample_1d_for_json(result.coverage, max_points=600),
+            "q_std": downsample_1d_for_json(q_std_curve, max_points=600) if q_std_curve is not None else None,
         },
     }
 
@@ -1101,6 +1192,9 @@ def _export_last_curve(target_dir: Path, stem: str) -> Path:
         intensity=curve["intensity"],
         coverage=curve.get("coverage"),
         x_label="q" if is_q_axis else "angle_deg",
+        # Only "line" curves ever carry this (GIXS's q uncertainty,
+        # see console_line_1d) -- absent (None) for every other kind.
+        x_std=curve.get("q_std"),
     )
     curve_path = target_dir / f"{stem}_1D{_curve_filename_suffix(curve)}.csv"
     save_1d_data(curve_path, export, include_diagnostics=True)

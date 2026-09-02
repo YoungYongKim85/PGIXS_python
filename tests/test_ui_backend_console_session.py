@@ -103,6 +103,90 @@ def test_console_qmap_computes_q_range(tmp_path):
     assert cs.get_session().corrected_data is not None
 
 
+def test_console_qmap_q_uncertainty_requires_both_the_checkbox_and_a_footprint(tmp_path):
+    """Regression: GIXS's "q uncertainty" checkbox + FP field were both
+    completely unwired -- FP was stored but never used in any calculation,
+    and the checkbox was never even read. Confirmed against real MATLAB
+    source (calculateGIXSQUncertainty in processGIXS2D.m): footprint is
+    treated as a +/-FP/2 spread in SDD, the Q map is recomputed at each
+    extreme, and q_std = |Q_max - Q_min| / 4 (the full range treated as
+    ~4 sigma). Must only actually compute q_std when *both* the checkbox
+    is on and footprint_mm > 0 -- neither alone is enough."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    base_payload = {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2}
+
+    assert cs.console_qmap(base_payload)["ok"]
+    assert "q_std" not in cs.get_session().qmap
+
+    assert cs.console_qmap({**base_payload, "q_uncertainty": True, "footprint_mm": 0.0})["ok"]
+    assert "q_std" not in cs.get_session().qmap
+
+    assert cs.console_qmap({**base_payload, "q_uncertainty": False, "footprint_mm": 5.0})["ok"]
+    assert "q_std" not in cs.get_session().qmap
+
+    assert cs.console_qmap({**base_payload, "q_uncertainty": True, "footprint_mm": 5.0})["ok"]
+    qmap = cs.get_session().qmap
+    for key in ("q_std", "qr_std", "qz_std", "qy_std"):
+        assert key in qmap
+        assert qmap[key].shape == qmap["q"].shape
+        assert np.all(qmap[key] >= 0.0)
+    # A real, physically meaningful spread -- not all zeros (which a bug
+    # collapsing sdd_lo == sdd_hi would silently produce).
+    assert np.any(qmap["q_std"] > 0.0)
+
+
+def test_console_qmap_q_uncertainty_matches_hand_computed_formula(tmp_path):
+    """Directly reproduces console_qmap's own q_std math against
+    qmap_gixs (the same function it calls internally) to confirm q_std
+    isn't just "some positive number" but the actual documented formula.
+
+    Divisor is range/sqrt(12) (a uniform distribution's real std), not
+    MATLAB calculateGIXSQUncertainty's own range/4 (~Gaussian 2-sigma) --
+    confirmed with the user that typical GIXS footprint illumination
+    (sample thickness of order hundreds of nm or less, ~60um vertical
+    beam) is effectively uniform across the footprint regardless of
+    incidence angle, so the uniform-distribution formula is the physically
+    correct one here even though it diverges from the MATLAB original by
+    about 13%."""
+
+    from pgixs_python.qmap.gixs import qmap_gixs
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    payload = {
+        "energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0,
+        "incident_angle_deg": 0.2, "q_uncertainty": True, "footprint_mm": 8.0,
+    }
+    assert cs.console_qmap(payload)["ok"]
+    session = cs.get_session()
+    qmap = session.qmap
+    pixel_mm = float(session.calibration["pixel_mm"])
+    wavelength = wavelength_from_energy_kev(9.5)
+    k0 = 2.0 * np.pi / wavelength
+    n_rows, n_cols = session.data.shape
+
+    _, qr_lo, qz_lo, q_lo, _, _ = qmap_gixs(
+        det_y=n_cols, det_z=n_rows, beam_pos=(24.0, 24.0), pixel_mm=pixel_mm,
+        sdd_mm=300.0 - 4.0, k0=k0, incident_angle_deg=0.2,
+    )
+    _, qr_hi, qz_hi, q_hi, _, _ = qmap_gixs(
+        det_y=n_cols, det_z=n_rows, beam_pos=(24.0, 24.0), pixel_mm=pixel_mm,
+        sdd_mm=300.0 + 4.0, k0=k0, incident_angle_deg=0.2,
+    )
+    divisor = np.sqrt(12.0)
+    np.testing.assert_allclose(qmap["q_std"], np.abs(q_hi - q_lo) / divisor, rtol=1e-5)
+    np.testing.assert_allclose(qmap["qr_std"], np.abs(qr_hi - qr_lo) / divisor, rtol=1e-5)
+    np.testing.assert_allclose(qmap["qz_std"], np.abs(qz_hi - qz_lo) / divisor, rtol=1e-5)
+
+
 def test_console_qspace_image_requires_qmap(tmp_path):
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -391,6 +475,137 @@ def test_console_line_1d_pos_move_shifts_axis_aligned_cut_but_not_diagonal(tmp_p
 
     assert diag_shifted_intensity.shape == diag_baseline_intensity.shape
     assert np.allclose(diag_shifted_intensity, diag_baseline_intensity, equal_nan=True)
+
+
+def test_console_line_1d_carries_q_std_when_q_uncertainty_was_computed(tmp_path):
+    """Second half of the "q uncertainty" feature: console_line_1d must
+    sample q_std along the exact same cut geometry as intensity (reported:
+    "1D process에도 column이 생성되게 해줘... 1D result에 x축 errorbar가
+    있으면 좋겠어"). Scoped to mapping="Pixel" only -- q_std is a true
+    per-pixel map, meaningless against a Q-space-regridded cut."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    qcal = cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2,
+         "q_uncertainty": True, "footprint_mm": 5.0}
+    )
+    assert qcal["ok"], qcal.get("message")
+
+    payload = cs.console_line_1d({"angle_deg": 45.0, "mapping": "Pixel"})
+    assert payload["ok"], payload.get("message")
+    curve = cs.get_session().last_curve
+    assert curve["q_std"] is not None
+    assert np.asarray(curve["q_std"]).shape == np.asarray(curve["intensity"]).shape
+    assert payload["preview"]["q_std"] is not None
+    assert payload.get("warning") is None  # no Cakecut -> no warning
+
+    qspace_payload = cs.console_line_1d({"angle_deg": 45.0, "mapping": "Qy/Qz"})
+    assert qspace_payload["ok"], qspace_payload.get("message")
+    assert cs.get_session().last_curve["q_std"] is None
+
+
+def test_console_line_1d_q_std_shape_matches_intensity_with_masked_pixels(tmp_path):
+    """Regression, reported live with a real traceback: "GIXS에서
+    horizontal cut에서 180으로 angle을 두고 pos move z방향 30을 하여
+    라인을 긋고, plot을 하니... ValueError: 'xerr' (shape: (1700,)) must
+    be... whose shape matches 'x' (shape: (1690,))".
+
+    Root cause: angle=180 + a nonzero z-pos-move routes through
+    accumulation_average, whose own `keep` mask (which output bins
+    survive) depends on whether *that specific call's* reduced value
+    ends up finite -- not on geometry alone. q_std_map is purely
+    geometric and (short of a genuine calibration failure) never NaN, so
+    replaying the exact same cut against it unmasked kept extra bins the
+    real intensity cut -- run against real detector data with masked/gap
+    pixels -- had already dropped, producing a longer q_std curve than
+    intensity and crashing errorbar()'s shape check. Reproduces with a
+    frame carrying a real NaN region (masked/grid-removed pixels, like
+    real GIXS data) intersecting only part of the accumulation band."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    shape = (64, 64)
+    data = np.random.default_rng(0).uniform(10, 100, size=shape).astype(np.float32)
+    # angle=180 only keeps columns with (1-based col) - beam_y >= 0, i.e.
+    # 0-based col index >= 31 for beam_y=32 -- NaN a block *inside* that
+    # kept range (cols 40:55) so only part of it gets dropped by the real
+    # (masked) data's own cut; a block outside the kept range wouldn't
+    # actually reach this bug (confirmed by hand -- an earlier version of
+    # this test masked cols 0:20, entirely outside the kept range, and
+    # passed without ever exercising the divergence).
+    data[0:6, 40:55] = np.nan
+    with h5py.File(frame_path, "w") as h5:
+        h5.create_dataset("entry/data/data", data=data[None, :, :])
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    qcal = cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0, "incident_angle_deg": 0.2,
+         "q_uncertainty": True, "footprint_mm": 5.0}
+    )
+    assert qcal["ok"], qcal.get("message")
+
+    payload = cs.console_line_1d({"angle_deg": 180.0, "z_pos_move": 30.0, "mapping": "Pixel"})
+
+    assert payload["ok"], payload.get("message")
+    curve = cs.get_session().last_curve
+    intensity = np.asarray(curve["intensity"])
+    q_std = curve.get("q_std")
+    assert q_std is not None
+    assert np.asarray(q_std).shape == intensity.shape
+
+
+def test_console_line_1d_excludes_q_uncertainty_entirely_for_cakecut(tmp_path):
+    """Regression: "cake_cut에서는 당연히 반영하면 안돼" -- a Cakecut wedge
+    spans a real spread of q directions, and averaging per-pixel q_std
+    across it the same way intensity is averaged isn't real error
+    propagation (variances need combining in quadrature, not averaged
+    directly), so it isn't just unreliable, it's not physically
+    meaningful. Unlike MATLAB's own Anglecut1d_giplus (which warns
+    "Cakecut not working for Q uncertainty!" but still computes and shows
+    a value anyway), this port excludes it outright -- no q_std column,
+    just a status note explaining why."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    assert cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2,
+         "q_uncertainty": True, "footprint_mm": 5.0}
+    )["ok"]
+
+    payload = cs.console_line_1d(
+        {"angle_deg": 45.0, "cakecut": True, "range_minus": -5.0, "range_plus": 5.0, "mapping": "Pixel"}
+    )
+
+    assert payload["ok"], payload.get("message")
+    assert cs.get_session().last_curve["q_std"] is None
+    assert payload["preview"]["q_std"] is None
+    assert payload.get("warning") is not None
+    assert "Cakecut" in payload["warning"]
+
+
+def test_console_save_curve_writes_a_q_standard_deviation_column(tmp_path):
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    assert cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2,
+         "q_uncertainty": True, "footprint_mm": 5.0}
+    )["ok"]
+    assert cs.console_line_1d({"angle_deg": 45.0, "mapping": "Pixel"})["ok"]
+
+    saved = cs.console_save_curve({"out_dir": str(tmp_path / "out")})
+    assert saved["ok"], saved.get("message")
+    header = Path(saved["curve_path"]).read_text(encoding="utf-8").splitlines()[0]
+    assert "q_standard_deviation" in header
 
 
 def test_console_line_1d_qxyqz_mapping_runs_an_independent_cakecut(tmp_path):

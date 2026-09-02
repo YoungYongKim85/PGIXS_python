@@ -923,6 +923,32 @@ def test_azi_q_label_updates_after_qmap_cal_and_pixel_change(qapp, tmp_path):
     assert second_text != first_text
 
 
+def test_line_plot_draws_x_axis_error_bars_only_when_q_uncertainty_is_on(qapp, tmp_path):
+    """Regression: "GIXS에서 FP를 입력한 후 q uncertainity에 마크하여
+    q-Map Cal.을 하면... 1D process에도 column이 생성되게 해줘. 그래서 1D
+    result에 x축 errorbar가 있으면 좋겠어" -- with the "q uncertainty"
+    checkbox off (or FP left at 0), q-Map Cal. must behave exactly as
+    before (plain line, no error bars); with it on and a real footprint
+    set, 1d Plot must draw the resulting q_std as a horizontal (x-axis)
+    error bar -- a real Axes.errorbar, not just a plain line."""
+
+    console = _load_test_frame(tmp_path)
+    console.beam_y_spin.setValue(12.0)
+    console.beam_z_spin.setValue(10.0)
+
+    console.footprint_spin.setValue(0.0)
+    console.q_uncertain_check.setChecked(False)
+    console._on_qmap_clicked()
+    console._on_line_plot_clicked()
+    assert len(console.curve_canvas.ax.containers) == 0
+
+    console.footprint_spin.setValue(5.0)
+    console.q_uncertain_check.setChecked(True)
+    console._on_qmap_clicked()
+    console._on_line_plot_clicked()
+    assert len(console.curve_canvas.ax.containers) == 1
+
+
 def test_azi_draw_shows_range_boundaries_not_a_single_circle(qapp, tmp_path):
     """Regression: "range를 정해져도 반영이 안되는것 같아" -- Draw only ever plotted
     one circle at the raw pixel value, so editing Range(-/+) never visibly

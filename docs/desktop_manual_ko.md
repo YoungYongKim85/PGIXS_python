@@ -186,8 +186,8 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 
 **Map format / q-Map Cal.**
 
-- Map format 콤보(모드별 옵션은 위 표 참고). GIXS에는 "q uncertainty" 체크박스도 같은 줄에 있는데, 실제로는 아무 기능에도 연결돼 있지 않다(사용 안 해도 됨).
-- **q-Map Cal.** 버튼 — Energy/SDD/Center/(GIXS는 입사각·Footprint까지) 기준으로 pixel→Q 변환을 계산한다. 완료되면 **Q range: … to … 1/A** 라벨이 갱신되고, Map format 전환과 Polar 뷰가 가능해진다.
+- Map format 콤보(모드별 옵션은 위 표 참고). GIXS에는 **"q uncertainty"** 체크박스도 같은 줄에 있다 — 켠 상태로 **FP**(Footprint, mm)가 0보다 크게 설정돼 있으면, footprint를 SDD의 ±FP/2 불확실성으로 취급해서(시료 위 조사 영역이 넓을수록 검출기까지의 실효 경로 길이가 퍼진다는 원리) q 좌표 자체의 불확실성(q_std)을 계산한다. 표준편차는 `range / sqrt(12)`(균일분포 공식)로 계산한다 — 일반적인 GIXS 조건(수백 nm 이하 시료 두께, ~60um 수직 빔 크기)에서는 footprint 조사 분포가 각도와 무관하게 거의 균일(uniform)하기 때문이다. footprint 하나만 반영한 근사 지표이며(빔 발산각·에너지 대역폭 등은 미포함), 데이터(카운트) 통계와는 무관한 순수 기하학적 값이라는 점에 유의한다.
+- **q-Map Cal.** 버튼 — Energy/SDD/Center/(GIXS는 입사각·Footprint까지) 기준으로 pixel→Q 변환을 계산한다. 완료되면 **Q range: … to … 1/A** 라벨이 갱신되고, Map format 전환과 Polar 뷰가 가능해진다. "q uncertainty"가 켜져 있으면 q_std도 함께 계산된다.
 
 ### 3.2 왼쪽 패널 — TrXS 전용: Circular Process
 
@@ -211,6 +211,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Accumulation** 체크박스(GIXS만) + minus/plus — 컷 라인에 수직인 픽셀 밴드 평균. 각도가 0/90/180일 때만 사용 가능. Cakecut과 동시에 켤 수 없다(하나 켜면 다른 하나는 자동으로 꺼짐).
 - **Median** 체크박스 — 공통.
 - **Position** / **Line** / **1d Plot** 버튼 — Position은 2D 이미지를 클릭해 Line angle을 설정하는 모드를 켠다. Line은 실제 컷을 실행하지 않고 현재 설정된 라인/쐐기/밴드 오버레이만 그린다. **1d Plot**이 실제로 컷을 계산(`console_line_1d`)해서 q vs. intensity를 1D Result에 그린다.
+- **q uncertainty와 함께 쓰면** (GIXS, Map format이 Pixel일 때만): q-Map Cal.에서 계산해둔 q_std가 같은 컷 위치를 따라 함께 샘플링되어, 1D Result에 **X축(Q) error bar**로 표시되고, Save로 저장하면 `q_standard_deviation` 컬럼으로 함께 저장된다. **Cakecut을 동시에 켜면 q_std는 계산되지 않는다** — 쐐기(wedge) 하나에 걸친 여러 방향의 q 불확실성을 단순 평균하는 건 물리적으로 의미가 없어서, MATLAB 원본(경고만 띄우고 계속 진행)과 달리 이 포팅에서는 아예 계산을 건너뛰고 상태 메시지로만 알려준다.
 
 ![FIGURE 07: GIXS/TrXS 1D Plot Process -- 2D Image에 Cakecut 쐐기 오버레이가 그려진 상태](figures/fig07.png)
 
