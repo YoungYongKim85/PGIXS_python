@@ -1457,7 +1457,6 @@ class GIXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle(title)
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.resize(900, 760)
         layout = QVBoxLayout(dialog)
 
@@ -1590,6 +1589,28 @@ class GIXS2Widget(QWidget):
             spin.valueChanged.connect(lambda _v: update())
 
         update()
+
+        def _on_finished(_result: int) -> None:
+            # Same shiboken-crash guard as the Play dialog (_on_play_clicked):
+            # disconnect every live control first so closing mid-interaction
+            # can't queue another draw_idle(), then defer the actual C++
+            # deletion by one event-loop tick so any already-queued redraw
+            # runs against a still-live canvas.
+            for combo in (plot_type_combo, colormap_combo, xscale_combo, yscale_combo, scale_combo, curtain_color_combo):
+                try:
+                    combo.currentTextChanged.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            for spin in (xmin_spin, xmax_spin, ymin_spin, ymax_spin, cmin_spin, cmax_spin):
+                try:
+                    spin.valueChanged.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            if self._heatmap_dialog is dialog:
+                self._heatmap_dialog = None
+            QTimer.singleShot(0, dialog.deleteLater)
+
+        dialog.finished.connect(_on_finished)
         self._heatmap_dialog = dialog
         dialog.show()
 
@@ -1648,7 +1669,6 @@ class GIXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Draw ROI")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.resize(720, 760)
         layout = QVBoxLayout(dialog)
         canvas = ImageCanvas()
@@ -1686,6 +1706,11 @@ class GIXS2Widget(QWidget):
         accepted = dialog.exec() == QDialog.Accepted
         canvas.stop_rectangle_selector()
         self._roi_dialog = None
+        # Same shiboken-crash guard as the Play/Heatmap dialogs: the last
+        # completed ROI's draw_roi_box() queued a draw_idle() just before
+        # accept() closed the dialog -- defer the canvas's actual deletion
+        # by one event-loop tick so that redraw runs first.
+        QTimer.singleShot(0, dialog.deleteLater)
 
         if not accepted or len(pending_rois) < n_roi:
             self._set_status("ROI drawing cancelled.", False)
