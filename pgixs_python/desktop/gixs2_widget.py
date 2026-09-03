@@ -1168,7 +1168,6 @@ class GIXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Frame Viewer (Play)")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.resize(700, 680)
         layout = QVBoxLayout(dialog)
 
@@ -1195,6 +1194,23 @@ class GIXS2Widget(QWidget):
         slider.valueChanged.connect(render_frame)
         render_frame(1)
 
+        def _on_finished(_result: int) -> None:
+            # Disconnect first so closing mid-drag can't queue another
+            # matplotlib draw_idle() after this point, then defer the
+            # actual C++ deletion by one more event-loop tick so any
+            # draw_idle already queued by the last render_frame() gets a
+            # chance to run against a still-live canvas -- otherwise it
+            # fires after the dialog (and its canvas) is gone, and
+            # shiboken raises "Internal C++ object already deleted".
+            try:
+                slider.valueChanged.disconnect(render_frame)
+            except (TypeError, RuntimeError):
+                pass
+            if self._play_dialog is dialog:
+                self._play_dialog = None
+            QTimer.singleShot(0, dialog.deleteLater)
+
+        dialog.finished.connect(_on_finished)
         self._play_dialog = dialog
         dialog.show()
 
