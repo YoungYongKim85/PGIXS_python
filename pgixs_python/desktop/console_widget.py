@@ -2153,7 +2153,6 @@ class ConsoleWidget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Draw Circular Average Mask")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         layout = QVBoxLayout(dialog)
 
         hint = QLabel(
@@ -2194,6 +2193,20 @@ class ConsoleWidget(QWidget):
             dialog.close()
 
         canvas.start_polygon_selector(_on_complete)
+
+        def _on_finished(_result: int) -> None:
+            # Same shiboken-crash guard as the GIXS2/TrXS2 Play/Heatmap/
+            # ROI/Mask dialogs: matplotlib's PolygonSelector queues its own
+            # draw_idle() on every click (including the one that completes
+            # the polygon), so stop it and defer the canvas's actual
+            # deletion by one event-loop tick to let any already-queued
+            # redraw run first.
+            canvas.stop_polygon_selector()
+            if self._mask_dialog is dialog:
+                self._mask_dialog = None
+            QTimer.singleShot(0, dialog.deleteLater)
+
+        dialog.finished.connect(_on_finished)
         self._mask_dialog = dialog
         dialog.show()
 
