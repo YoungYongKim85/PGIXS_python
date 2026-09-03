@@ -976,7 +976,6 @@ class TrXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Draw Circular Average Mask")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         layout = QVBoxLayout(dialog)
 
         hint = QLabel(
@@ -1027,6 +1026,19 @@ class TrXS2Widget(QWidget):
             dialog.close()
 
         canvas.start_polygon_selector(_on_complete)
+
+        def _on_finished(_result: int) -> None:
+            # Same shiboken-crash guard as the Play/Heatmap/ROI dialogs:
+            # matplotlib's PolygonSelector queues its own draw_idle() on
+            # every click (including the one that completes the polygon),
+            # so stop it and defer the canvas's actual deletion by one
+            # event-loop tick to let any already-queued redraw run first.
+            canvas.stop_polygon_selector()
+            if self._mask_dialog is dialog:
+                self._mask_dialog = None
+            QTimer.singleShot(0, dialog.deleteLater)
+
+        dialog.finished.connect(_on_finished)
         self._mask_dialog = dialog
         dialog.show()
 
@@ -1093,7 +1105,6 @@ class TrXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Frame Viewer (Play)")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.resize(700, 680)
         layout = QVBoxLayout(dialog)
 
@@ -1120,6 +1131,20 @@ class TrXS2Widget(QWidget):
         slider.valueChanged.connect(render_frame)
         render_frame(1)
 
+        def _on_finished(_result: int) -> None:
+            # Same shiboken-crash guard as GIXS2's Play dialog
+            # (gixs2_widget.py's _on_play_clicked): disconnect first so
+            # closing mid-drag can't queue another draw_idle(), then defer
+            # the actual C++ deletion by one event-loop tick.
+            try:
+                slider.valueChanged.disconnect(render_frame)
+            except (TypeError, RuntimeError):
+                pass
+            if self._play_dialog is dialog:
+                self._play_dialog = None
+            QTimer.singleShot(0, dialog.deleteLater)
+
+        dialog.finished.connect(_on_finished)
         self._play_dialog = dialog
         dialog.show()
 
@@ -1356,7 +1381,6 @@ class TrXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle(title)
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.resize(900, 760)
         layout = QVBoxLayout(dialog)
 
@@ -1480,6 +1504,28 @@ class TrXS2Widget(QWidget):
             spin.valueChanged.connect(lambda _v: update())
 
         update()
+
+        def _on_finished(_result: int) -> None:
+            # Same shiboken-crash guard as GIXS2's Heatmap dialog
+            # (gixs2_widget.py's _open_heatmap_dialog): disconnect every
+            # live control first so closing mid-interaction can't queue
+            # another draw_idle(), then defer the actual C++ deletion by
+            # one event-loop tick so any already-queued redraw runs first.
+            for combo in (plot_type_combo, colormap_combo, xscale_combo, yscale_combo, scale_combo, curtain_color_combo):
+                try:
+                    combo.currentTextChanged.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            for spin in (xmin_spin, xmax_spin, ymin_spin, ymax_spin, cmin_spin, cmax_spin):
+                try:
+                    spin.valueChanged.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            if self._heatmap_dialog is dialog:
+                self._heatmap_dialog = None
+            QTimer.singleShot(0, dialog.deleteLater)
+
+        dialog.finished.connect(_on_finished)
         self._heatmap_dialog = dialog
         dialog.show()
 
@@ -1498,7 +1544,6 @@ class TrXS2Widget(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Draw ROI")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.resize(720, 760)
         layout = QVBoxLayout(dialog)
         canvas = ImageCanvas()
@@ -1536,6 +1581,11 @@ class TrXS2Widget(QWidget):
         accepted = dialog.exec() == QDialog.Accepted
         canvas.stop_rectangle_selector()
         self._roi_dialog = None
+        # Same shiboken-crash guard as GIXS2's Draw ROI dialog: the last
+        # completed ROI's draw_roi_box() queued a draw_idle() just before
+        # accept() closed the dialog -- defer the canvas's actual deletion
+        # by one event-loop tick so that redraw runs first.
+        QTimer.singleShot(0, dialog.deleteLater)
 
         if not accepted or len(pending_rois) < n_roi:
             self._set_status("ROI drawing cancelled.", False)
