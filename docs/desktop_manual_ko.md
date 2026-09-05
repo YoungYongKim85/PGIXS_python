@@ -91,6 +91,8 @@ MATLAB 버전의 `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)�
 - **Fit Mode** 콤보 — `Single Peak` / `Symmetric Peaks (+/-)`. Symmetric 모드는 Y_Plot/Z_Plot 라인 컷에만 적용되고 Rad.Ave에는 적용되지 않는다.
 - **1. Select Data Range** 버튼 — 1D 커브 위에서 범위를 클릭으로 지정한다. Single 모드는 시작→끝 2번 클릭, Symmetric 모드는 왼쪽 피크 시작/끝 → 오른쪽 피크 시작/끝 총 4번 클릭한다.
 - **2. Gaussian Fit Peak(s)** 버튼 — 선택한 범위에 가우시안 피팅을 실행하고, 피팅 커브를 커브 위에 겹쳐 그린다(Single은 빨강, Symmetric은 좌/우 각각 다른 색). 결과는 **Offset: -** 라벨에 표시되며(중심 위치, R², Symmetric은 반경까지), 방사형(radial) 커브였다면 **Pixel Radius**(아래 Calc SDD 섹션)도 자동으로 채워진다.
+  - **피팅 모델**: `intensity = a·exp(-(x-b)²/(2c²)) + d`(진폭 a, 중심 b, 시그마 c, 상수 배경 d) 4-파라미터 가우시안 하나를 그대로 쓴다 — Single/Symmetric 둘 다 같은 모델이고, Symmetric은 이 모델을 좌/우 창에 각각 한 번씩 총 두 번 독립적으로 피팅한다. 초기값은 별도 사전 피팅 없이 모멘트 추정으로 잡는다: `offset0 = min(y)`, `amp0 = max(y) - offset0`, `center0`/`sigma0`은 `y - offset0`(0 이하는 0으로 클리핑)으로 가중한 x의 평균/표준편차. 선택 범위 안에 유효한(non-NaN) 포인트가 4개 미만이면 피팅 자체를 시도하지 않고 실패로 처리한다. `R²`는 `1 - SS_res/SS_tot`(SS_tot=0이면 NaN)로 계산한다.
+  - **Symmetric 모드 계산**: 왼쪽 창 피팅 중심 `b_L`, 오른쪽 창 피팅 중심 `b_R`로부터 `center_offset = (b_L + b_R) / 2`(빔 중심 오프셋)와 `ring_radius = |b_R - b_L| / 2`(피크 간격의 절반 = 링 반경)를 계산한다.
 - **Offset: -** — 마지막 피팅 결과 표시 라벨.
 - **Apply to Center** 버튼 — 방금 한 Y_Plot/Z_Plot 피팅 결과(offset)를 Center [Y, Z]에 반영한다.
 
@@ -100,6 +102,11 @@ MATLAB 버전의 `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)�
 
 - **SMART AUTO RUN** 버튼 — Center [Y, Z]가 대략 맞은 상태에서 누르면, 빔 중심을 자동으로 미세 조정하고, 캘리브레이션 링들을 자동으로 탐색해서 SDD까지 한 번에 계산해준다(로컬 refinement이므로 중심이 너무 많이 틀어져 있으면 먼저 Manual Calibration으로 대략 맞춰야 한다).
 - 결과 **후보 테이블**(Candidate table) — 컬럼: **Radius, Order, Coverage, R2, SDD, Use**. 찾은 링 후보들과 각각 채택 여부("Yes"/"No")가 표시된다.
+  - **1단계 — 대략적인 피크 탐색**: 반경 프로파일에서 `반경 > 50px`이고 `coverage ≥ 0.80`인 구간만 남긴 뒤(그 안에서만 탐색), 전체 프로파일 최댓값의 3%를 prominence 기준으로 피크를 찾는다(최대 7개 후보). 유효 구간 사이에 빈 곳(gap)이 있어도 탐색 시퀀스에서는 이어붙여진 것처럼 취급된다.
+  - **2단계 — 후보별 정밀 피팅**: 각 대략적 피크 위치를 중심으로 ±30px 창에서 위의 가우시안 모델로 다시 피팅해 정밀 반경과 R²를 구한다.
+  - **3단계 — Order 배정과 채택 판정**: `Silver behenate`처럼 여러 회절 차수(order)가 동시에 보이는 표준물질은 "몇 번째 후보부터 몇 번째 order로 볼지"를 여러 조합으로 시도하고(다른 표준물질은 항상 1번 후보=1st order 하나만 시도), 각 조합에서 후보마다 Bragg's law로 SDD를 계산한 뒤 `R² ≥ 0.85`이고 `Coverage ≥ 0.80`인 후보만 "채택(Use=Yes)"한다.
+  - **4단계 — 최적 조합 선택**: 채택된 후보들의 SDD 값이 서로 얼마나 흩어져 있는지(상대 표준편차)를 기본 점수로 삼고, 채택 개수가 많을수록 감점(더 신뢰), 이론상 보였어야 할 낮은 차수의 링이 안 보이는 조합일수록 가점(불리)해서 **점수가 가장 낮은 조합**을 최종으로 택한다. 최종 **SDD**는 채택된 후보들의 SDD 중앙값, 후보 테이블의 각 행은 이 최적 조합 기준의 결과다.
+  - 대략적 피크가 하나도 안 잡히거나, 어떤 조합에서도 후보가 채택되지 않으면 SDD를 계산하지 못했다는 메시지가 뜬다.
 
 ![FIGURE 04: SDD Calibration -- SMART AUTO RUN 실행 후 Candidate table (후보 링 목록)](figures/fig04.png)
 
@@ -108,10 +115,13 @@ MATLAB 버전의 `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)�
 - **Standard / Order** — Standard 콤보: `SEBS`, `Silver behenate`(기본값), `Mesoporous Silica`, `Sucrose`. Order 콤보: `1st`~`7th` (몇 번째 회절 링인지).
 - **Energy [keV] / Pixel** — 사용한 X-ray 에너지, 그리고 측정된 링의 픽셀 반경(Pixel Radius — 수동 입력하거나 피크 피팅/Smart Auto Run에서 자동으로 채워짐).
 - **Calc SDD** 버튼 — Pixel Radius + Order + Standard + Energy로 SDD를 수동 계산한다. 결과는 **Result: - mm** 라벨에 표시.
+  - **계산 공식** (Bragg's law 기반): 먼저 표준물질의 q값을 `q = base_q(Standard) × Order`로 구한다(기준 q값은 `Silver behenate` 0.1052, `SEBS` 0.01916, `Mesoporous Silica` 0.059264, `Sucrose` 0.5933 Å⁻¹). 파장 `λ = 12.3984 / Energy[keV]` (Å)로 산란각 `θ = arcsin(q·λ / 4π)`을 구하고, `2θ`(deg)로 변환한 뒤 `SDD[mm] = Pixel Radius × pixel_size[mm] / tan(2θ)`로 계산한다. `arcsin`의 정의역을 벗어나거나(즉 q가 너무 크거나) `2θ`가 0 이하로 나오면 계산 실패 에러가 뜬다.
 
 **Save**
 
 - **Save Calibration** 버튼 — 캘리브레이션 값을 JSON(+ `.mat`/`.std` 동반 파일)으로 저장한다. 이 파일을 GIXS/TrXS 탭의 **Load Info**가 읽는다.
+  - **`{파일명}_standard.json`**: 이 앱 자체의 저장 형식(0-based 픽셀 인덱싱, Python 배열 관례). `pc`(빔 중심 [y,z]), `wavelength`, `pixelsize`, `sdd`, `dttypename`(검출기), `Energy`, `STpeak`/`STqvalue`(피팅된 링 반경/q값), `imgdim`(이미지 크기), `SDDDiagnostics`(Smart Auto Run 후보 테이블 전체)까지 포함한다 — **Load Info**가 실제로 읽는 파일.
+  - **`{파일명}_standard.mat`** / **`{파일명}_standard.std`**: MATLAB 버전과 호환되는 보조 파일. MATLAB은 1-based 픽셀 인덱싱을 쓰므로, 이 두 파일에 쓰는 빔 중심 값은 JSON의 값에 **+1을 더해서** 저장한다(`.mat`은 `SDDcal_gui.m`과 같은 필드명, `.std`는 MATLAB `stdsave.m`과 같은 5줄짜리 텍스트 포맷). `SDDDiagnostics`는 `.mat`에는 담기지 않는다(이기종 구조라 `.mat` 포맷으로 표현이 까다로움 — JSON에만 있음). 이 두 파일은 저장에 실패해도 JSON 저장 자체는 그대로 성공 처리된다(MATLAB 쪽 호환은 best-effort).
 
 ### 2.2 오른쪽 패널
 
@@ -188,6 +198,9 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 
 - Map format 콤보(모드별 옵션은 위 표 참고). GIXS에는 **"q uncertainty"** 체크박스도 같은 줄에 있다 — 켠 상태로 **FP**(Footprint, mm)가 0보다 크게 설정돼 있으면, footprint를 SDD의 ±FP/2 불확실성으로 취급해서(시료 위 조사 영역이 넓을수록 검출기까지의 실효 경로 길이가 퍼진다는 원리) q 좌표 자체의 불확실성(q_std)을 계산한다. 표준편차는 `range / sqrt(12)`(균일분포 공식)로 계산한다 — 일반적인 GIXS 조건(수백 nm 이하 시료 두께, ~60um 수직 빔 크기)에서는 footprint 조사 분포가 각도와 무관하게 거의 균일(uniform)하기 때문이다. footprint 하나만 반영한 근사 지표이며(빔 발산각·에너지 대역폭 등은 미포함), 데이터(카운트) 통계와는 무관한 순수 기하학적 값이라는 점에 유의한다.
 - **q-Map Cal.** 버튼 — Energy/SDD/Center/(GIXS는 입사각·Footprint까지) 기준으로 pixel→Q 변환을 계산한다. 완료되면 **Q range: … to … 1/A** 라벨이 갱신되고, Map format 전환과 Polar 뷰가 가능해진다. "q uncertainty"가 켜져 있으면 q_std도 함께 계산된다.
+- **pixel → Q 변환 공식** — 두 모드 모두 픽셀 (row, col)을 빔 중심 기준 오프셋(`Δy = col - beam_y`, `Δz = beam_z - row`, 픽셀 단위)으로 바꾸고, 파장 `λ = 12.3984 / Energy[keV]` (Å)로부터 파수 `k0 = 2π/λ`를 구하는 데서 시작한다.
+  - **TrXS** (normal-incidence, 평면 검출기): `tth = atan2(Δy, SDD/pixel_mm)`(면내 산란각), `af = atan2(Δz, hypot(SDD/pixel_mm, Δy))`(면외 각)를 구한 뒤, 입사빔 방향을 `(k0,0,0)`으로 둔 표준적인 산란벡터 구성 `Q = k_f - k_i`으로 `qx = k0·cos(tth)·cos(af) - k0`, `qy = k0·sin(tth)·cos(af)`, `qz = k0·sin(af)`, `q = sqrt(qx²+qy²+qz²)`를 계산한다.
+  - **GIXS**: 같은 방식으로 실험실 좌표계(lab-frame) Q(`qx_lab, qy_lab, qz_lab`)를 구한 뒤, 입사각 `ai`만큼 y축을 축으로 회전시켜 시료 좌표계로 옮긴다 — `qx = cos(ai)·qx_lab + sin(ai)·qz_lab`, `qz = -sin(ai)·qx_lab + cos(ai)·qz_lab`(qy는 그대로 `qy_lab`). 그 다음 **Qxy**(=qr) `= sign(qy)·hypot(qx, qy)`(부호는 qy를 따름), **|Q|** `= hypot(Qxy, qz)`로 정리한다. "Qxy/Qz" 표시 모드는 이 회전 후 qr/qz를, "Qy/Qz" 표시 모드는 회전 전의 qy_lab/qz_lab을 그대로 보여준다.
 - **q-Map Cal.이 적용하는 detector correction** — Q 변환과 동시에, 원본 세기(raw intensity)를 다음 두 보정 인자로 나눠서 `corrected_data`를 만든다(2D Image Plot과 이후의 모든 1D 컷은 이 보정된 데이터를 사용한다):
   - **Solid angle 보정** — 픽셀마다 빔 중심에서 보는 입체각(solid angle)이 달라서(중심에서 멀수록·기울어질수록 작아짐) 생기는 세기 편차를 보정한다(최댓값 1로 정규화).
   - **Polarization 보정** — 방사광은 수평 편광이라고 가정하고(수평 편광 비율 100%), 산란 방향에 따른 편광 인자를 보정한다.
@@ -201,6 +214,9 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Ang. Avg (min/max)** — 평균낼 각도 범위(기본 0°~360°). 값을 바꾸면 2D 이미지 위에 섹터 경계선이 실시간으로 그려진다.
 - **Min coverage** — 이 값보다 커버리지(유효 픽셀 비율)가 낮은 q-bin은 NaN 처리한다 (기본 0.80).
 - **Median** / **Std** 체크박스 — 평균 대신 중앙값 사용 / 표준편차도 함께 계산. **Std**를 켜고 **Plot (Circular Average)**을 실행하면, 1D Result에 계산된 표준편차가 **Y축(intensity) error bar**로 표시된다(각도 범위와 무관하게 Std 체크 여부로만 결정됨).
+  - **계산 방식**: 지정한 각도 섹터(Ang. Avg) 안에서 q 값이 유효한(NaN 아니고 >0) 픽셀만 모아 픽셀 반경(빔 중심으로부터의 거리) 기준 1픽셀 폭 bin으로 나눈 뒤, bin마다 intensity를 평균(또는 Median 체크 시 중앙값)한다. q축 값은 그 bin에 실제로 들어간 픽셀들의 q_map 값 평균이다(기하학적으로 다시 계산한 값이 아니라 데이터 기반 평균).
+  - **Mean(기본)은 단순 산술평균이 아니라 Huber 강건 평균**이다: 먼저 MAD(중앙값 절대편차) 기반 표준편차로 초기 sigma를 잡고, `|잔차| ≤ 1.345σ`인 픽셀은 그대로, 그보다 벗어난 픽셀은 가중치를 낮춰(`1.345σ/|잔차|`) 2회 반복 재가중 평균을 낸다 — 우주선(cosmic ray) 스파이크 같은 이상치 픽셀 하나가 bin 평균을 크게 왜곡하지 않도록 하기 위함이다. bin에 유효 픽셀이 3개 미만이면 강건 평균 대신 그냥 중앙값을 쓴다. Std 계산 시 Median 모드는 `1.4826 × median(|값 - 중앙값|)`(MAD 기반), Mean 모드는 위 Huber 재가중의 표준편차를 쓴다.
+  - **Min coverage는 실제로 값을 지운다**: `coverage = (유효 데이터 픽셀 수) / (섹터 안에서 그 bin에 기하학적으로 속하는 픽셀 수)`로 계산되며, 이 값이 **Min coverage보다 낮은 bin은 intensity(및 Std 켜져 있으면 std)가 NaN으로 지워진다** — 아래 1D Plot Process의 Cakecut/Accumulation과 달리, 여기서는 min_coverage가 단순 진단이 아니라 실제 컷오프로 동작한다.
 - **Draw Mask** 버튼 — 별도의 큰 다이얼로그 창이 열리고, 2D 이미지 위에 폴리곤을 클릭으로 그린다(더블클릭 또는 시작점 재클릭으로 닫힘). 폴리곤 **안쪽**은 Circular Average 계산에서 제외된다. Map format이 Pixel이어야 사용 가능.
 
 ![FIGURE 09: TrXS Circular Process -- "Draw Mask" 다이얼로그에서 폴리곤을 그리는 중인 화면](figures/fig09.png)
@@ -214,6 +230,9 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Pos move (y,z)** — GIXS만 있음. 컷 라인을 빔 중심에서 얼마나 offset할지. angle이 0/180°일 때는 z만, 90°일 때는 y만 움직이고, 그 외 각도에서는 무시된다(Cakecut에는 영향 없음). TrXS는 항상 빔 중심을 지나므로 이 필드 자체가 없다.
 - **Cakecut** 체크박스(GIXS만) + minus/plus 각도 범위 — 기준 각도를 중심으로 한 각도 쐐기(wedge) 컷.
 - **Accumulation** 체크박스(GIXS만) + minus/plus — 컷 라인에 수직인 픽셀 밴드 평균. 각도가 0/90/180일 때만 사용 가능. Cakecut과 동시에 켤 수 없다(하나 켜면 다른 하나는 자동으로 꺼짐).
+  - **Cakecut 계산 방식**: 기준 각도(Line angle) 기준 ±(minus/plus) 범위 안에 들어가는 픽셀만 골라(각도는 빔 중심 기준 atan2로 계산), 그 픽셀들을 다시 픽셀 반경 1px 폭 bin으로 나눠 Huber 강건 평균(또는 중앙값)을 낸다 — TrXS Circular Average와 같은 반경-binning 엔진을 각도 쐐기 하나에만 적용하는 셈이다.
+  - **Accumulation 계산 방식**: 0°/90°/180°처럼 축에 정렬된 각도에서만 동작하며, 각도-binning이 아니라 컷 라인에 **수직인 픽셀 띠(band)**를 정하고(폭은 minus/plus, 위치는 Pos move) 그 띠를 라인 방향을 따라 평균 낸다(예: 90° 세로 컷이면 각 행마다 폭만큼의 열들을 평균해 행 하나당 값 하나). Std는 이 모드에서는 계산되지 않는다.
+  - **Coverage 진단(두 방식 공통)**: bin/위치마다 `coverage = 유효 데이터 픽셀 수 / 기하학적으로 그 자리에 속하는 픽셀 수`를 계산하지만, Circular Average의 Min coverage와 달리 **여기서는 값을 지우지 않는다** — coverage < 0.15인 지점("low coverage")과 인접 지점 대비 coverage가 급격히 떨어지는 지점("coverage drop")을 진단 정보로만 표시해서(1D Result 하단 상태줄의 "low bins …, drops …") 참고하게 한다.
 - **Median** 체크박스 — 공통.
 - **Position** / **Line** / **1d Plot** 버튼 — Position은 2D 이미지를 클릭해 Line angle을 설정하는 모드를 켠다. Line은 실제 컷을 실행하지 않고 현재 설정된 라인/쐐기/밴드 오버레이만 그린다. **1d Plot**이 실제로 컷을 계산(`console_line_1d`)해서 q vs. intensity를 1D Result에 그린다.
 - **q uncertainty와 함께 쓰면** (GIXS, Map format이 Pixel일 때만): q-Map Cal.에서 계산해둔 q_std가 같은 컷 위치를 따라 함께 샘플링되어, 1D Result에 **X축(Q) error bar**로 표시되고, Save로 저장하면 `q_standard_deviation` 컬럼으로 함께 저장된다. **Cakecut을 동시에 켜면 q_std는 계산되지 않는다** — 쐐기(wedge) 하나에 걸친 여러 방향의 q 불확실성을 단순 평균하는 건 물리적으로 의미가 없어서, MATLAB 원본(경고만 띄우고 계속 진행)과 달리 이 포팅에서는 아예 계산을 건너뛰고 상태 메시지로만 알려준다.
@@ -224,6 +243,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 
 - **Pixel / Range(-/+)** — 빔 중심에서 이 픽셀 반경 ± Range만큼의 링(밴드)을 지정.
 - **Q [1/A]** — 현재 Azimuthal pixel 반경에 해당하는 Q값을 자동으로 표시(읽기 전용).
+  - **계산 방식**: 빔 중심에서 반경 `Pixel-Range` ~ `Pixel+Range` 안(고리형 밴드)에 드는 픽셀만 골라, 각도(빔 중심 기준 atan2, 0~360° 순환)로 등분한 bin(기본 해상도 1°/bin — 즉 GIXS는 180개 bin, TrXS는 360개 bin)마다 intensity를 평균/중앙값 낸다. 여기서도 Cakecut/Accumulation과 같은 Huber 강건 평균 엔진을 쓴다. Q [1/A] 라벨은 이 반경(Pixel)에 해당하는 q 값을 q-Map Cal. 결과에서 그대로 읽어와 보여줄 뿐, 별도로 계산하지 않는다.
 - **Position** 버튼 + **Mean/Median** 콤보 — Position은 클릭한 지점의 빔 중심까지 거리로 반경을 설정. Mean/Median은 각도별 평균 방식 선택.
 - **Draw** 버튼 — pixel±range 두 원을 2D 이미지에 그린다(Qxy/Qz 표시 모드면 Q 반경으로 자동 환산해서 그림).
 - **Plot** 버튼 — 각도별로 binning한 intensity를 계산해서 angle [deg] vs. intensity를 1D Result에 그린다. **GIXS는 0~180°만 스윕**(grazing incidence 특성상 수평선 위쪽만 산란), **TrXS는 0~360° 전체**를 스윕한다.
@@ -239,12 +259,15 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Update** 버튼 — Y-Range/Z-Range를 전체 범위로 리셋(다른 설정은 그대로 유지). 화면에 그려져 있던 Position/Draw 오버레이도 함께 지워지고 Position 모드도 해제된다.
 - **Reset Zoom** 버튼 — 확대/축소를 마지막 렌더링 범위로 리셋.
 - Format 콤보(`png`/`jpg`/`pdf`/`svg`) + **Save Img** 버튼 — `_2Dinfo.h5`(2D 데이터+q맵+캘리브레이션) 저장과 함께, 현재 화면을 선택한 형식의 이미지 파일로도 저장.
+  - **`{원본 파일명}_2Dinfo.h5` 구성** — HDF5 그룹: `data`(`data2d_pix` 원본 픽셀 이미지, `data2d_q` q-Map Cal.로 보정된 이미지), `qmap`(`q`/`qz`/`qz_axis`는 항상, GIXS는 `qx`/`qy`/`qy_axis`/`qr`/`qr_axis`도 추가), `calibration`(빔 중심 데이터셋 + 파장·SDD·픽셀 크기·검출기·에너지·(GIXS만)입사각 attrs), `metadata`(원본 소스 파일명), `processing`/`diagnostics`(있으면). 1D 커브가 그려져 있으면 위 CSV도 함께 저장되고, 2D 이미지 자체는 `{원본 파일명}_2d.{png/jpg/pdf/svg}`로 별도 저장된다. q-Map Cal.을 먼저 실행해야 사용할 수 있다.
 
 **1D Result**
 
 - X/Y 축 스케일 콤보(`Linear`/`Log`).
 - **Reset Zoom** 버튼.
 - **Save** 버튼 — 현재 1D 커브를 CSV로 저장하고, 같은 이름의 PNG도 함께 저장.
+  - **파일명**: `{원본 파일명}_1D{접미사}.csv` — 접미사는 컷 종류에 따라 `_line_ang{각도}deg`(1D Plot Process), `_azimuthal`(Azimuthal Process), `_circular`(TrXS Circular Process). PNG는 같은 이름에 `.png`만 붙는다(현재 화면 그대로 스냅샷).
+  - **컬럼 구성**(콤마 구분, 첫 줄이 헤더): `q, intensity` 두 컬럼이 기본이고, 여기에 조건부로 추가된다 — intensity의 표준편차가 있으면 `standard_deviation`, GIXS의 q uncertainty가 계산돼 있으면(Line 컷일 때만) `q_standard_deviation`, 항상 `coverage`(그 bin의 유효 픽셀 비율)가 마지막에 붙는다. 즉 가능한 전체 컬럼 순서는 `q, intensity, standard_deviation, q_standard_deviation, coverage`.
 - 아래에 커버리지 진단 등의 상태 텍스트가 표시된다 (예: "Line 1D ready. Coverage median …, low bins …, drops …").
 
 > 참고: 단일 프레임 GIXS/TrXS 탭에는 별도의 "ROI" 섹션이나 "Play"(프레임 재생) 버튼이
@@ -306,11 +329,13 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 - **pix** + **Position** 버튼, **Range (-/+)** + **Draw** 버튼, **Mean/Median** 콤보 — 단일 프레임 콘솔과 동일한 개념.
 - **Reflect missing wedge (Qxy/Qz)** 체크박스 — 켜면 각 프레임을 실제로 Qxy/Qz 그리드로 리그리딩한 뒤 컷을 계산해서, Qxy≈0 부근의 실제 커버리지 공백(missing wedge)이 커브에 끊김으로 반영된다. 기본은 꺼짐(빠른 pixel-space 컷, 공백 미반영) — 리그리딩은 더 느리고 "Change ai"가 아닌 일반 q-Cal이 필요하다.
+  - **왜 공백이 생기는가**: 리그리딩은 각 프레임을 Qxy/Qz 두 방향 모두 균일한 간격(`d_q = 2π·pixel_mm / (λ·SDD)`, 두 축 동일 간격)의 격자로 옮기는 작업이다. 격자 칸 하나의 값은 그 위치에 대응하는 실제 검출기 픽셀들의 세기를 bilinear(4점) 가중치로 splat해서 만드는데, 그 가중치 합이 **픽셀 1개의 1/4(0.25) 미만인 칸은 NaN으로 남긴다** — 노이즈 많은 부분 평균을 만들기보다 아예 비워두는 것이다. 빔스탑 부근(Qxy≈0, 즉 Qz만 큰 영역)은 극좌표(픽셀 반경·각도) 방식 검출기 샘플링이 그 부근에서 성기어지기 때문에, 새로 만든 균일 Q 격자가 그 영역에서는 원래 픽셀 샘플링보다 촘촘해져서 실제로 데이터가 없는 칸(NaN)이 다수 발생한다 — 이게 "missing wedge"다. 반대로 단순 pixel-space 컷은 픽셀을 제외할 뿐 보간하지 않으므로 이런 공백이 원천적으로 생기지 않는다. 빔 중심이 지나는 열 전체는 항상 NaN 처리된다(빔스탑 마스킹).
 - **Exec Azi** 버튼 + **Normalize** 콤보 — 시리즈 전체 azimuthal 프로파일을 백그라운드로 계산(진행률 다이얼로그 "Exec Azi").
 
 ### 4.5 Region of Interest
 
 - **N. ROI** 콤보(1~5) + **Draw ROI** 버튼 — 별도 창이 열리고, ROI 개수만큼 사각형을 순서대로 드래그해서 그린다(빨강/초록/파랑/주황/보라 순으로 색이 자동 배정됨). 그리면 프레임별 ROI 합계가 계산되고, 2D 이미지 위에도 같은 색 사각형이 표시된다.
+  - **계산 방식**: 프레임별 ROI 값은 사각형 안의 유효(non-NaN) 픽셀들을 단순 합산(`nansum`)한 값이다 — 평균이나 노출시간 등으로 별도 정규화하지 않는다(정규화는 아래 Normalize 콤보에서 IC/BC를 적용할 때만 이뤄진다). 사각형이 검출기 범위를 벗어나면 안쪽으로 잘라서(clamp) 계산하고, 잘라낸 뒤에도 유효 영역이 하나도 안 남으면 그 ROI는 전 프레임에 걸쳐 NaN으로 기록된다. 반대로 사각형 안이 전부 마스크/결측 픽셀이면(잘리진 않았지만 데이터가 다 NaN) 합계는 0으로 기록된다(NaN이 아님) — 두 경우가 구분된다는 점에 유의한다.
 
 ![FIGURE 15: GIXS-series ROI -- Draw ROI 창에서 사각형을 드래그하는 중인 화면](figures/fig15.png)
 
@@ -324,10 +349,12 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 ### 4.7 Save
 
-- **Save 1D** — 1D Plot Viewer의 현재 정규화된 데이터 + PNG 저장.
-- **Save Azi** — Azimuthal Plot Viewer 저장.
-- **Save Integ.** — Series Integration Viewer 저장.
-- **Save X-Axis** — 계산된 시리즈 X축 값만 저장.
+모든 저장 파일은 `{디렉토리}/{시리즈 접두어}/{시리즈 접두어}{접미사}.csv`에 저장된다(접두어는 파일명 뒤의 `_NNNN` 인덱스를 뗀 부분). 콤마 구분 CSV이며 첫 줄이 헤더(컬럼명 그대로).
+
+- **Save 1D** — 접미사 `_1D.csv`. 첫 컬럼은 `Q_1/A`, 이후 컬럼은 프레임마다 하나씩(시리즈 X축이 설정돼 있으면 그 값, 아니면 `frame1`/`frame2`/… 형식) — Normalize 콤보 설정이 반영된 값. 같은 이름의 `.png`도 함께 저장(현재 1D Plot Viewer 스냅샷).
+- **Save Azi** — 접미사 `_Azi.csv`, 첫 컬럼 `Angle_deg`, 이후는 Save 1D와 같은 프레임별 컬럼 구성. PNG도 함께 저장.
+- **Save Integ.** — 접미사 `_Integ.csv`. 마지막으로 실행한 처리가 무엇이었는지에 따라 컬럼이 달라진다: **ROI**를 마지막에 실행했으면 `ROI1`…`ROIn`(ROI별 프레임당 합계), **Azimuthal**이 마지막이면 `Integrated_Azimuthal`(프레임별 azimuthal 커브의 합), 그 외(1D)면 `Integrated_1D`. PNG도 함께 저장.
+- **Save X-Axis** — 접미사 `_XAxis.csv`, 계산된 시리즈 X축 값 자체를 `value` 한 컬럼으로 저장. **PNG는 저장되지 않는다**(다른 Save 버튼과 다른 점).
 
 ### 4.8 오른쪽 패널 — 4분할 뷰어
 
@@ -391,7 +418,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 
 ### 5.6 Region of Interest
 
-- **N. ROI**(1~5) + **Draw ROI** 버튼 — GIXS-series와 동일하게 별도 창에서 사각형을 드래그해서 그린다.
+- **N. ROI**(1~5) + **Draw ROI** 버튼 — GIXS-series와 동일하게 별도 창에서 사각형을 드래그해서 그린다. 계산 방식(nansum, 정규화 없음, 클램핑/NaN 처리)도 4.5절과 동일하다.
 
 ### 5.7 Options (GIXS-series의 "X-Axis / Auto"에 해당)
 
@@ -402,8 +429,12 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 
 ### 5.8 Save
 
-- **Save 1D** — Circular Exec에서 Std를 체크했으면, 프레임별 데이터와 std 컬럼이 한 파일 안에 번갈아(interleave) 저장된다 (Q, frame1, frame1_STD, frame2, frame2_STD, …).
-- **Save Azi**, **Save Integ.** + **Save X-Axis**.
+파일 경로 규칙과 CSV 형식은 GIXS-series(4.7)와 동일하다(`{디렉토리}/{접두어}/{접두어}{접미사}.csv`, 콤마 구분).
+
+- **Save 1D** — 접미사 `_1D.csv`, 첫 컬럼 `Q_1/A`. Circular Process에서 **Std를 체크하지 않았으면** GIXS-series의 Save 1D와 똑같이 프레임당 컬럼 하나씩. **Std를 체크했으면** 프레임 데이터와 std가 한 파일 안에 번갈아(interleave) 저장된다 — 정확히 `frame1, frame1_STD, frame2, frame2_STD, …` 순서(짝수 인덱스가 데이터, 홀수 인덱스가 그 프레임의 표준편차). 1D Line Ang 결과는 std를 계산하지 않으므로 이 interleave는 Circular Average 결과에만 적용된다. Subtraction/Normalize가 켜져 있으면 그 반영된 값이 저장된다.
+- **Save Azi** — 접미사 `_Azi.csv`, `Angle_deg` + 프레임별 컬럼(std interleave 없음 — azimuthal은 std를 계산하지 않는다).
+- **Save Integ.** — 접미사 `_Integ.csv`, GIXS-series와 같은 규칙(ROI/Azimuthal/1D 중 마지막 처리에 따라 컬럼 결정).
+- **Save X-Axis** — 접미사 `_XAxis.csv`, `value` 한 컬럼.
 
 ### 5.9 오른쪽 패널 — 4분할 뷰어
 
@@ -424,7 +455,7 @@ CXRO/Henke 산란인자 테이블 기반의 `refrac()` 함수를 사용한다.
 
 ### 6.1 입력
 
-- **Chem. Formula** — 화학식 문자열(예: `C8H8`, `SiO2`). 대소문자 구분, 괄호/수화물 표기는 지원 안 함.
+- **Chem. Formula** — 화학식 문자열(예: `C8H8`, `SiO2`). 원소기호(대문자로 시작)+개수(숫자, 생략하면 1) 패턴을 왼쪽부터 순서대로 읽어나가며, 중간에 패턴과 안 맞는 문자가 있거나 인식 안 되는 원소기호가 있으면 각각 "Invalid chemical formula." / "Element 'X' is NOT in the table list." 에러가 뜬다. 대소문자를 구분하며(`Si`≠`si`), 괄호나 수화물(`·nH2O`) 표기는 지원하지 않는다(MATLAB 원본과 동일).
 - **Density, g/cm3** — 밀도 (기본 1.05).
 - **Thickness, um** — 시료 두께 (기본 100.0) — Transmittance 모드에서만 사용됨.
 - **Energy Min / Max** — 광자 에너지 스윕 범위 (keV, 0.03~30 범위 내, 기본 8.5~15.0).
@@ -440,11 +471,25 @@ CXRO/Henke 산란인자 테이블 기반의 `refrac()` 함수를 사용한다.
 - 네 모드 모두 X축은 Photon Energy (keV)로 공통.
 - 계산 후 상태줄에 **분자량(g/mol)**과 **분자당 전자 수**가 함께 표시된다.
 
+**내부 계산(`refrac`)** — 원자산란인자 f1/f2는 원소별 CXRO/Henke 테이블(앱에 내장된 `physics/data/atomic_scattering_factor/{원소}.nff`)에서 읽어와 에너지에 맞게 보간(PCHIP)한다. 화학식의 각 원소 개수 `n_i`, 밀도 `ρ`, 분자량 `M`으로부터:
+
+```
+prefactor      = λ² / (2π) · r_e · N_A · ρ / M          (r_e: 전자 반경, N_A: 아보가드로 수)
+dispersion δ   = Σ_i n_i · prefactor · f1_i(E)
+absorption β   = Σ_i n_i · prefactor · f2_i(E)
+critical angle = sqrt(2·δ) · 180/π                        [deg]
+att. length    = λ / (4π·β)                                [cm 단위 -> Transmittance 계산 시 mm로 환산]
+Re(SLD)        = δ · 2π / λ²                                [Å^-2, ×10^6으로 화면/저장]
+Im(SLD)        = β · 2π / λ²
+```
+
+에너지는 0.03~30 keV 범위만 허용되며, 범위를 벗어나면 "Energy is out of range 0.03KeV~30KeV." 에러가 뜬다.
+
 ### 6.3 저장
 
 - **Directory** + **Set** 버튼.
 - **Data Table** 버튼 — 계산된 모든 포인트를 표로 보여주는 창.
-- **Save Data** 버튼 — `{Mode}_{EnergyMin}_to_{EnergyMax}.dat` 형식으로 저장.
+- **Save Data** 버튼 — `{Mode}_{EnergyMin}_to_{EnergyMax}.dat` 형식으로 저장(예: `Transmittance_5_to_15.dat`, `SLD_Real_5_to_15.dat` — 모드 이름의 공백/괄호는 제거된다). **탭으로 구분된** 2컬럼(`energy_keV`, 선택한 물리량 — 예: `Transmittance`, `Critical Angle, deg`, `Re(SLD), 1e-6 A^-2`) 텍스트 파일이며, 화면 표시(수식 기호 포함)와 달리 저장 파일의 헤더는 일반 ASCII 텍스트로 바뀐다. PNG는 저장되지 않는다.
 
 ### 6.4 플롯
 
@@ -485,9 +530,11 @@ Lp[Å] = λ / [ (4π/√2) · sqrt(inner - (θi² - θc²)) ]
 depth[nm] = Lp / 10
 ```
 
+Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너지는 스윕 없이 고정값 하나)의 결과를 그대로 쓴다 — 별도로 다시 계산하지 않는다. 입사각 스윕은 화면에 노출되지 않는 내부 고정값(200 포인트)으로 샘플링된다(사용자가 조절 불가).
+
 ### 7.3 저장
 
-- **Directory** + **Set**, **Data Table** 버튼(컬럼: `Incidence_Angle_deg` / `Penetration_Depth_nm`), **Save Data** 버튼 — `PenetrationDepth_{AngleMin}_to_{AngleMax}.dat`.
+- **Directory** + **Set**, **Data Table** 버튼(컬럼: `Incidence_Angle_deg` / `Penetration_Depth_nm`), **Save Data** 버튼 — `PenetrationDepth_{AngleMin}_to_{AngleMax}.dat`(탭으로 구분된 2컬럼 텍스트 파일, 헤더는 `incidence_angle_deg`/`penetration_depth_nm`). PNG는 저장되지 않는다.
 
 ### 7.4 플롯
 
@@ -510,7 +557,8 @@ depth[nm] = Lp / 10
 | **Cakecut / Accumulation** | (GIXS 1D 컷 전용) Cakecut은 기준 각도 주변의 각도 쐐기(wedge) 평균, Accumulation은 컷 라인에 수직인 픽셀 밴드 평균. |
 | **Circular Average** | (TrXS 전용) 지정한 각도 범위에서 q-binned 평균 — TrXS의 기본 1D 처리 방식. |
 | **Azimuthal Process** | 고정된 반경(pixel/Q)에서 각도별 강도 분포를 뽑는 처리. GIXS는 0~180°, TrXS는 0~360°를 스윕. |
-| **Coverage** | 각 q-bin/angle-bin에 실제로 몇 %의 유효 픽셀이 있었는지 나타내는 진단값. 검출기 갭이나 마스크 때문에 커버리지가 낮은 구간은 커브에 끊김/딥으로 나타날 수 있다. |
+| **Coverage** | `유효(non-NaN) 데이터 픽셀 수 / 그 bin에 기하학적으로 속하는 전체 픽셀 수`로 계산되는 값(0~1). 어떤 처리냐에 따라 낮은 coverage를 다루는 방식이 다르다 — **TrXS Circular Process**는 Min coverage보다 낮으면 해당 bin을 **NaN으로 지운다**(실제 컷오프), **GIXS 1D Plot Process(Cakecut/Accumulation)와 Azimuthal Process**는 값을 지우지 않고 낮은 coverage(<0.15)나 급격한 coverage 변화만 **진단 정보로 표시**한다, **SDD Calibration의 Smart Auto Run**은 링 후보를 채택할지 판단하는 기준(0.80 이상)으로 쓴다. |
+| **Mean/Median 계산 방식** | Median은 단순 중앙값(표준편차는 MAD 기반 `1.4826×median(\|값-중앙값\|)`). Mean(기본값)은 산술평균이 아니라 **Huber 강건 평균**이다 — 이상치(우주선 스파이크 등) 픽셀의 영향을 줄이도록 잔차 크기에 따라 가중치를 낮춰 2회 재계산하며, 유효 픽셀이 3개 미만인 bin은 강건 평균 대신 중앙값으로 대체된다. Circular Average/Cakecut/Accumulation/Azimuthal Process 등 반경·각도 binning을 쓰는 모든 처리에 공통으로 적용되는 계산 엔진이다. |
 | **Missing wedge** | Qxy≈0 부근에서, 균일 Q-grid로 리그리딩할 때 실제 픽셀 샘플링이 성기어져 생기는 커버리지 공백. GIXS-series Azimuthal Process의 "Reflect missing wedge" 옵션으로 반영할 수 있다. |
 | **ROI (Region of Interest)** | 2D 이미지 위에 사각형을 그려서 그 영역의 합계를 프레임별로 추적하는 기능 (series 탭에만 있음). |
 | **Auto Refresh** | 로드 디렉토리를 다시 스캔해서 새로 생긴 시리즈 파일을 찾아 불러오고, 마지막 처리에 이어붙이는 기능 (series 탭에만 있음). |
