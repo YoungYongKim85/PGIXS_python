@@ -122,6 +122,11 @@ class GIXS2Session:
     last_azimuthal: dict[str, Any] | None = None
     last_roi: np.ndarray | None = None
     x_axis_values: np.ndarray | None = None
+    # Frame permutation that produced `x_axis_values`. Every per-frame array
+    # paired with that axis has to be put through the same permutation --
+    # MATLAB does it inline at each plot/save site (`Y = Y(:, sort_idx)` in
+    # GIXS2_gui.m); `order_frames` below is this port's single place for it.
+    x_axis_order: np.ndarray | None = None
     x_axis_label: str = ""
     # Which result the Series Integration panel currently shows, and how
     # many frames were loaded as of the last full load/Auto-Refresh --
@@ -243,6 +248,7 @@ def _reset_for_new_series() -> None:
     _SESSION.last_azimuthal = None
     _SESSION.last_roi = None
     _SESSION.x_axis_values = None
+    _SESSION.x_axis_order = None
     _SESSION.x_axis_label = ""
 
 
@@ -407,8 +413,19 @@ def gixs2_load_info(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def gixs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
+    """Applies `grid_remove` to every frame in `session.stack` individually.
+    Must run before q-Cal, not after -- q-Cal caches `corrected_stack` from
+    `stack` as it was at that moment and this port never re-derives it, so a
+    post-q-Cal Grid Remove would leave every Exec Cut/Azi/ROI cutting the
+    stale, not-grid-removed corrected data while `session.data`'s preview
+    showed the correction applied. Same guard `trxs2_grid_remove` already
+    carries; MATLAB needs none because its correction mutates the single
+    `param.data` array in place."""
+
     if _SESSION.stack is None:
         return {"ok": False, "message": "Load a series first."}
+    if _SESSION.corrected:
+        return {"ok": False, "message": "Run Grid Remove before q-Cal (reload the series to redo Grid Remove after q-Cal)."}
 
     n_frames = _SESSION.stack.shape[0]
     corrected_frames = []
@@ -854,6 +871,7 @@ def gixs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
 
     order = sort_x_axis(values, should_sort)
     _SESSION.x_axis_values = values[order]
+    _SESSION.x_axis_order = order
     _SESSION.x_axis_label = label
     return {"ok": True, "x_axis": _SESSION.x_axis_values.tolist(), "label": label, "order": order.tolist()}
 
@@ -874,6 +892,23 @@ def gixs2_normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
     for i in range(matrix.shape[0]):
         out[i] = normalize_by_count(matrix[i], _SESSION.counts[i, column])
     return out
+
+
+def order_frames(values: np.ndarray, axis: int = 0) -> np.ndarray:
+    """Reorder a per-frame array to match `x_axis_values`.
+
+    `gixs2_set_x_axis` may sort the X axis (the Order checkbox), which
+    permutes it out of file order. Anything plotted or saved against that
+    axis has to be permuted the same way or frame *i*'s intensity is paired
+    with some other frame's temperature/angle -- MATLAB applies `sort_idx` to
+    the data at every such site. Returns `values` untouched when no ordering
+    is active or the frame count doesn't match."""
+
+    order = _SESSION.x_axis_order
+    array = np.asarray(values)
+    if order is None or array.ndim <= axis or array.shape[axis] != order.shape[0]:
+        return array
+    return np.take(array, order, axis=axis)
 
 
 def _column_labels() -> list[str]:
@@ -906,7 +941,7 @@ def gixs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a save directory."}
 
     method = str(payload.get("normalize", "None"))
-    matrix = gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method)
+    matrix = order_frames(gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method))
     path = _save_path(directory, "_1D.csv")
     try:
         save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", matrix, _column_labels())
@@ -923,7 +958,7 @@ def gixs2_save_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a save directory."}
 
     method = str(payload.get("normalize", "None"))
-    matrix = gixs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method)
+    matrix = order_frames(gixs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method))
     path = _save_path(directory, "_Azi.csv")
     try:
         save_series_data(path, _SESSION.last_azimuthal["x_axis"], "Angle_deg", matrix, _column_labels())
@@ -947,20 +982,20 @@ def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "message": "Run Exec ROI first."}
         columns = [f"ROI{i + 1}" for i in range(_SESSION.last_roi.shape[1])]
         method = str(payload.get("normalize", "None"))
-        matrix = gixs2_normalized_matrix(_SESSION.last_roi, method).T
+        matrix = order_frames(gixs2_normalized_matrix(_SESSION.last_roi, method)).T
     elif _SESSION.auto_met == "azimuthal":
         if _SESSION.last_azimuthal is None:
             return {"ok": False, "message": "Run Exec Azi first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = np.nansum(_SESSION.last_azimuthal["intensity"], axis=1, keepdims=True).T
+            matrix = order_frames(np.nansum(_SESSION.last_azimuthal["intensity"], axis=1, keepdims=True)).T
         columns = ["Integrated_Azimuthal"]
     else:
         if _SESSION.last_1d is None:
             return {"ok": False, "message": "Run Exec Cut first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = np.nansum(_SESSION.last_1d["intensity"], axis=1, keepdims=True).T
+            matrix = order_frames(np.nansum(_SESSION.last_1d["intensity"], axis=1, keepdims=True)).T
         columns = ["Integrated_1D"]
 
     path = _save_path(directory, "_Integ.csv")

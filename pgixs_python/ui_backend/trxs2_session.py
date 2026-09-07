@@ -132,6 +132,8 @@ class TrXS2Session:
     last_azimuthal: dict[str, Any] | None = None
     last_roi: np.ndarray | None = None
     x_axis_values: np.ndarray | None = None
+    # Frame permutation that produced `x_axis_values` -- see `order_frames`.
+    x_axis_order: np.ndarray | None = None
     x_axis_label: str = ""
     # Which result the Series Integration panel currently shows, and how
     # many frames were loaded as of the last full load/Auto-Refresh --
@@ -231,6 +233,7 @@ def _reset_for_new_series() -> None:
     _SESSION.last_azimuthal = None
     _SESSION.last_roi = None
     _SESSION.x_axis_values = None
+    _SESSION.x_axis_order = None
     _SESSION.x_axis_label = ""
     _SESSION.circular_mask = None
     _SESSION.circular_radius_map = None
@@ -933,6 +936,7 @@ def trxs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
 
     order = sort_x_axis(values, should_sort)
     _SESSION.x_axis_values = values[order]
+    _SESSION.x_axis_order = order
     _SESSION.x_axis_label = label
     return {"ok": True, "x_axis": _SESSION.x_axis_values.tolist(), "label": label, "order": order.tolist()}
 
@@ -940,6 +944,18 @@ def trxs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
 # ----------------------------------------------------------------------
 # Save
 # ----------------------------------------------------------------------
+def order_frames(values: np.ndarray, axis: int = 0) -> np.ndarray:
+    """Reorder a per-frame array to match `x_axis_values` (Temp.Sort permutes
+    that axis out of file order, so anything paired with it must follow) --
+    same contract as `gixs2_session.order_frames`."""
+
+    order = _SESSION.x_axis_order
+    array = np.asarray(values)
+    if order is None or array.ndim <= axis or array.shape[axis] != order.shape[0]:
+        return array
+    return np.take(array, order, axis=axis)
+
+
 def _column_labels() -> list[str]:
     if _SESSION.x_axis_values is not None:
         return [f"{v:g}" for v in _SESSION.x_axis_values]
@@ -977,8 +993,10 @@ def trxs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if not directory:
         return {"ok": False, "message": "Choose a save directory."}
 
-    rendered = _SESSION.last_1d["rendered"]
+    rendered = order_frames(_SESSION.last_1d["rendered"])
     std = _SESSION.last_1d.get("std")
+    if std is not None:
+        std = order_frames(std)
     labels = _column_labels()
     if std is not None:
         n_frames = rendered.shape[0]
@@ -1007,7 +1025,10 @@ def trxs2_save_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
 
     path = _save_path(directory, "_Azi.csv")
     try:
-        save_series_data(path, _SESSION.last_azimuthal["x_axis"], "Angle_deg", _SESSION.last_azimuthal["rendered"], _column_labels())
+        save_series_data(
+            path, _SESSION.last_azimuthal["x_axis"], "Angle_deg",
+            order_frames(_SESSION.last_azimuthal["rendered"]), _column_labels(),
+        )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc)}
     return {"ok": True, "path": str(path)}
@@ -1030,20 +1051,20 @@ def trxs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "message": "Run Exec ROI first."}
         columns = [f"ROI{i + 1}" for i in range(_SESSION.last_roi.shape[1])]
         method = str(payload.get("normalize", "None"))
-        matrix = _normalized_series_matrix(_SESSION.last_roi, method).T
+        matrix = order_frames(_normalized_series_matrix(_SESSION.last_roi, method)).T
     elif _SESSION.auto_met == "azimuthal":
         if _SESSION.last_azimuthal is None or _SESSION.last_azimuthal.get("rendered") is None:
             return {"ok": False, "message": "Run Azimuthal Exec first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = np.nansum(_SESSION.last_azimuthal["rendered"], axis=1, keepdims=True).T
+            matrix = order_frames(np.nansum(_SESSION.last_azimuthal["rendered"], axis=1, keepdims=True)).T
         columns = ["Integrated_Azimuthal"]
     else:
         if _SESSION.last_1d is None or _SESSION.last_1d.get("rendered") is None:
             return {"ok": False, "message": "Run Circular/Line Exec first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = np.nansum(_SESSION.last_1d["rendered"], axis=1, keepdims=True).T
+            matrix = order_frames(np.nansum(_SESSION.last_1d["rendered"], axis=1, keepdims=True)).T
         columns = ["Integrated_1D"]
 
     path = _save_path(directory, "_Integ.csv")

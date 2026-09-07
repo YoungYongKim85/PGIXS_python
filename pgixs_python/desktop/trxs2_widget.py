@@ -1294,7 +1294,7 @@ class TrXS2Widget(QWidget):
         session = ts.get_session()
         if session.last_1d is None or session.last_1d.get("rendered") is None:
             return
-        matrix = np.asarray(session.last_1d["rendered"], dtype=np.float64)
+        matrix = ts.order_frames(np.asarray(session.last_1d["rendered"], dtype=np.float64))
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         scale = self.oned_scale_combo.currentText()
         xlog = scale == "Logxy"
@@ -1333,7 +1333,7 @@ class TrXS2Widget(QWidget):
         session = ts.get_session()
         if session.last_azimuthal is None or session.last_azimuthal.get("rendered") is None:
             return
-        matrix = np.asarray(session.last_azimuthal["rendered"], dtype=np.float64)
+        matrix = ts.order_frames(np.asarray(session.last_azimuthal["rendered"], dtype=np.float64))
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         scale = self.azi_scale_combo.currentText()
         xlog = scale == "Logxy"
@@ -1618,6 +1618,11 @@ class TrXS2Widget(QWidget):
             self._set_status("No new files.", True)
             return
         self.n_files_label.setText(f"# of Files: {result['n_total']}")
+        # Re-derive the series X-axis for the new frame count (see the same
+        # step in gixs2_widget): Save 1D/Azi/Integ. read `x_axis_values`
+        # straight from the session, so a pre-refresh length makes them fail.
+        if ts.get_session().timestamps is not None:
+            ts.trxs2_set_x_axis({"sub_mode": self.tmode_combo.currentText(), "order": self.temp_sort_check.isChecked()})
         self._current_image_data = None
         self._render_image()
         if result.get("curve_extended"):
@@ -1650,18 +1655,18 @@ class TrXS2Widget(QWidget):
             labels = [f"ROI {i + 1}" for i in range(n_roi)]
             colors = [_ROI_COLORS[i % len(_ROI_COLORS)] for i in range(n_roi)]
             self.integ_canvas.render_multi(
-                session.x_axis_values, session.last_roi.T, labels, colors,
+                session.x_axis_values, ts.order_frames(session.last_roi).T, labels, colors,
                 xlabel=session.x_axis_label, ylabel="Sum(ROI), arb. units",
                 xlog=xlog, ylog=ylog,
             )
             return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None and session.last_azimuthal.get("rendered") is not None:
             with np.errstate(invalid="ignore"):
-                y = np.nansum(session.last_azimuthal["rendered"], axis=1)
+                y = np.nansum(ts.order_frames(session.last_azimuthal["rendered"]), axis=1)
             ylabel = "Integrated Azimuthal, arb. units"
         elif session.last_1d is not None and session.last_1d.get("rendered") is not None:
             with np.errstate(invalid="ignore"):
-                y = np.nansum(session.last_1d["rendered"], axis=1)
+                y = np.nansum(ts.order_frames(session.last_1d["rendered"]), axis=1)
             ylabel = "Integrated 1D, arb. units"
         else:
             return

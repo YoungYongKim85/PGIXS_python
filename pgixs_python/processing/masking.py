@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+_DATA_DIR = Path(__file__).parent / "data"
+
 
 @dataclass
 class DetectorMaskReport:
@@ -85,16 +87,37 @@ def _mask_from_file_or_default(
     mask_dir: str | Path | None,
 ) -> DetectorMask:
     report = DetectorMaskReport(fallback_used=False, message="", mask_file=file_name)
-    path = Path(mask_dir) / file_name if mask_dir is not None else Path(file_name)
+    # Default to the copies bundled with the package. Before these were
+    # shipped, `mask_dir=None` meant a bare relative path resolved against the
+    # process CWD, which never matched -- so every detector silently ran on
+    # the all-ones fallback and the real bad-pixel mask (6.2% of an Eiger4M,
+    # 21.6% of an SX165) was never applied at all, unlike MATLAB.
+    path = Path(mask_dir) / file_name if mask_dir is not None else _DATA_DIR / file_name
 
     try:
-        mask = _read_mat_mask(path)
+        mask = _orient_mask_to(_read_mat_mask(path), fallback_size)
     except Exception as exc:  # noqa: BLE001 - return MATLAB-compatible fallback plus diagnostic.
         mask = np.ones(fallback_size, dtype=np.float32)
         report.fallback_used = True
         report.message = str(exc)
 
     return DetectorMask(mask_zero_to_nan(mask), pixel_size_mm, report)
+
+
+def _orient_mask_to(mask: np.ndarray, expected_shape: tuple[int, int]) -> np.ndarray:
+    """Match the stored mask to the orientation the loaders produce.
+
+    The mask files are saved in MATLAB's own orientation, which for the H5
+    detectors is the transpose of what `load_h5_frame` returns (it transposes
+    the raw dataset). Non-H5 loaders don't transpose, and those masks are
+    square, so this only ever flips the Eiger4M one."""
+
+    array = np.asarray(mask)
+    if array.shape == tuple(expected_shape):
+        return array
+    if array.T.shape == tuple(expected_shape):
+        return np.ascontiguousarray(array.T)
+    raise ValueError(f"Mask shape {array.shape} matches neither {tuple(expected_shape)} nor its transpose.")
 
 
 def _read_mat_mask(path: Path) -> np.ndarray:

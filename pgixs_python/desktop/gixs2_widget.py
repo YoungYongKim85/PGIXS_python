@@ -1341,7 +1341,9 @@ class GIXS2Widget(QWidget):
         session = gs.get_session()
         if session.last_1d is None:
             return
-        matrix = gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+        matrix = gs.order_frames(
+            gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+        )
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         scale = self.oned_scale_combo.currentText()
         xlog = scale == "Logxy"
@@ -1412,7 +1414,9 @@ class GIXS2Widget(QWidget):
         session = gs.get_session()
         if session.last_azimuthal is None:
             return
-        matrix = gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
+        matrix = gs.order_frames(
+            gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
+        )
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         self.azi_canvas.render_series(
             session.last_azimuthal["x_axis"], matrix, color_values,
@@ -1774,6 +1778,13 @@ class GIXS2Widget(QWidget):
             self._set_status("No new files.", True)
             return
         self.n_files_label.setText(f"# of Files: {result['n_total']}")
+        # Re-derive the series X-axis for the new frame count right away.
+        # The plot paths recompute it themselves, but Save 1D/Azi/Integ. read
+        # `x_axis_values` straight from the session -- left at its pre-refresh
+        # length, `save_series_data` rejects the mismatch and the save fails.
+        # MATLAB avoids this by recomputing the axis inline at every save.
+        if gs.get_session().timestamps is not None:
+            gs.gixs2_set_x_axis({"sub_mode": self.sub_mode_combo.currentText(), "order": self.order_check.isChecked()})
         self._current_image_data = None
         self._render_image()
         if result.get("curve_extended"):
@@ -1822,7 +1833,7 @@ class GIXS2Widget(QWidget):
             n_roi = session.last_roi.shape[1]
             labels = [f"ROI {i + 1}" for i in range(n_roi)]
             colors = [_ROI_COLORS[i % len(_ROI_COLORS)] for i in range(n_roi)]
-            matrix = gs.gixs2_normalized_matrix(session.last_roi, self.normalize_roi_combo.currentText())
+            matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_roi, self.normalize_roi_combo.currentText()))
             self.integ_canvas.render_multi(
                 session.x_axis_values, matrix.T, labels, colors,
                 xlabel=session.x_axis_label, ylabel="Sum(ROI), arb. units",
@@ -1830,11 +1841,11 @@ class GIXS2Widget(QWidget):
             )
             return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None:
-            matrix = gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
+            matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText()))
             y = np.nansum(matrix, axis=1)
             ylabel = "Integrated Azimuthal, arb. units"
         elif session.last_1d is not None:
-            matrix = gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+            matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText()))
             y = np.nansum(matrix, axis=1)
             ylabel = "Integrated 1D, arb. units"
         else:

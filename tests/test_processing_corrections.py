@@ -186,3 +186,24 @@ def test_detector_correction_factor_adds_silicon_only_for_eiger4m():
 
     expected_ratio = silicon_efficiency(q_map, k0, load_attenuation_table("silicon"), 9.5)
     np.testing.assert_allclose(eiger / other, expected_ratio, rtol=1e-5)
+
+
+def test_detector_masks_load_from_the_packaged_files_not_the_fallback():
+    """Regression: `mask_dir=None` used to resolve a bare relative filename
+    against the process CWD, so the mask file was never found and every
+    detector silently ran on the all-ones fallback -- MATLAB applies the real
+    mask (`applyPGIXSMask`) on every load. The files are now shipped in
+    `pgixs_python/processing/data`, which packaging/pgixs.spec already bundles
+    wholesale."""
+
+    eiger = detector_mask_for_type("Eiger4M")
+    assert not eiger.report.fallback_used, eiger.report.message
+    # Stored in MATLAB's orientation (2167, 2070); the loaders hand us frames
+    # the other way round, so the mask has to come back transposed.
+    assert eiger.mask.shape == (2070, 2167)
+    assert 0.05 < np.mean(~np.isfinite(eiger.mask)) < 0.08
+
+    marccd = detector_mask_for_type("MarCCD")
+    assert not marccd.report.fallback_used, marccd.report.message
+    assert marccd.mask.shape == (2048, 2048)
+    assert 0.20 < np.mean(~np.isfinite(marccd.mask)) < 0.23

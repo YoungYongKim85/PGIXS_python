@@ -317,6 +317,14 @@ def console_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG
 
     _SESSION.data = corrected
     _SESSION.grid_removed = True
+    # Same staleness trap BKG sub. & Norm. hit (see console_normalize): every
+    # render and every 1D cut prefers `corrected_data` when it is set, so
+    # leaving the pre-grid-removal copy in place would make Grid Remove run
+    # after q-Map Cal. a silent no-op -- unchanged image, unchanged curves.
+    # MATLAB has no such second array (its correction overwrites `param.data`
+    # in place), so this only needs guarding here. Drop the stale copy and let
+    # the widget flag q-Map Cal. as needing a re-run.
+    _SESSION.corrected_data = None
     return {
         "ok": True,
         "message": report.message,
@@ -823,6 +831,16 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     # `Accumpix_gi.m` labels its band with |Q| regardless of the offset.
     offset_component = horizontal_component if angle_deg in (0.0, 180.0) else vertical_component
     offset_cut_q_map = q_for_1d if offset_component is None else np.abs(offset_component)
+    # Whether the cut that actually runs below is the offset one, i.e. whether
+    # the plotted axis is a single Q component rather than |Q|. The
+    # q-uncertainty map sampled further down has to match that choice.
+    uses_offset_axis = (
+        not accumulation
+        and not cakecut
+        and axis_aligned
+        and (y_pos_move != 0.0 or z_pos_move != 0.0)
+        and offset_component is not None
+    )
 
     def _run_cut(values: np.ndarray):
         if accumulation:
@@ -894,7 +912,18 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     # (reported: "cake_cut에서는 당연히 반영하면 안돼").
     q_std_curve = None
     q_uncertainty_warning = None
-    q_std_map = _SESSION.qmap.get("q_std") if mapping == "Pixel" else None
+    # The error bar has to describe the coordinate actually plotted: an offset
+    # cut is labelled by one Q component, so it carries that component's own
+    # uncertainty (`qr_std`/`qz_std`, computed alongside `q_std` in
+    # console_qmap), not |Q|'s. `q_std` gates on availability either way,
+    # since all four are computed together or not at all.
+    q_std_key = "q_std"
+    if uses_offset_axis:
+        q_std_key = "qr_std" if angle_deg in (0.0, 180.0) else "qz_std"
+        if _SESSION.qmap.get(q_std_key) is None:
+            q_std_key = "qy_std"  # TrXS names its in-plane component qy
+    q_std_available = mapping == "Pixel" and _SESSION.qmap.get("q_std") is not None
+    q_std_map = _SESSION.qmap.get(q_std_key) if q_std_available else None
     if q_std_map is not None and cakecut:
         q_uncertainty_warning = "Q uncertainty not computed for Cakecut."
     elif q_std_map is not None:

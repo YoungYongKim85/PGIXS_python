@@ -35,6 +35,10 @@ validation_outputs/
 # placeholder/screenshot assets, not generated test/output imagery.
 !docs/figures/*.png
 
+# Packaged detector masks -- shipped resources read at load time (and
+# bundled by packaging/pgixs.spec), not local measurement data.
+!pgixs_python/processing/data/*.mat
+
 # Real beamline datasets used for local manual testing (~19GB) -- never
 # meant to be tracked, only individual *.h5/*.mat above were being ignored
 # so the folder itself still showed as untracked.

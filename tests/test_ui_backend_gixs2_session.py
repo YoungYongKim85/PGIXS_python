@@ -94,8 +94,15 @@ def test_gixs2_load_and_load_series_survive_a_non_square_detector_mask(tmp_path)
         {"directory": str(tmp_path), "filenames": [f.name for f in files], "insitu_mode": "Time"}
     )
     assert series_result["ok"], series_result.get("message")
+    # The real EigerMask.mat masks ~6.2% of the detector, so a healthy load
+    # sits near 0.94 -- not 1.0. The bug this guards against blanks the image
+    # entirely (finite fraction ~0), so compare against the mask's own
+    # expected coverage rather than a bare "almost everything survived".
+    expected_finite = float(np.isfinite(detector_mask.mask).mean())
     finite_fraction = np.isfinite(session.data).mean()
-    assert finite_fraction > 0.99, f"Averaged image is mostly/entirely NaN (finite fraction={finite_fraction})."
+    assert finite_fraction == pytest.approx(expected_finite, abs=0.01), (
+        f"Averaged image is mostly/entirely NaN (finite fraction={finite_fraction}, expected ~{expected_finite})."
+    )
 
 
 def test_gixs2_load_series_parallel_option_matches_serial(tmp_path):
@@ -866,3 +873,54 @@ def test_gixs2_z_plot_returns_a_curve(tmp_path):
     assert result["ok"], result.get("message")
     assert len(result["x"]) > 0
     assert len(result["y"]) == len(result["x"])
+
+
+def test_gixs2_grid_remove_is_refused_after_qcal(tmp_path):
+    """Same guard `trxs2_grid_remove` already carries: q-Cal caches
+    `corrected_stack` and this port never re-derives it, so a post-q-Cal Grid
+    Remove would leave every Exec Cut/Azi/ROI cutting stale, not-grid-removed
+    data while the 2D preview showed the correction applied."""
+
+    gs.reset_session()
+    _load_series(tmp_path, n_frames=2)
+    session = gs.get_session()
+    session.calibration.update({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_pos": (100.5, 100.5)})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({"incident_angle_deg": 0.2})["ok"]
+
+    result = gs.gixs2_grid_remove({})
+
+    assert not result["ok"]
+    assert "before q-Cal" in result["message"]
+
+
+def test_sorted_x_axis_reorders_the_saved_frames_with_it(tmp_path):
+    """Regression: the Order checkbox sorted `x_axis_values` but nothing ever
+    permuted the per-frame data to match, so every frame's intensity was
+    plotted and saved against a *different* frame's temperature. MATLAB
+    applies `sort_idx` to the data at every plot/save site (`Y = Y(:,
+    sort_idx)` in GIXS2_gui.m); `order_frames` is this port's equivalent."""
+
+    gs.reset_session()
+    _write_and_load_out_of_order_temperatures(tmp_path)  # temps 30, 10, 20
+    session = gs.get_session()
+
+    # One distinct constant curve per frame, so a frame is identifiable by value.
+    session.last_1d = {
+        "x_axis": np.array([0.1, 0.2], dtype=np.float32),
+        "intensity": np.array([[30.0, 30.0], [10.0, 10.0], [20.0, 20.0]], dtype=np.float32),
+        "params": {},
+    }
+    session.auto_met = "linecut"
+    assert gs.gixs2_set_x_axis({"order": True})["ok"]
+    np.testing.assert_allclose(session.x_axis_values, [10.0, 20.0, 30.0])
+
+    out_dir = tmp_path / "out"
+    assert gs.gixs2_save_integration({"directory": str(out_dir)})["ok"]
+
+    saved = np.loadtxt(next(out_dir.rglob("*_Integ.csv")), delimiter=",", skiprows=1)
+    # Each row is (temperature, integrated intensity); frame 30C integrates to
+    # 60, 10C to 20, 20C to 40 -- so a correctly-paired file is sorted by
+    # temperature *and* still matches each frame's own value.
+    np.testing.assert_allclose(saved[:, 0], [10.0, 20.0, 30.0])
+    np.testing.assert_allclose(saved[:, 1], [20.0, 40.0, 60.0])

@@ -550,6 +550,19 @@ class ConsoleWidget(QWidget):
         self.q_range_label = _muted("Q range: not computed yet.")
         layout.addWidget(self.q_range_label)
 
+        # Editing any q-Map input after q-Map Cal. has run leaves the cached
+        # map (and corrected data) describing the *old* geometry, while the
+        # button still reads as done -- clear that indicator so it's visible
+        # the map needs recomputing. `_apply_calibration` blocks these signals
+        # for its own programmatic writes, so Load Info doesn't trip it.
+        for _spin in (self.energy_spin, self.sdd_spin, self.beam_y_spin, self.beam_z_spin, self.footprint_spin):
+            if _spin is not None:
+                _spin.valueChanged.connect(self._mark_qmap_stale)
+        if self.ai_deg_spin is not None:
+            self.ai_deg_spin.valueChanged.connect(self._mark_qmap_stale)
+        if self.q_uncertain_check is not None:
+            self.q_uncertain_check.toggled.connect(self._mark_qmap_stale)
+
         if cfg.has_circular:
             layout.addWidget(_divider("Circular Process"))
             self.circ_angle_min_spin = _double_spin(-360.0, 360.0, 1, 0.0, 1.0)
@@ -946,6 +959,14 @@ class ConsoleWidget(QWidget):
             self.ai_deg_spin.setValue(cal.get("incident_angle_deg", self.ai_deg_spin.value()))
             self.ai_deg_spin.blockSignals(False)
             self._incidence_from_degree()
+
+    def _mark_qmap_stale(self, *_args) -> None:
+        """Reset the q-Map Cal. "done" indicator once a q-Map input changes.
+        Only meaningful once a map exists; before that the button is already
+        in its neutral state."""
+
+        if cs.get_session().qmap is not None:
+            self._mark_ok(self.qmap_button, False)
 
     def _incidence_from_pixel(self) -> None:
         if self.ai_pix_spin is None or self.ai_deg_spin is None:
@@ -1383,6 +1404,10 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
+        # console_grid_remove dropped the now-stale corrected_data, so flag
+        # q-Map Cal. for a re-run to get the correction reapplied on top of
+        # the grid-removed image (same handling as BKG sub. & Norm.).
+        self._mark_ok(self.qmap_button, False)
         self._render_pixel_image()
         self._set_status(result.get("message", "Grid remove complete."), True)
 

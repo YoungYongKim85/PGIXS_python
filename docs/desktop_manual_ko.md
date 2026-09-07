@@ -179,7 +179,7 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 
 - **Energy** (keV) / **SDD** (mm) 한 줄, **Center [y, z]** (px) — GIXS는 여기에 **FP**(Footprint, mm)도 같은 줄에 추가로 있다.
 - **Load Info** 버튼 — SDD Calibration 탭에서 저장한 JSON 파일을 불러와 위 필드들(+GIXS는 입사각까지)을 채운다. 이후 픽셀 축 표시가 "빔 중심 기준"으로 바뀐다.
-- **Grid Remove** 버튼 — 검출기별 그리드 라인 보정을 적용한다 (Eiger4M 기준 픽셀 인덱스로 보정).
+- **Grid Remove** 버튼 — 검출기별 그리드 라인 보정을 적용한다 (Eiger4M 기준 픽셀 인덱스로 보정). q-Map Cal.을 이미 실행한 뒤에 눌러도 되지만, 이 경우 보정된 데이터가 무효화되므로 **q-Map Cal.을 다시 실행**해야 한다(버튼의 완료 표시가 해제되어 알려준다).
 
 **입사각(Incidence Angle) 캘리브레이션 — GIXS만**
 
@@ -310,7 +310,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 - **# of Files: 0** 라벨, **Parallel loading** 체크박스 (여러 파일을 스레드로 동시에 불러오기).
 - **Load Info** 버튼 — 캘리브레이션 JSON을 불러오고, 2D 이미지 표시를 빔 중심 기준으로 재조정.
-- **Grid Rmv** 버튼 — 시리즈 전체에 그리드 보정 적용.
+- **Grid Rmv** 버튼 — 시리즈 전체에 그리드 보정 적용. **q-Cal보다 먼저** 실행해야 한다 — q-Cal 이후에는 거부된다(시리즈는 보정된 스택을 캐시해두기 때문. 다시 하려면 시리즈를 새로 불러온다).
 
 ### 4.2 Incidence Angle Calibration
 
@@ -556,6 +556,7 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 | **q uncertainty (q_std)** | GIXS 전용. Footprint(FP)를 SDD의 ±FP/2 불확실성으로 취급해 구한 q 좌표 자체의 근사 불확실성. 1D Plot Process의 X축 error bar와 저장 시 `q_standard_deviation` 컬럼으로 반영된다. Cakecut과는 함께 쓸 수 없다(계산 자체를 건너뜀). footprint 하나만 반영한 근사치이며, 데이터 통계(카운트 오차)와는 무관한 순수 기하학적 값이다. |
 | **Map format (Pixel / Qxy·Qy / Qz)** | 2D 이미지를 픽셀 좌표로 볼지, Q-space 균일 그리드로 리그리딩해서 볼지 선택. Q-space 모드에서는 Line/Cake/Accumulation/Azimuthal 컷이 실제로 리그리딩된 이미지를 잘라서 pixel-space와 독립적인 결과를 낸다. |
 | **Grid Remove** | Eiger4M 등 일부 검출기의 물리적 모듈 간격(그리드)을 보정하는 처리. |
+| **Detector mask** | 검출기별로 알려진 불량 픽셀·비활성 영역을 NaN으로 제외하는 마스크. 데이터를 불러오는 시점에 자동 적용되며(Eiger4M은 약 6.2%, MarCCD/SX165는 약 21.6%가 제외됨), 이후 모든 평균·컷 계산에서 빠진다. MATLAB 버전과 동일한 마스크 파일을 사용한다. |
 | **Background / Normalization** | 배경 프레임을 빼고(subtraction), IC(ion chamber)/BC(beam counter) 값으로 정규화하는 처리. |
 | **Cakecut / Accumulation** | (GIXS 1D 컷 전용) Cakecut은 기준 각도 주변의 각도 쐐기(wedge) 평균, Accumulation은 컷 라인에 수직인 픽셀 밴드 평균. |
 | **Circular Average** | (TrXS 전용) 지정한 각도 범위에서 q-binned 평균 — TrXS의 기본 1D 처리 방식. |

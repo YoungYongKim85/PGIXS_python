@@ -2434,3 +2434,22 @@ def test_line_overlay_and_click_agree_in_q_mode_too(qapp, tmp_path):
         console._arm_position_mode("line")
         console._on_image_clicked(xdata[1], ydata[1])
         assert console.line_angle_spin.value() == pytest.approx(target_angle % 360.0, abs=1e-2), f"angle={target_angle}"
+
+
+def test_editing_a_qmap_input_clears_the_qmap_done_indicator(tmp_path):
+    """Python (unlike MATLAB, which refuses a second q-Map Cal. outright) lets
+    q-Map Cal. be re-run freely. That means the calibration fields can be
+    edited while a map from the *previous* geometry is still cached and every
+    cut keeps using it -- so changing one has to drop the button's "done"
+    state, or the screen claims the map is current when it is not."""
+
+    from pgixs_python.ui_backend import console_session as cs
+
+    console = _load_test_frame_trxs(tmp_path)
+    assert cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 12.0, "beam_z": 10.0})["ok"]
+    console._mark_ok(console.qmap_button, True)
+    assert console.qmap_button.property("state") == "ok"
+
+    console.sdd_spin.setValue(console.sdd_spin.value() + 25.0)
+
+    assert console.qmap_button.property("state") is None

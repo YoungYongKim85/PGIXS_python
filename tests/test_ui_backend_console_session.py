@@ -1488,3 +1488,61 @@ def test_console_line_1d_offset_cut_is_labelled_by_the_varying_q_component(tmp_p
     # ...and its span follows Qxy, not the (larger) |Q| of the same row.
     assert q_axis.max() == pytest.approx(row_qr.max(), rel=0.02)
     assert q_axis.max() < 0.95 * row_q.max()
+
+
+def test_console_line_1d_offset_cut_q_std_matches_the_plotted_component(tmp_path):
+    """The X-axis error bar has to describe the coordinate actually plotted.
+    Once an offset cut is labelled by Qxy rather than |Q| (see
+    `test_console_line_1d_offset_cut_is_labelled_by_the_varying_q_component`),
+    sampling |Q|'s uncertainty would attach the wrong quantity's error bar --
+    along an offset row |Q| is pinned above zero by the fixed Qz component, so
+    its uncertainty never approaches zero while Qxy's does."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    data = np.random.default_rng(3).uniform(10.0, 100.0, size=(64, 64)).astype(np.float32)
+    with h5py.File(frame_path, "w") as h5:
+        h5.create_dataset("entry/data/data", data=data[None, :, :])
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    assert cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0, "incident_angle_deg": 0.2,
+         "q_uncertainty": True, "footprint_mm": 5.0}
+    )["ok"]
+
+    z_pos_move = 30.0
+    assert cs.console_line_1d({"angle_deg": 180.0, "z_pos_move": z_pos_move, "mapping": "Pixel"})["ok"]
+    q_std = np.asarray(cs.get_session().last_curve["q_std"], dtype=np.float64)
+
+    qmap = cs.get_session().qmap
+    cut_row = int(round(32.0 - z_pos_move)) - 1
+    kept = slice(31, None)  # angle=180 keeps the columns right of the beam
+    qr_std_row = np.asarray(qmap["qr_std"])[cut_row, kept]
+    q_std_row = np.asarray(qmap["q_std"])[cut_row, kept]
+
+    assert q_std.max() == pytest.approx(qr_std_row.max(), rel=0.02)
+    # |Q|'s uncertainty stays well above zero on this row; Qxy's does not.
+    assert q_std.min() < 0.25 * q_std_row.min()
+
+
+def test_console_grid_remove_after_qmap_is_not_a_silent_no_op(tmp_path):
+    """Regression, same staleness trap BKG sub. & Norm. hit: every render and
+    every 1D cut prefers `corrected_data` when set, so a Grid Remove that only
+    updated `data` left the screen and all curves on the pre-grid-removal
+    image -- the user's "이미지가 바뀌지 않고" symptom, but for Grid Remove."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(2167, 2070))
+    _load(frame_path, detector="Eiger4M")
+    cs.get_session().calibration_loaded = True
+    assert cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 1035.0, "beam_z": 1083.0, "incident_angle_deg": 0.2}
+    )["ok"]
+    assert cs.get_session().corrected_data is not None
+
+    assert cs.console_grid_remove({})["ok"]
+
+    # The stale corrected copy must be gone, so renders/cuts fall back to the
+    # grid-removed `data` instead of silently ignoring the correction.
+    assert cs.get_session().corrected_data is None
