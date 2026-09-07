@@ -263,6 +263,20 @@ def _score_order_assignment(
     rel_spread = 0.25 if n_accepted == 1 else float(np.std(accepted_sdd)) / center
     score = rel_spread - 0.05 * n_accepted + 0.02 * (cand_start - 1)
 
+    # Every ring of one standard must report the same SDD, and ring centres
+    # fit to a fraction of a pixel, so a correct assignment agrees far better
+    # than a percent. Disagreement past that is not fitting noise -- the
+    # assignment itself is wrong, and that outweighs every other term here.
+    # Raw `rel_spread` could not say so: on an AgBH pattern whose visible
+    # rings are orders 2 and 3, a 167x worse spread (0.04% -> 6.7%) moved the
+    # score by less than the 0.5 plausibility penalty below, so Smart Auto Run
+    # picked the inconsistent "orders 1,2,3" reading. Only the excess over the
+    # tolerance is amplified, leaving the original balance between spread,
+    # ring count and skipped candidates intact for assignments that agree.
+    spread_tolerance = 0.01
+    if rel_spread > spread_tolerance:
+        score += 20.0 * (rel_spread - spread_tolerance)
+
     # order_start > 1 implicitly claims the lower orders (1..order_start-1)
     # were never even detected as candidates -- e.g. "1st peak hidden
     # behind the beamstop". With a single visible ring this previously tied

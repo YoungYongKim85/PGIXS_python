@@ -199,3 +199,49 @@ def test_find_rough_peaks_threshold_ignores_the_beamstop_core():
     found = np.sort(r_axis[peaks])
     assert found.size == 2, f"expected both rings, got radii {found}"
     np.testing.assert_allclose(found, [120.5, 240.5], atol=1.5)
+
+
+def test_order_assignment_prefers_the_self_consistent_sdd_over_more_rings():
+    """Regression: on a short-SDD AgBH pattern the visible rings are orders 2
+    and 3 (radius ratio exactly 1.5), with order 1 behind the beam stop. The
+    scorer used to read them as orders 1, 2, 3 -- one extra "explained" ring,
+    but SDD values spread 6.7% instead of 0.04%. Raw rel_spread moved the
+    score less than the 0.5 hidden-order penalty, so the inconsistent reading
+    won; ring SDD agreement now dominates past a 1% tolerance."""
+
+    r = np.arange(1, 221, dtype=np.float64)
+    profile = (
+        250.0 * np.exp(-((r - 60.0) ** 2) / (2 * 5.0**2))
+        + 100.0 * np.exp(-((r - 140.0) ** 2) / (2 * 3.0**2))
+        + 70.0 * np.exp(-((r - 210.0) ** 2) / (2 * 4.0**2))
+        + 2.0
+    )
+
+    report = analyze_sdd_candidates(
+        r, profile, np.ones_like(r), "Silver behenate", 9.5, 0.075, min_coverage=0.8
+    )
+
+    rows = candidates_to_dicts(report)
+    assert not rows[0]["accepted"], "the 60 px feature is not an AgBH ring here"
+    accepted = [c["order"] for c in rows if c["accepted"]]
+    assert accepted == [2, 3]
+    # 140 px and 210 px agree on the SDD to well under a percent.
+    assert report.final_sdd == pytest.approx(239.98, abs=0.5)
+
+
+def test_order_assignment_still_reads_a_genuine_first_order_pattern():
+    """The tolerance must not push every pattern to higher orders: rings at a
+    1:2 radius ratio are orders 1 and 2 and stay that way."""
+
+    r = np.arange(1, 221, dtype=np.float64)
+    profile = (
+        100.0 * np.exp(-((r - 70.0) ** 2) / (2 * 3.0**2))
+        + 70.0 * np.exp(-((r - 140.0) ** 2) / (2 * 4.0**2))
+        + 2.0
+    )
+
+    report = analyze_sdd_candidates(
+        r, profile, np.ones_like(r), "Silver behenate", 9.5, 0.075, min_coverage=0.8
+    )
+
+    assert [c["order"] for c in candidates_to_dicts(report) if c["accepted"]] == [1, 2]

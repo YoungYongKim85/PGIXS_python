@@ -43,11 +43,10 @@ def load_standard_calibration(
 
     `pc` is taken verbatim as a 1-based beam center, which is what this app's
     pixel grids expect and what both MATLAB and this app write to `.mat`/
-    `.std`/`.json`. The one exception is a `.json` written by *MATLAB*'s
-    `SDDcal_gui.m`, which subtracts 1 from the center on the assumption that
-    Python indexes from 0 -- that file reads one pixel low on both axes here.
-    Resolving it needs a decision on the shared convention (see the pending
-    MATLAB-side review), not a silent adjustment in this loader."""
+    `.std`/`.json`. MATLAB's `SDDcal_gui.m` used to subtract 1 from the center
+    in its `.json` on the assumption that Python indexes from 0; that was
+    fixed there, so only `.json` files written by a MATLAB build older than
+    that still read one pixel low on both axes."""
 
     path = Path(file_path)
     report = CalibrationLoadReport(ok=False, path=path)
