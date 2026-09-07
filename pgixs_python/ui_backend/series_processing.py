@@ -27,6 +27,32 @@ import numpy as np
 from pgixs_python.averaging.angular import angular_profile, make_sector_mask
 from pgixs_python.averaging.cake import CakeAverageResult, accumulation_average, cake_average
 from pgixs_python.averaging.radial import RadiusBinMap, build_radius_bin_map, radius_average
+from pgixs_python.processing.corrections import apply_detector_correction
+
+
+def apply_correction_to(values: np.ndarray, correction_factor: np.ndarray | None) -> np.ndarray:
+    """Divide by the detector correction factor, or pass through when there
+    is none.
+
+    Series q-Cal keeps only the factor (one detector-sized array) rather than
+    a fully corrected copy of the stack, so the correction is applied here, on
+    the one frame (or ROI sub-block) actually being reduced. `correction_factor`
+    broadcasts over any leading frame axis; the NaN-preserving semantics match
+    `apply_detector_correction`, which the single-frame consoles still use.
+    "Change ai" is the exception -- its factor differs per frame, so that path
+    materializes the corrected stack up front and passes `None` here."""
+
+    if correction_factor is None:
+        return values
+    array = np.asarray(values, dtype=np.float32)
+    factor = np.asarray(correction_factor, dtype=np.float32)
+    if array.shape == factor.shape:
+        return apply_detector_correction(array, factor)
+    broadcast = np.broadcast_to(factor, array.shape)
+    out = np.full(array.shape, np.nan, dtype=np.float32)
+    valid = np.isfinite(array) & np.isfinite(broadcast) & (broadcast != 0)
+    out[valid] = array[valid] / broadcast[valid]
+    return out
 
 
 @dataclass
@@ -78,6 +104,7 @@ def process_linecut_stack(
     accum_plus: float = 1.0,
     q_map_stack: np.ndarray | None = None,
     ref_axis: np.ndarray | None = None,
+    correction_factor: np.ndarray | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     parallel: bool = False,
     max_workers: int | None = None,
@@ -129,7 +156,7 @@ def process_linecut_stack(
         raise ValueError("q_map is required unless q_map_stack is given.")
 
     def _run_frame(i: int) -> CakeAverageResult:
-        frame = stack[i]
+        frame = apply_correction_to(stack[i], correction_factor)
         frame_q_map = q_map_stack[i] if change_ai else q_map
         if accumulation:
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
@@ -252,6 +279,7 @@ def process_circular_stack(
     progress_callback: Callable[[int, int], None] | None = None,
     parallel: bool = False,
     max_workers: int | None = None,
+    correction_factor: np.ndarray | None = None,
 ) -> SeriesCircularResult:
     """Circular Average across a whole series -- same q-binned average as
     `console_session.console_circular_average`, run once per frame against
@@ -277,7 +305,9 @@ def process_circular_stack(
     n_frames = stack.shape[0]
 
     def _run_frame(i: int):
-        return radius_average(stack[i], radius_map, use_median=use_median, calc_std=calc_std)
+        return radius_average(
+            apply_correction_to(stack[i], correction_factor), radius_map, use_median=use_median, calc_std=calc_std
+        )
 
     results = [None] * n_frames
     if parallel and n_frames > 1:
@@ -330,6 +360,7 @@ def process_azimuthal_stack(
     progress_callback: Callable[[int, int], None] | None = None,
     parallel: bool = False,
     max_workers: int | None = None,
+    correction_factor: np.ndarray | None = None,
 ) -> SeriesCurveResult:
     """Azimuthal Process across a whole series -- same as
     `console_session.console_azimuthal_1d`, run once per frame.
@@ -347,7 +378,7 @@ def process_azimuthal_stack(
 
     def _run_frame(i: int):
         return angular_profile(
-            stack[i], center=center, radius_range=radius_range,
+            apply_correction_to(stack[i], correction_factor), center=center, radius_range=radius_range,
             n_angle_bins=n_angle_bins, use_median=use_median, angle_range=angle_range,
         )
 
@@ -388,7 +419,11 @@ def process_azimuthal_stack(
     return SeriesCurveResult(x_axis=x_axis, intensity=np.vstack(intensity_rows), coverage=np.vstack(coverage_rows))
 
 
-def process_roi_stack(stack: np.ndarray, rois: list[tuple[int, int, int, int]]) -> np.ndarray:
+def process_roi_stack(
+    stack: np.ndarray,
+    rois: list[tuple[int, int, int, int]],
+    correction_factor: np.ndarray | None = None,
+) -> np.ndarray:
     """Region-of-Interest sums across a whole series.
 
     `rois` are `(r1, r2, c1, c2)` 1-based inclusive pixel-index rectangles,
@@ -405,6 +440,10 @@ def process_roi_stack(stack: np.ndarray, rois: list[tuple[int, int, int, int]]) 
             sums[:, j] = np.nan
             continue
         region = stack[:, row_start - 1 : row_end, col_start - 1 : col_end]
+        if correction_factor is not None:
+            region = apply_correction_to(
+                region, correction_factor[row_start - 1 : row_end, col_start - 1 : col_end]
+            )
         with np.errstate(all="ignore"):
             sums[:, j] = np.nansum(region, axis=(1, 2))
     return sums

@@ -173,7 +173,7 @@ def test_trxs2_grid_remove_refuses_to_run_after_qcal(tmp_path):
 # ----------------------------------------------------------------------
 # q-Cal
 # ----------------------------------------------------------------------
-def test_trxs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
+def test_trxs2_qcal_produces_qmap_and_a_correction_factor(tmp_path):
     center = (100.5, 100.5)
     _load_series(tmp_path, n_frames=2, center=center)
     result = _qcal(center)
@@ -182,8 +182,10 @@ def test_trxs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
     assert result["ok"]
     assert session.qmap is not None
     assert "q" in session.qmap
-    assert session.corrected_stack is not None
-    assert session.corrected_stack.shape == session.stack.shape
+    # Only the factor is kept; corrected frames are produced on demand.
+    assert session.corrected_stack is None
+    assert session.correction_factor is not None
+    assert session.correction_factor.shape == session.stack.shape[1:]
     assert session.corrected is True
 
 
@@ -346,7 +348,7 @@ def test_trxs2_circular_exec_matches_hand_computed_radius_binned_average(tmp_pat
 
     radius_map = build_circular_radius_map(session.qmap["q"], center)
     for i in range(3):
-        expected = radius_average(session.corrected_stack[i], radius_map)
+        expected = radius_average(ts.corrected_frame(i), radius_map)
         np.testing.assert_allclose(session.last_1d["intensity"][i], expected.intensity, equal_nan=True)
     assert session.circular_radius_map is not None
     assert session.auto_met == "circular"
@@ -427,7 +429,7 @@ def test_trxs2_line_exec_matches_single_frame_console_plain_angle_cut(tmp_path):
     cs.reset_session()
     console = cs.get_session()
     console.mode = "trxs"
-    console.data = session.corrected_stack[0]
+    console.data = ts.corrected_frame(0)
     console.qmap = {"q": session.qmap["q"]}
     console.calibration["beam_pos"] = center
     console.calibration_loaded = True
@@ -769,3 +771,33 @@ def test_trxs2_save_x_axis_writes_a_file(tmp_path):
     result = ts.trxs2_save_x_axis({"directory": str(out_dir)})
     assert result["ok"], result.get("message")
     assert Path(result["path"]).exists()
+
+
+def test_lazy_correction_matches_a_pre_corrected_stack_without_holding_one(tmp_path):
+    """q-Cal keeps only the correction factor and applies it per frame at
+    reduction time, instead of materializing a second full copy of the series
+    (an Eiger4M frame is ~18 MB, so a 300-frame series was holding ~10.8 GB
+    across the two copies). The reduced curves must be unchanged."""
+
+    from pgixs_python.processing.corrections import apply_detector_correction
+    from pgixs_python.ui_backend.series_processing import process_circular_stack
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=3, center=center)
+    _qcal(center)
+    session = ts.get_session()
+
+    assert session.corrected_stack is None
+    assert session.correction_factor is not None
+    assert session.correction_factor.nbytes < session.stack.nbytes
+
+    assert ts.trxs2_circular_exec({"angle_min": 0.0, "angle_max": 360.0})["ok"]
+    lazy = np.asarray(session.last_1d["intensity"])
+
+    pre_corrected = np.stack(
+        [apply_detector_correction(session.stack[i], session.correction_factor) for i in range(session.stack.shape[0])],
+        axis=0,
+    )
+    reference = process_circular_stack(pre_corrected, session.circular_radius_map, **session.last_1d["params"])
+
+    np.testing.assert_array_equal(lazy, reference.intensity)

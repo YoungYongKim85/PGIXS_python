@@ -259,7 +259,7 @@ def test_gixs2_qcal_requires_load_info_first(tmp_path):
     assert session.qmap is None
 
 
-def test_gixs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
+def test_gixs2_qcal_produces_qmap_and_a_correction_factor(tmp_path):
     _load_series(tmp_path, n_frames=2, center=(100.5, 100.5))
     session = gs.get_session()
     session.calibration.update({"beam_pos": (100.5, 100.5), "sdd_mm": 300.0, "energy_kev": 9.5})
@@ -269,8 +269,12 @@ def test_gixs2_qcal_produces_qmap_and_corrected_stack(tmp_path):
 
     assert result["ok"], result.get("message")
     assert session.qmap is not None
-    assert session.corrected_stack is not None
-    assert session.corrected_stack.shape == session.stack.shape
+    # The plain path keeps only the factor -- the corrected frames are
+    # produced on demand, so no second full stack is held.
+    assert session.corrected_stack is None
+    assert session.correction_factor is not None
+    assert session.correction_factor.shape == session.stack.shape[1:]
+    assert gs.corrected_frame(0).shape == session.stack.shape[1:]
 
 
 def test_gixs2_qcal_change_ai_produces_per_frame_q_stack(tmp_path):
@@ -514,13 +518,16 @@ def test_gixs2_azimuthal_exec_reflect_missing_wedge_regrids_each_frame(tmp_path)
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
     session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
-    original_stack = session.corrected_stack.copy()
+    # q-Cal keeps only the correction factor now, so build the corrected
+    # frames the same way every reduction does.
+    original_stack = np.stack([gs.corrected_frame(i) for i in range(session.stack.shape[0])], axis=0)
 
     captured = {}
     original_process = gs.process_azimuthal_stack
 
     def spying_process_azimuthal_stack(stack, *args, **kwargs):
         captured["stack"] = stack.copy()
+        captured["correction_factor"] = kwargs.get("correction_factor")
         return original_process(stack, *args, **kwargs)
 
     gs.process_azimuthal_stack = spying_process_azimuthal_stack
@@ -537,7 +544,15 @@ def test_gixs2_azimuthal_exec_reflect_missing_wedge_regrids_each_frame(tmp_path)
     # relabeled -- and corrected_stack itself untouched (shared by every
     # other cut type, none of which regrid).
     assert not np.allclose(regridded_stack, original_stack, equal_nan=True)
-    assert np.allclose(session.corrected_stack, original_stack, equal_nan=True)
+    # The regrid consumes the correction itself, so it must not be applied
+    # a second time inside the reduction...
+    assert captured["correction_factor"] is None
+    # ...and the session's own raw stack + factor are left untouched, so
+    # every other (non-regridding) cut still sees the same frames.
+    assert np.allclose(
+        np.stack([gs.corrected_frame(i) for i in range(session.stack.shape[0])], axis=0),
+        original_stack, equal_nan=True,
+    )
     # Matches a hand-rolled regrid of the same frames via the same
     # underlying transform the single-frame console's own Qxy/Qz cut uses.
     expected_0 = image_transform_q_gi(
@@ -579,13 +594,14 @@ def test_gixs2_azimuthal_exec_default_still_uses_the_plain_pixel_space_cut(tmp_p
     session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
     session.calibration_loaded = True
     assert gs.gixs2_qcal({})["ok"]
-    original_stack = session.corrected_stack.copy()
+    raw_stack = session.stack.copy()
 
     captured = {}
     original_process = gs.process_azimuthal_stack
 
     def spying_process_azimuthal_stack(stack, *args, **kwargs):
         captured["stack"] = stack
+        captured["correction_factor"] = kwargs.get("correction_factor")
         return original_process(stack, *args, **kwargs)
 
     gs.process_azimuthal_stack = spying_process_azimuthal_stack
@@ -595,7 +611,11 @@ def test_gixs2_azimuthal_exec_default_still_uses_the_plain_pixel_space_cut(tmp_p
         gs.process_azimuthal_stack = original_process
 
     assert result["ok"], result.get("message")
-    np.testing.assert_array_equal(captured["stack"], original_stack)
+    # Nothing regridded: the frames handed over are the untouched stack,
+    # with the detector correction supplied alongside to be applied
+    # per frame during the reduction.
+    np.testing.assert_array_equal(captured["stack"], raw_stack)
+    np.testing.assert_array_equal(captured["correction_factor"], session.correction_factor)
 
 
 def test_gixs2_roi_exec_matches_hand_computed_sum(tmp_path):

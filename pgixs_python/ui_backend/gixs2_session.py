@@ -49,6 +49,7 @@ from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.transform import image_transform_q_gi
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
 from pgixs_python.ui_backend.series_processing import (
+    apply_correction_to,
     compute_experiment_x_axis,
     process_azimuthal_stack,
     process_linecut_stack,
@@ -64,7 +65,13 @@ class GIXS2Session:
     detector: str = "Eiger4M"
     data: np.ndarray | None = None  # mean-of-stack display image
     stack: np.ndarray | None = None  # (n_frames, rows, cols)
+    # Set only by "Change ai", whose correction factor differs per frame.
+    # The plain q-Cal path keeps `correction_factor` (one detector-sized
+    # array) instead and applies it per frame at reduction time, which
+    # halves the memory a long series holds -- an Eiger4M frame is ~18 MB,
+    # so a 300-frame series was carrying ~10.8 GB as two full copies.
     corrected_stack: np.ndarray | None = None
+    correction_factor: np.ndarray | None = None
     mask: np.ndarray | None = None
     counts: np.ndarray | None = None  # (n_frames, 2) IC/BC
     timestamps: np.ndarray | None = None  # (n_frames,), baseline-relative
@@ -241,6 +248,7 @@ def _reset_for_new_series() -> None:
     _SESSION.aivar = None
     _SESSION.q_stack = None
     _SESSION.corrected_stack = None
+    _SESSION.correction_factor = None
     _SESSION.corrected = False
     _SESSION.grid_removed = False
     _SESSION.roi_list = []
@@ -568,6 +576,11 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
 
     n_frames, n_rows, n_cols = _SESSION.stack.shape
     shape = (n_rows, n_cols)
+    # Exactly one of these ends up set: `static_factor` for the plain path
+    # (applied per frame at reduction time), `corrected` for "Change ai"
+    # (per-frame factors, so it has to be materialized here).
+    static_factor = None
+    corrected = None
 
     if not change_ai:
         try:
@@ -585,7 +598,8 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": str(exc)}
 
-        corrected = np.stack([apply_detector_correction(_SESSION.stack[i], factor) for i in range(n_frames)], axis=0)
+        corrected = None
+        static_factor = factor
         _SESSION.qmap = {"qy": qy, "qr": qr, "qz": qz, "q": q, "tth2d": tth2d, "af2d": af2d}
         _SESSION.aivar = None
         _SESSION.q_stack = None
@@ -632,8 +646,15 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.ai_step = ai_step
     _SESSION.angle_map = pixel_angle_map(shape, center=beam_pos)
     _SESSION.corrected_stack = corrected
+    _SESSION.correction_factor = static_factor
     _SESSION.corrected = True
-    _SESSION.data = _mean_ignoring_all_nan(corrected)
+    # mean_i(x_i / f) == mean_i(x_i) / f for a frame-independent f, so the
+    # displayed average costs one divide instead of a corrected copy.
+    _SESSION.data = (
+        _mean_ignoring_all_nan(corrected)
+        if corrected is not None
+        else apply_detector_correction(_mean_ignoring_all_nan(_SESSION.stack), static_factor)
+    )
 
     return {
         "ok": True,
@@ -647,7 +668,26 @@ def _data_for_processing() -> np.ndarray:
     return _SESSION.corrected_stack if _SESSION.corrected_stack is not None else _SESSION.stack
 
 
-def _q_remap_stack(stack: np.ndarray, progress_label: str) -> np.ndarray | None:
+def _processing_correction() -> np.ndarray | None:
+    """Correction factor still to be applied to `_data_for_processing()`.
+    None once "Change ai" has already baked it into `corrected_stack`."""
+
+    if _SESSION.corrected_stack is not None:
+        return None
+    return _SESSION.correction_factor
+
+
+def corrected_frame(index: int) -> np.ndarray:
+    """Frame `index` with the detector correction applied, whichever way this
+    session happens to be holding it -- a materialized `corrected_stack`
+    ("Change ai") or the raw stack plus a shared `correction_factor`."""
+
+    return apply_correction_to(_data_for_processing()[index], _processing_correction())
+
+
+def _q_remap_stack(
+    stack: np.ndarray, progress_label: str, correction_factor: np.ndarray | None = None
+) -> np.ndarray | None:
     """Regrid every frame in `stack` onto the same uniform Qxy/Qz grid the
     single-frame console's own Q-space cut uses (`image_transform_q_gi`;
     see console_session.py's `_q_space_cut_inputs`), so a plain radius/
@@ -693,7 +733,8 @@ def _q_remap_stack(stack: np.ndarray, progress_label: str) -> np.ndarray | None:
     n_frames = stack.shape[0]
     remapped = np.empty_like(stack)
     for i in range(n_frames):
-        remapped[i] = image_transform_q_gi(stack[i], qr, qz, beam_pos, pixel_mm, wavelength_a, sdd_mm).image
+        frame = apply_correction_to(stack[i], correction_factor)
+        remapped[i] = image_transform_q_gi(frame, qr, qz, beam_pos, pixel_mm, wavelength_a, sdd_mm).image
         _set_load_progress(i + 1, n_frames, progress_label)
     return remapped
 
@@ -734,12 +775,13 @@ def gixs2_linecut_exec(payload: dict[str, Any]) -> dict[str, Any]:
         if _SESSION.change_ai and _SESSION.q_stack is not None:
             result = process_linecut_stack(
                 _data_for_processing(), None, _SESSION.angle_map, center=beam_pos,
-                q_map_stack=_SESSION.q_stack, progress_callback=_report, **kwargs
+                q_map_stack=_SESSION.q_stack, progress_callback=_report,
+                correction_factor=_processing_correction(), **kwargs
             )
         else:
             result = process_linecut_stack(
                 _data_for_processing(), _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                progress_callback=_report, **kwargs
+                progress_callback=_report, correction_factor=_processing_correction(), **kwargs
             )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
@@ -783,11 +825,17 @@ def gixs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.load_progress = None
     try:
         stack = _data_for_processing()
+        factor = _processing_correction()
         if reflect_missing_wedge:
-            stack = _q_remap_stack(stack, "Azimuthal (Qxy/Qz remap)")
+            # Regridding has to see corrected intensities, so the factor is
+            # spent here and must not be applied a second time below.
+            stack = _q_remap_stack(stack, "Azimuthal (Qxy/Qz remap)", correction_factor=factor)
             if stack is None:
                 return {"ok": False, "message": 'Reflect missing wedge needs a plain q-Cal (not "Change ai").'}
-        result = process_azimuthal_stack(stack, center=beam_pos, progress_callback=_report, **kwargs)
+            factor = None
+        result = process_azimuthal_stack(
+            stack, center=beam_pos, progress_callback=_report, correction_factor=factor, **kwargs
+        )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
     finally:
@@ -822,7 +870,7 @@ def gixs2_roi_exec(payload: dict[str, Any]) -> dict[str, Any]:
     if not rois:
         return {"ok": False, "message": "Draw at least one ROI first."}
 
-    sums = process_roi_stack(_data_for_processing(), rois)
+    sums = process_roi_stack(_data_for_processing(), rois, correction_factor=_processing_correction())
     _SESSION.roi_list = rois
     _SESSION.last_roi = sums
     _SESSION.auto_met = "roi"
@@ -1102,23 +1150,14 @@ def gixs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.corrected_stack = np.concatenate([_SESSION.corrected_stack, new_corrected], axis=0)
         _SESSION.q_stack = np.concatenate([_SESSION.q_stack, new_q_stack], axis=0)
         _SESSION.aivar = np.concatenate([_SESSION.aivar, new_aivar])
-    elif _SESSION.corrected_stack is not None and _SESSION.qmap is not None:
-        pixel_mm = float(_SESSION.calibration["pixel_mm"])
-        wavelength = wavelength_from_energy_kev(float(_SESSION.calibration["energy_kev"]))
-        k0 = float(2.0 * np.pi / wavelength)
-        factor = detector_correction_factor(
-            DetectorCorrectionInputs(
-                data_size=new_stack.shape[1:], beam_position=_SESSION.calibration["beam_pos"], pixel_size_mm=pixel_mm,
-                sdd_mm=float(_SESSION.calibration["sdd_mm"]), q_map=_SESSION.qmap["q"],
-                energy_kev=float(_SESSION.calibration["energy_kev"]), detector_type=_SESSION.detector,
-            ),
-            k0=k0,
-        )
-        new_corrected = np.stack([apply_detector_correction(new_stack[i], factor) for i in range(new_stack.shape[0])], axis=0)
-        _SESSION.corrected_stack = np.concatenate([_SESSION.corrected_stack, new_corrected], axis=0)
-
     _SESSION.stack = np.concatenate([_SESSION.stack, new_stack], axis=0)
-    _SESSION.data = _mean_ignoring_all_nan(_data_for_processing())
+    # The plain path stores only the (geometry-only) correction factor, which
+    # already covers the appended frames -- nothing to correct up front, just
+    # apply it to the refreshed mean image. "Change ai" needs per-frame
+    # factors, so its branch above extends `corrected_stack` itself.
+    _SESSION.data = apply_correction_to(
+        _mean_ignoring_all_nan(_data_for_processing()), _processing_correction()
+    )
     _SESSION.counts = np.concatenate([_SESSION.counts, result.counts.astype(np.float32)], axis=0) if _SESSION.counts is not None else result.counts
     _SESSION.timestamps = np.concatenate([_SESSION.timestamps, new_timestamps]) if _SESSION.timestamps is not None else new_timestamps
     _SESSION.temperatures = (
@@ -1160,16 +1199,19 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
     docstring for why that distinction matters here specifically."""
 
     beam_pos = _SESSION.calibration.get("beam_pos")
+    factor = _processing_correction()
     try:
         if _SESSION.auto_met == "linecut" and _SESSION.last_1d is not None and (_SESSION.qmap is not None or new_q_stack is not None):
             if _SESSION.change_ai and new_q_stack is not None:
                 extra = process_linecut_stack(
                     new_frames, None, _SESSION.angle_map, center=beam_pos,
-                    q_map_stack=new_q_stack, ref_axis=_SESSION.last_1d["x_axis"], **_SESSION.last_1d["params"]
+                    q_map_stack=new_q_stack, ref_axis=_SESSION.last_1d["x_axis"],
+                    correction_factor=factor, **_SESSION.last_1d["params"]
                 )
             else:
                 extra = process_linecut_stack(
-                    new_frames, _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos, **_SESSION.last_1d["params"]
+                    new_frames, _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
+                    correction_factor=factor, **_SESSION.last_1d["params"]
                 )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
                 return False
@@ -1178,18 +1220,22 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
             return True
         if _SESSION.auto_met == "azimuthal" and _SESSION.last_azimuthal is not None:
             frames = new_frames
+            azi_factor = factor
             if _SESSION.last_azimuthal.get("reflect_missing_wedge"):
-                frames = _q_remap_stack(frames, "Azimuthal (Qxy/Qz remap)")
+                frames = _q_remap_stack(frames, "Azimuthal (Qxy/Qz remap)", correction_factor=azi_factor)
                 if frames is None:
                     return False
-            extra = process_azimuthal_stack(frames, center=beam_pos, **_SESSION.last_azimuthal["params"])
+                azi_factor = None
+            extra = process_azimuthal_stack(
+                frames, center=beam_pos, correction_factor=azi_factor, **_SESSION.last_azimuthal["params"]
+            )
             if extra.x_axis.shape != _SESSION.last_azimuthal["x_axis"].shape:
                 return False
             _SESSION.last_azimuthal["intensity"] = np.vstack([_SESSION.last_azimuthal["intensity"], extra.intensity])
             _SESSION.last_azimuthal["coverage"] = np.vstack([_SESSION.last_azimuthal["coverage"], extra.coverage])
             return True
         if _SESSION.auto_met == "roi" and _SESSION.last_roi is not None and _SESSION.roi_list:
-            extra = process_roi_stack(new_frames, _SESSION.roi_list)
+            extra = process_roi_stack(new_frames, _SESSION.roi_list, correction_factor=factor)
             _SESSION.last_roi = np.vstack([_SESSION.last_roi, extra])
             return True
     except ValueError:

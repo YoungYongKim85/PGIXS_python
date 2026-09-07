@@ -1147,6 +1147,9 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     def _on_play_clicked(self) -> None:
         session = gs.get_session()
+        # Raw frames plus the shared correction factor: q-Cal no longer
+        # materializes a corrected copy of the whole series, so each
+        # frame is corrected as it is displayed (gs.corrected_frame).
         stack = session.corrected_stack if session.corrected_stack is not None else session.stack
         if stack is None or stack.shape[0] == 0:
             self._set_status("Load a series first.", False)
@@ -1187,7 +1190,7 @@ class GIXS2Widget(QWidget):
             idx = max(1, min(n_frames, value)) - 1
             frame_label.setText(f"Frame: {idx + 1} / {n_frames}")
             canvas.render(
-                stack[idx], cmap=cmap, log_scale=log_scale, vmin=vmin, vmax=vmax,
+                gs.corrected_frame(idx), cmap=cmap, log_scale=log_scale, vmin=vmin, vmax=vmax,
                 extent=extent, xlabel="Y, pixel", ylabel="Z, pixel", keep_limits=idx > 0,
             )
 

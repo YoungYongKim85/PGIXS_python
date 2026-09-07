@@ -55,6 +55,7 @@ from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.trxs import qmap_trxs
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
 from pgixs_python.ui_backend.series_processing import (
+    apply_correction_to,
     build_circular_radius_map,
     compute_experiment_x_axis,
     process_azimuthal_stack,
@@ -72,7 +73,11 @@ class TrXS2Session:
     detector: str = "Eiger4M"
     data: np.ndarray | None = None  # mean-of-stack display image
     stack: np.ndarray | None = None  # (n_frames, rows, cols)
+    # TrXS2 has no per-frame-factor mode, so q-Cal keeps just the factor
+    # (one detector-sized array) and applies it per frame at reduction
+    # time instead of holding a second full copy of the stack.
     corrected_stack: np.ndarray | None = None
+    correction_factor: np.ndarray | None = None
     mask: np.ndarray | None = None
     counts: np.ndarray | None = None  # (n_frames, 2) IC/BC
     timestamps: np.ndarray | None = None  # (n_frames,), baseline-relative
@@ -226,6 +231,7 @@ def _reset_for_new_series() -> None:
     _SESSION.qmap = None
     _SESSION.angle_map = None
     _SESSION.corrected_stack = None
+    _SESSION.correction_factor = None
     _SESSION.corrected = False
     _SESSION.grid_removed = False
     _SESSION.roi_list = []
@@ -591,14 +597,13 @@ def trxs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc)}
 
-    corrected = np.stack([apply_detector_correction(_SESSION.stack[i], factor) for i in range(n_frames)], axis=0)
-
     _SESSION.calibration.update({"energy_kev": energy_kev, "sdd_mm": sdd_mm, "beam_pos": beam_pos})
     _SESSION.qmap = {"qx": qx, "qy": qy, "qz": qz, "q": q}
     _SESSION.angle_map = pixel_angle_map(shape, center=beam_pos)
-    _SESSION.corrected_stack = corrected
+    _SESSION.correction_factor = factor
     _SESSION.corrected = True
-    _SESSION.data = _mean_ignoring_all_nan(corrected)
+    # mean_i(x_i / f) == mean_i(x_i) / f for a frame-independent f.
+    _SESSION.data = apply_detector_correction(_mean_ignoring_all_nan(_SESSION.stack), factor)
 
     if _SESSION.background is not None and _SESSION.background.shape == shape:
         _SESSION.background = apply_detector_correction(_SESSION.background, factor)
@@ -612,6 +617,22 @@ def trxs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _data_for_processing() -> np.ndarray:
     return _SESSION.corrected_stack if _SESSION.corrected_stack is not None else _SESSION.stack
+
+
+def _processing_correction() -> np.ndarray | None:
+    """Correction factor still to be applied to `_data_for_processing()`."""
+
+    if _SESSION.corrected_stack is not None:
+        return None
+    return _SESSION.correction_factor
+
+
+def corrected_frame(index: int) -> np.ndarray:
+    """Frame `index` with the detector correction applied, whichever way this
+    session happens to be holding it -- a materialized `corrected_stack`
+    or the raw stack plus a shared `correction_factor`."""
+
+    return apply_correction_to(_data_for_processing()[index], _processing_correction())
 
 
 # ----------------------------------------------------------------------
@@ -654,6 +675,7 @@ def trxs2_circular_exec(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = process_circular_stack(
             _data_for_processing(), radius_map, use_median=use_median, calc_std=calc_std,
+            correction_factor=_processing_correction(),
             min_coverage=min_coverage, progress_callback=_report, parallel=parallel,
         )
     except ValueError as exc:
@@ -712,6 +734,7 @@ def trxs2_line_exec(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = process_linecut_stack(
             _data_for_processing(), _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
+            correction_factor=_processing_correction(),
             progress_callback=_report, **kwargs,
         )
     except ValueError as exc:
@@ -786,7 +809,8 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.load_progress = None
     try:
         result = process_azimuthal_stack(
-            _data_for_processing(), center=beam_pos, progress_callback=_report, parallel=parallel, **kwargs
+            _data_for_processing(), center=beam_pos, progress_callback=_report, parallel=parallel,
+            correction_factor=_processing_correction(), **kwargs
         )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
@@ -829,7 +853,7 @@ def trxs2_roi_exec(payload: dict[str, Any]) -> dict[str, Any]:
     if not rois:
         return {"ok": False, "message": "Draw at least one ROI first."}
 
-    sums = process_roi_stack(_data_for_processing(), rois)
+    sums = process_roi_stack(_data_for_processing(), rois, correction_factor=_processing_correction())
     _SESSION.roi_list = rois
     _SESSION.last_roi = sums
     _SESSION.auto_met = "roi"
@@ -1131,23 +1155,13 @@ def trxs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.timestamp_reference is not None:
         new_timestamps = new_timestamps - _SESSION.timestamp_reference
 
-    if _SESSION.corrected_stack is not None and _SESSION.qmap is not None:
-        pixel_mm = float(_SESSION.calibration["pixel_mm"])
-        wavelength = wavelength_from_energy_kev(float(_SESSION.calibration["energy_kev"]))
-        k0 = float(2.0 * np.pi / wavelength)
-        factor = detector_correction_factor(
-            DetectorCorrectionInputs(
-                data_size=new_stack.shape[1:], beam_position=_SESSION.calibration["beam_pos"], pixel_size_mm=pixel_mm,
-                sdd_mm=float(_SESSION.calibration["sdd_mm"]), q_map=_SESSION.qmap["q"],
-                energy_kev=float(_SESSION.calibration["energy_kev"]), detector_type=_SESSION.detector,
-            ),
-            k0=k0,
-        )
-        new_corrected = np.stack([apply_detector_correction(new_stack[i], factor) for i in range(new_stack.shape[0])], axis=0)
-        _SESSION.corrected_stack = np.concatenate([_SESSION.corrected_stack, new_corrected], axis=0)
-
     _SESSION.stack = np.concatenate([_SESSION.stack, new_stack], axis=0)
-    _SESSION.data = _mean_ignoring_all_nan(_data_for_processing())
+    # q-Cal stores only the (geometry-only) correction factor, which already
+    # covers the appended frames -- nothing to correct up front here, just
+    # apply it to the refreshed mean image.
+    _SESSION.data = apply_correction_to(
+        _mean_ignoring_all_nan(_data_for_processing()), _processing_correction()
+    )
     _SESSION.counts = np.concatenate([_SESSION.counts, result.counts.astype(np.float32)], axis=0) if _SESSION.counts is not None else result.counts
     _SESSION.timestamps = np.concatenate([_SESSION.timestamps, new_timestamps]) if _SESSION.timestamps is not None else new_timestamps
     _SESSION.temperatures = (
@@ -1184,10 +1198,13 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
     """
 
     beam_pos = _SESSION.calibration.get("beam_pos")
+    factor = _processing_correction()
     try:
         if _SESSION.auto_met == "circular" and _SESSION.last_1d is not None and _SESSION.circular_radius_map is not None:
             params = _SESSION.last_1d["params"]
-            extra = process_circular_stack(new_frames, _SESSION.circular_radius_map, **params)
+            extra = process_circular_stack(
+                new_frames, _SESSION.circular_radius_map, correction_factor=factor, **params
+            )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
                 return False
             _SESSION.last_1d["intensity"] = np.vstack([_SESSION.last_1d["intensity"], extra.intensity])
@@ -1199,7 +1216,7 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
         if _SESSION.auto_met == "line1d" and _SESSION.last_1d is not None and _SESSION.qmap is not None:
             extra = process_linecut_stack(
                 new_frames, _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                ref_axis=_SESSION.last_1d["x_axis"], **_SESSION.last_1d["params"],
+                ref_axis=_SESSION.last_1d["x_axis"], correction_factor=factor, **_SESSION.last_1d["params"],
             )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
                 return False
@@ -1208,7 +1225,9 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
             trxs2_render_1d({})
             return True
         if _SESSION.auto_met == "azimuthal" and _SESSION.last_azimuthal is not None:
-            extra = process_azimuthal_stack(new_frames, center=beam_pos, **_SESSION.last_azimuthal["params"])
+            extra = process_azimuthal_stack(
+                new_frames, center=beam_pos, correction_factor=factor, **_SESSION.last_azimuthal["params"]
+            )
             if extra.x_axis.shape != _SESSION.last_azimuthal["x_axis"].shape:
                 return False
             _SESSION.last_azimuthal["intensity"] = np.vstack([_SESSION.last_azimuthal["intensity"], extra.intensity])
@@ -1216,7 +1235,7 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
             trxs2_render_azimuthal({})
             return True
         if _SESSION.auto_met == "roi" and _SESSION.last_roi is not None and _SESSION.roi_list:
-            extra = process_roi_stack(new_frames, _SESSION.roi_list)
+            extra = process_roi_stack(new_frames, _SESSION.roi_list, correction_factor=factor)
             _SESSION.last_roi = np.vstack([_SESSION.last_roi, extra])
             return True
     except ValueError:
