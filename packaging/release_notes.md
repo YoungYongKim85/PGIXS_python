@@ -4,17 +4,33 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
-## ⚠️ 이 버전부터 결과 수치가 달라집니다 / Numerical results change in this release
+## v0.2.1 — 성능 개선 / Performance
 
-v0.1.1 이하에서 처리한 결과와 **직접 비교하지 마세요.** MATLAB 버전과 대조하는 과정에서
-발견된 계산 오류들이 수정되어, **같은 원본 데이터에서 다른 값이 나옵니다.** 진행 중인
-정량 분석이 있다면 이 버전으로 다시 처리하시기 바랍니다.
+계산 결과는 v0.2.0과 **완전히 동일**합니다(비트 단위로 같은 값). 속도와 메모리만 개선됐습니다.
 
-Do not compare output from this version against v0.1.1 or earlier. Correctness
-fixes found by cross-checking against the MATLAB version change the numbers
-produced from the same raw data; reprocess any in-progress quantitative work.
+Results are bit-identical to v0.2.0; only speed and memory changed.
 
-### 수치에 영향을 주는 수정 / Fixes that change values
+- **Circular Average 약 3.2배 빨라짐** — bin별 중앙값 계산이 프레임마다 값까지 정렬하고 있었는데,
+  중앙값은 순서와 무관하므로 bin으로만 묶도록 바꿨습니다. 100프레임 TrXS-series Circular Exec
+  기준 약 231초 → 약 70초(프레임당 2.31초 → 0.73초, Eiger4M 기준).
+- **시리즈 메모리 약 50% 절감** — q-Cal이 보정된 스택을 통째로 복사해 원본과 함께 들고 있었습니다.
+  보정 인자는 프레임에 무관하므로 그 하나만 저장하고 실제로 계산되는 프레임에만 적용하도록
+  바꿨습니다. Eiger4M 300프레임 기준 약 10.8GB → 약 5.4GB.
+  ("Change ai"는 프레임마다 인자가 달라 기존 방식을 유지합니다.)
+
+---
+
+## ⚠️ v0.1.1 이하에서 올라오신다면 / Upgrading from v0.1.1 or earlier
+
+v0.1.1 이하에서 처리한 결과와 **직접 비교하지 마세요.** v0.2.0에서 MATLAB 버전과 대조하는 과정에서
+발견된 계산 오류들이 수정되어, **같은 원본 데이터에서 다른 값이 나옵니다.** 진행 중인 정량 분석이
+있다면 다시 처리하시기 바랍니다.
+
+Do not compare output against v0.1.1 or earlier. Correctness fixes in v0.2.0,
+found by cross-checking against the MATLAB version, change the numbers produced
+from the same raw data; reprocess any in-progress quantitative work.
+
+### v0.2.0에서 수치에 영향을 준 수정 / Fixes that changed values in v0.2.0
 
 - **검출기 마스크가 실제로 적용됩니다.** 이전에는 마스크 파일이 배포판에 포함되지 않아
   항상 무효과였습니다. 이제 Eiger4M은 약 6.2%, MarCCD/SX165는 약 21.6%의 불량 픽셀이
@@ -32,7 +48,7 @@ produced from the same raw data; reprocess any in-progress quantitative work.
 - **SDD 캘리브레이션 저장 시 빔 중심**이 `.mat`/`.std`에서 한 픽셀 어긋나던 문제가
   수정됐습니다(MATLAB과 상호 호환).
 
-### 동작이 바뀐 부분 / Behavior changes
+### v0.2.0에서 동작이 바뀐 부분 / Behavior changes in v0.2.0
 
 - **Grid Remove**를 q-Map Cal. 이후에 실행해도 조용히 무시되던 문제가 수정됐습니다.
   단일 프레임 콘솔에서는 q-Map Cal.을 다시 실행해야 하고, 시리즈 탭에서는 q-Cal 이전에만
