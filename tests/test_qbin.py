@@ -1,6 +1,6 @@
 import numpy as np
 
-from pgixs_python.averaging.qbin import mean_by_bin, qbin_average, summarize_coverage
+from pgixs_python.averaging.qbin import _median_by_bin, mean_by_bin, qbin_average, summarize_coverage
 
 
 def test_mean_by_bin_omits_nan():
@@ -53,3 +53,24 @@ def test_summarize_coverage_reports_low_and_drop_bins():
     assert summary["coverage_min"] < 0.1
     np.testing.assert_array_equal(summary["coverage_low_bins"], np.array([4, 5, 6], dtype=np.int64))
     assert np.asarray(summary["coverage_drop_bins"]).size >= 1
+
+
+def test_median_by_bin_is_independent_of_within_bin_value_order():
+    """`_median_by_bin` groups by bin with a stable argsort rather than
+    lexsorting the values too -- a median doesn't depend on input order, and
+    the cheaper sort is ~5x faster on a full detector frame (it runs twice per
+    Huber/MAD reduction, on every frame of a series). Shuffling the values
+    within each bin must not move the result."""
+
+    rng = np.random.default_rng(7)
+    bins = np.repeat(np.arange(40), 25)
+    values = rng.uniform(0.0, 100.0, size=bins.size)
+
+    baseline = _median_by_bin(values, bins, 40)
+
+    shuffle = rng.permutation(values.size)
+    shuffled = _median_by_bin(values[shuffle], bins[shuffle], 40)
+
+    np.testing.assert_array_equal(baseline, shuffled)
+    for b in range(40):
+        np.testing.assert_allclose(baseline[b], np.median(values[bins == b]))
