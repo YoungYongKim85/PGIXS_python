@@ -723,7 +723,7 @@ def test_console_line_1d_trxs_reports_the_true_q_not_a_small_angle_approximation
     wavelength_a = wavelength_from_energy_kev(energy_kev)
     k0 = 2.0 * np.pi / wavelength_a
 
-    _, q_magnitude = cs._q_space_cut_inputs("Qy/Qz")
+    _, q_magnitude, _, _ = cs._q_space_cut_inputs("Qy/Qz")
 
     row, col = 0, 0  # the 48x48 frame's far corner from the beam
     radius_px = np.hypot((col + 1) - beam_y, (row + 1) - beam_z)
@@ -1449,3 +1449,42 @@ def test_set_session_isolates_two_independent_sessions(tmp_path):
     assert trxs_session.data is not None
     assert trxs_session.source_path == str(trxs_frame)
     assert trxs_session.mode == "trxs"
+
+
+def test_console_line_1d_offset_cut_is_labelled_by_the_varying_q_component(tmp_path):
+    """Regression: an offset axis-aligned cut runs at a fixed nonzero Qz, so
+    |Q| along it is inflated by that constant and never reaches 0 even where
+    the cut crosses the beam meridian. MATLAB switches the axis to the
+    component that actually varies along the cut (`Anglecut1d_gi.m`'s
+    `calcQ_Horizontal`: `Qdata = Qr` once `zposmv ~= 0`); this port used to
+    label every cut with |Q| regardless, shifting peak positions/d-spacings
+    for any offset cut."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    shape = (64, 64)
+    data = np.random.default_rng(1).uniform(10.0, 100.0, size=shape).astype(np.float32)
+    with h5py.File(frame_path, "w") as h5:
+        h5.create_dataset("entry/data/data", data=data[None, :, :])
+    _load(frame_path)
+    cs.get_session().calibration_loaded = True
+    assert cs.console_qmap(
+        {"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0, "incident_angle_deg": 0.2}
+    )["ok"]
+
+    z_pos_move = 30.0
+    payload = cs.console_line_1d({"angle_deg": 180.0, "z_pos_move": z_pos_move, "mapping": "Pixel"})
+    assert payload["ok"], payload.get("message")
+    q_axis = np.asarray(cs.get_session().last_curve["q"], dtype=np.float64)
+
+    qmap = cs.get_session().qmap
+    cut_row = int(round(32.0 - z_pos_move)) - 1  # accumulation_average's row_center, 0-based
+    row_q = np.abs(qmap["q"][cut_row])
+    row_qr = np.abs(qmap["qr"][cut_row])
+
+    # The cut crosses the beam meridian, where the in-plane component is ~0
+    # but |Q| is still pinned to the fixed Qz offset.
+    assert q_axis.min() < 0.25 * row_q.min()
+    # ...and its span follows Qxy, not the (larger) |Q| of the same row.
+    assert q_axis.max() == pytest.approx(row_qr.max(), rel=0.02)
+    assert q_axis.max() < 0.95 * row_q.max()

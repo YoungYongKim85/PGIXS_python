@@ -18,7 +18,7 @@ into the same `_SESSION.sdd_result`/`sddcal_save`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -485,12 +485,15 @@ def sddcal_save(payload: dict[str, Any]) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{source.stem}_standard"
 
-    # This app's own internal center convention is 0-based (Python array
-    # indexing); MATLAB's is 1-based. .json is this app's own
-    # "Load Info"-readable format, so its center is saved exactly as held
-    # in the session -- .mat and .std both represent MATLAB's native
-    # world, so their center needs +1 on each axis to land on the same
-    # physical pixel MATLAB would call it.
+    # `_SESSION.center` is 1-based, the same convention MATLAB uses and the
+    # one every pixel grid here is built on (`np.arange(1, n+1)` in
+    # `pixel_radial`/`center_refine`/`qmap`). MATLAB's `.mat`/`.std` are
+    # 1-based too (`SDDcal_gui.m` writes the raw GUI values), so every file
+    # below gets the session center verbatim -- an earlier +1 shift on
+    # `.mat`/`.std` here was compensating for a 0-based convention this app
+    # does not actually use, and put those files one pixel off on both axes.
+    # (MATLAB's own `.json` is separately 0-based; see the note in
+    # `load_standard_calibration` about reading MATLAB-written JSON.)
     calibration_json = StandardCalibration(
         beam_center=np.asarray(_SESSION.center, dtype=np.float64),
         wavelength=_SESSION.sdd_result["wavelength"],
@@ -503,7 +506,6 @@ def sddcal_save(payload: dict[str, Any]) -> dict[str, Any]:
         detector_index=_DETECTOR_INDEX.get(_SESSION.detector, "unknown"),
         image_shape=np.asarray(_SESSION.data.shape, dtype=np.float64),
     )
-    calibration_matlab = replace(calibration_json, beam_center=calibration_json.beam_center + 1.0)
 
     json_path = out_dir / f"{stem}.json"
     save_standard_calibration_json(json_path, calibration_json)
@@ -511,7 +513,7 @@ def sddcal_save(payload: dict[str, Any]) -> dict[str, Any]:
     mat_path = out_dir / f"{stem}.mat"
     mat_message = ""
     try:
-        save_standard_calibration_mat(mat_path, calibration_matlab)
+        save_standard_calibration_mat(mat_path, calibration_json)
         mat_saved = True
     except Exception as exc:  # noqa: BLE001 - .mat/.std are best-effort, .json already saved.
         mat_saved = False
@@ -520,7 +522,7 @@ def sddcal_save(payload: dict[str, Any]) -> dict[str, Any]:
     std_path = out_dir / f"{stem}.std"
     std_message = ""
     try:
-        save_standard_calibration_std(std_path, calibration_matlab)
+        save_standard_calibration_std(std_path, calibration_json)
         std_saved = True
     except Exception as exc:  # noqa: BLE001
         std_saved = False

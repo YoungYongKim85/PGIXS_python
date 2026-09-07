@@ -132,3 +132,57 @@ def test_grid_remove_only_applies_to_eiger4m():
     assert report.applied
     assert np.isfinite(report.correction_factor)
     assert corrected.shape == data.shape
+
+
+def _correction_inputs(detector_type):
+    shape = (12, 12)
+    center = (6.5, 6.5)
+    y, z = np.meshgrid(
+        np.arange(1, shape[1] + 1, dtype=np.float64),
+        np.arange(1, shape[0] + 1, dtype=np.float64),
+    )
+    q_map = (np.hypot(y - center[0], z - center[1]) * 0.02).astype(np.float32)
+    return DetectorCorrectionInputs(
+        data_size=shape,
+        beam_position=center,
+        pixel_size_mm=0.075,
+        sdd_mm=250.0,
+        q_map=q_map,
+        energy_kev=9.5,
+        detector_type=detector_type,
+    ), shape, center, q_map
+
+
+def test_detector_correction_factor_always_includes_kapton():
+    """Regression: MATLAB's `computePGIXSDetectorCorrectionFactor.m` loads the
+    Kapton table itself and multiplies it in unconditionally, so every q-Cal
+    path gets it. This port used to apply it only when a caller passed the
+    table explicitly -- which only the GIXS-series "Change ai" path ever did,
+    silently dropping the correction from the single-frame consoles, the plain
+    series q-Cal, Auto Refresh and the CLI workflow."""
+
+    inputs, shape, center, q_map = _correction_inputs("MarCCD")
+    k0 = 2.0 * np.pi / 1.3
+
+    factor = detector_correction_factor(inputs, k0=k0)
+
+    base = solid_angle(shape, center, 0.075, 250.0) * polarization(shape, center, 0.075, 250.0)
+    expected = base * kapton_efficiency(
+        q_map, load_attenuation_table("kapton"), k0, 9.5, shape, center, 0.075
+    )
+    np.testing.assert_allclose(factor, expected, rtol=1e-6)
+    assert not np.allclose(factor, base), "Kapton correction was not applied"
+
+
+def test_detector_correction_factor_adds_silicon_only_for_eiger4m():
+    """`Eff_correc2` is Eiger4M-only in MATLAB (its silicon sensor chip)."""
+
+    k0 = 2.0 * np.pi / 1.3
+    eiger_inputs, _, _, q_map = _correction_inputs("Eiger4M")
+    other_inputs, _, _, _ = _correction_inputs("MarCCD")
+
+    eiger = detector_correction_factor(eiger_inputs, k0=k0)
+    other = detector_correction_factor(other_inputs, k0=k0)
+
+    expected_ratio = silicon_efficiency(q_map, k0, load_attenuation_table("silicon"), 9.5)
+    np.testing.assert_allclose(eiger / other, expected_ratio, rtol=1e-5)

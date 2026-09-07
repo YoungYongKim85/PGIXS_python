@@ -344,25 +344,28 @@ def test_sddcal_save_writes_json_and_mat_readable_by_load_info(tmp_path):
     assert loaded is not None
     np.testing.assert_allclose(loaded.beam_center, [100.5, 100.5])
 
-    # .mat and .std both represent MATLAB's own native 1-based pixel
-    # indexing, so their saved center is +1 from this app's internal
-    # (0-based) session center that .json carries unchanged -- see
-    # sddcal_save.
+    # The session center is already in MATLAB's 1-based pixel coordinates,
+    # so .mat/.std carry it unchanged too -- same value in all three files.
     if payload["mat_path"]:
         loaded_mat, report_mat = load_standard_calibration(payload["mat_path"], expected_detector="TestDetector")
         assert report_mat.ok, report_mat.message
-        np.testing.assert_allclose(loaded_mat.beam_center, [101.5, 101.5])
+        np.testing.assert_allclose(loaded_mat.beam_center, [100.5, 100.5])
     if payload["std_path"]:
         loaded_std, report_std = load_standard_calibration(payload["std_path"], expected_detector="TestDetector")
         assert report_std.ok, report_std.message
-        np.testing.assert_allclose(loaded_std.beam_center, [101.5, 101.5])
+        np.testing.assert_allclose(loaded_std.beam_center, [100.5, 100.5])
 
 
-def test_sddcal_save_center_convention_matches_python_vs_matlab_indexing(tmp_path):
-    """Regression: "json에서는 센터를 그냥 똑같이 세이브하면 되고, mat의 경우 1씩
-    더해야돼. 왜냐하면 매트릭스 시작이 python에서는 0이고, mat에서는 1부터이기
-    때문이야." -- .json keeps this app's own 0-based center; .mat/.std both
-    represent MATLAB's native 1-based indexing, so they get +1 on both axes."""
+def test_sddcal_save_writes_the_session_center_verbatim_to_every_format(tmp_path):
+    """Regression, superseding an earlier "mat의 경우 1씩 더해야돼" rule: that
+    rule assumed the session center is a 0-based numpy index, but it is not.
+    Every pixel grid here is `np.arange(1, n+1)` (`pixel_radial`,
+    `center_refine`, `qmap`), so a pixel at array index (row, col) sits at
+    radius 0 only for center == (col+1, row+1) -- the center is stored in the
+    same 1-based coordinates MATLAB uses. MATLAB's `SDDcal_gui.m` writes its
+    `.mat`/`.std` from the raw 1-based GUI values too, so adding 1 here shifted
+    those files a pixel off on both axes. All three formats now get the
+    session center verbatim."""
 
     s.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -380,8 +383,8 @@ def test_sddcal_save_center_convention_matches_python_vs_matlab_indexing(tmp_pat
 
     loaded_mat, _ = load_standard_calibration(payload["mat_path"])
     assert loaded_mat is not None
-    np.testing.assert_allclose(loaded_mat.beam_center, [13.0, 35.0])
+    np.testing.assert_allclose(loaded_mat.beam_center, [12.0, 34.0])
 
     loaded_std, _ = load_standard_calibration(payload["std_path"])
     assert loaded_std is not None
-    np.testing.assert_allclose(loaded_std.beam_center, [13.0, 35.0])
+    np.testing.assert_allclose(loaded_std.beam_center, [12.0, 34.0])

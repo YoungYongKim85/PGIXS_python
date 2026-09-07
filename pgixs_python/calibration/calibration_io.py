@@ -39,7 +39,15 @@ def load_standard_calibration(
     file_path: str | Path,
     expected_detector: str = "",
 ) -> tuple[StandardCalibration | None, CalibrationLoadReport]:
-    """Load a MATLAB `.mat` or Python-friendly `.json` SDD calibration file."""
+    """Load a MATLAB `.mat` or Python-friendly `.json` SDD calibration file.
+
+    `pc` is taken verbatim as a 1-based beam center, which is what this app's
+    pixel grids expect and what both MATLAB and this app write to `.mat`/
+    `.std`/`.json`. The one exception is a `.json` written by *MATLAB*'s
+    `SDDcal_gui.m`, which subtracts 1 from the center on the assumption that
+    Python indexes from 0 -- that file reads one pixel low on both axes here.
+    Resolving it needs a decision on the shared convention (see the pending
+    MATLAB-side review), not a silent adjustment in this loader."""
 
     path = Path(file_path)
     report = CalibrationLoadReport(ok=False, path=path)

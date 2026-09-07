@@ -76,17 +76,15 @@ def find_rough_peaks(
     if valid_idx.size == 0:
         return np.array([], dtype=np.int64)
 
-    # Prominence threshold comes from the *whole* profile's max (including
-    # the excluded near-center region, typically far brighter than any
-    # ring), not just the `valid` subset -- matches
-    # `max(intensity, [], 'omitnan')` in the MATLAB source, computed
-    # before the `valid` filter is applied to `findpeaks`'s own input.
-    finite_full = intensity[np.isfinite(intensity)]
-    if finite_full.size == 0:
-        return np.array([], dtype=np.int64)
-    prominence = float(np.max(finite_full)) * prominence_fraction
-
+    # Prominence threshold comes from the `valid` analysis domain only, not
+    # the whole profile -- matches `max(intensity(valid), [], 'omitnan')` in
+    # `analyzePGIXSSDDCandidates.m`. The excluded near-center region holds the
+    # beam stop / direct beam, orders of magnitude brighter than any standard
+    # ring; scaling the threshold off that would suppress every real ring.
     finite_intensity = intensity[valid]  # already all-finite, `valid` requires it
+    prominence = float(np.max(finite_intensity)) * prominence_fraction
+    if not np.isfinite(prominence) or prominence <= 0:
+        return np.array([], dtype=np.int64)
     local_peaks, _ = find_peaks(finite_intensity, prominence=prominence)
     if local_peaks.size == 0:
         return np.array([], dtype=np.int64)

@@ -204,8 +204,10 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 - **q-Map Cal.이 적용하는 detector correction** — Q 변환과 동시에, 원본 세기(raw intensity)를 다음 두 보정 인자로 나눠서 `corrected_data`를 만든다(2D Image Plot과 이후의 모든 1D 컷은 이 보정된 데이터를 사용한다):
   - **Solid angle 보정** — 픽셀마다 빔 중심에서 보는 입체각(solid angle)이 달라서(중심에서 멀수록·기울어질수록 작아짐) 생기는 세기 편차를 보정한다(최댓값 1로 정규화).
   - **Polarization 보정** — 방사광은 수평 편광이라고 가정하고(수평 편광 비율 100%), 산란 방향에 따른 편광 인자를 보정한다.
-  - 이 두 인자를 곱한 것이 총 보정 인자이며, `보정된 세기 = 원본 세기 / (solid angle × polarization)`으로 계산한다.
-  - 참고: 캡톤(Kapton) 창 투과율·실리콘(Eiger4M) 센서 흡수 보정 함수도 코드베이스에 존재하지만, 이 q-Map Cal.(단일 프레임 GIXS/TrXS, 그리고 GIXS-series의 일반 q-Cal)에는 적용되지 않는다 — GIXS-series의 "Change ai"(입사각을 프레임마다 바꿔가며 스캔하는 모드) q-Cal에서만 함께 적용된다. 공기 흡수(air absorption) 보정은 이 포팅에 구현돼 있지 않다.
+  - **캡톤(Kapton) 창 투과율 보정** — 산란각이 커질수록 캡톤 창을 비스듬히 통과해 실효 경로가 길어지는 효과를 보정한다(에너지별 감쇠 길이 테이블 사용, 최댓값 1로 정규화).
+  - **실리콘 센서 흡수 보정** — 검출기가 **Eiger4M일 때만** 추가로 적용된다. 실리콘 센서 칩이 각도에 따라 X-ray를 흡수하는 비율 차이를 보정한다(최솟값 1로 정규화).
+  - 이 인자들을 모두 곱한 것이 총 보정 인자이며, `보정된 세기 = 원본 세기 / (solid angle × polarization × 캡톤 × [Eiger4M이면 실리콘])`으로 계산한다. 네 가지 보정 모두 단일 프레임 GIXS/TrXS, GIXS-series, TrXS-series의 모든 q-Cal 경로에 동일하게 적용된다.
+  - 참고: 공기 흡수(air absorption) 보정은 이 포팅에 구현돼 있지 않다.
 
 ### 3.2 왼쪽 패널 — TrXS 전용: Circular Process
 
@@ -228,6 +230,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 
 - **Line angle** — 기본 90°. 도움말: "0: ←, 90: ↑, 180: →".
 - **Pos move (y,z)** — GIXS만 있음. 컷 라인을 빔 중심에서 얼마나 offset할지. angle이 0/180°일 때는 z만, 90°일 때는 y만 움직이고, 그 외 각도에서는 무시된다(Cakecut에는 영향 없음). TrXS는 항상 빔 중심을 지나므로 이 필드 자체가 없다.
+  - **Pos move를 주면 X축의 의미가 바뀐다**: 오프셋된 컷은 Qz(수평 컷의 경우)가 0이 아닌 고정값인 자리를 지나므로, `|Q|`로 라벨하면 그 고정 성분이 계속 더해져 실제로 스캔하는 좌표를 나타내지 못한다. 그래서 오프셋이 0이 아닐 때는 컷을 따라 실제로 변하는 성분(수평 컷은 Qxy, 수직 컷은 Qz)의 크기를 X축으로 쓴다. 오프셋이 0이면 종전대로 `|Q|`를 쓴다. **Accumulation은 오프셋과 무관하게 항상 `|Q|`** 를 쓴다(MATLAB 원본과 동일).
 - **Cakecut** 체크박스(GIXS만) + minus/plus 각도 범위 — 기준 각도를 중심으로 한 각도 쐐기(wedge) 컷.
 - **Accumulation** 체크박스(GIXS만) + minus/plus — 컷 라인에 수직인 픽셀 밴드 평균. 각도가 0/90/180일 때만 사용 가능. Cakecut과 동시에 켤 수 없다(하나 켜면 다른 하나는 자동으로 꺼짐).
   - **Cakecut 계산 방식**: 기준 각도(Line angle) 기준 ±(minus/plus) 범위 안에 들어가는 픽셀만 골라(각도는 빔 중심 기준 atan2로 계산), 그 픽셀들을 다시 픽셀 반경 1px 폭 bin으로 나눠 Huber 강건 평균(또는 중앙값)을 낸다 — TrXS Circular Average와 같은 반경-binning 엔진을 각도 쐐기 하나에만 적용하는 셈이다.
@@ -549,7 +552,7 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 
 | 용어 | 의미 |
 | --- | --- |
-| **q-Map Cal. / q-Cal** | 검출기 픽셀 좌표를 Q-space(역격자 공간) 좌표로 변환하는 계산. GIXS는 입사각을 반영해서 Qxy/Qz를 계산하고, TrXS는 normal-incidence 기준으로 Qy/Qz를 계산한다. 동시에 solid angle × polarization 보정 인자로 세기를 나눠 `corrected_data`를 만든다(캡톤/실리콘 흡수 보정은 GIXS-series "Change ai" q-Cal에서만 추가로 적용된다). |
+| **q-Map Cal. / q-Cal** | 검출기 픽셀 좌표를 Q-space(역격자 공간) 좌표로 변환하는 계산. GIXS는 입사각을 반영해서 Qxy/Qz를 계산하고, TrXS는 normal-incidence 기준으로 Qy/Qz를 계산한다. 동시에 `solid angle × polarization × 캡톤 투과율`(검출기가 Eiger4M이면 `× 실리콘 흡수`) 보정 인자로 세기를 나눠 `corrected_data`를 만든다. |
 | **q uncertainty (q_std)** | GIXS 전용. Footprint(FP)를 SDD의 ±FP/2 불확실성으로 취급해 구한 q 좌표 자체의 근사 불확실성. 1D Plot Process의 X축 error bar와 저장 시 `q_standard_deviation` 컬럼으로 반영된다. Cakecut과는 함께 쓸 수 없다(계산 자체를 건너뜀). footprint 하나만 반영한 근사치이며, 데이터 통계(카운트 오차)와는 무관한 순수 기하학적 값이다. |
 | **Map format (Pixel / Qxy·Qy / Qz)** | 2D 이미지를 픽셀 좌표로 볼지, Q-space 균일 그리드로 리그리딩해서 볼지 선택. Q-space 모드에서는 Line/Cake/Accumulation/Azimuthal 컷이 실제로 리그리딩된 이미지를 잘라서 pixel-space와 독립적인 결과를 낸다. |
 | **Grid Remove** | Eiger4M 등 일부 검출기의 물리적 모듈 간격(그리드)을 보정하는 처리. |

@@ -16,7 +16,9 @@ def load_attenuation_table(name: str) -> np.ndarray:
     """Load a `(energy_kev, attenuation_length_cm)` table -- `"kapton"` or
     `"silicon"`, matching MATLAB's `KaptonAttLength8-30.mat`/
     `SiAttLength8-30.mat` (`R` variable), used by `kapton_efficiency`/
-    `silicon_efficiency` for the "Change ai" angle-scanning correction."""
+    `silicon_efficiency`. `detector_correction_factor` loads these itself, so
+    callers only pass them explicitly to reuse one table across a per-frame
+    loop ("Change ai")."""
 
     files = {"kapton": "kapton_attenuation_length.csv", "silicon": "si_attenuation_length.csv"}
     if name not in files:
@@ -61,19 +63,30 @@ def detector_correction_factor(inputs: DetectorCorrectionInputs, k0: float) -> n
     total = solid_angle(shape, inputs.beam_position, inputs.pixel_size_mm, inputs.sdd_mm)
     total *= polarization(shape, inputs.beam_position, inputs.pixel_size_mm, inputs.sdd_mm)
 
-    if inputs.kapton_attenuation is not None:
-        total *= kapton_efficiency(
-            inputs.q_map,
-            inputs.kapton_attenuation,
-            k0,
-            inputs.energy_kev,
-            shape,
-            inputs.beam_position,
-            inputs.pixel_size_mm,
-        )
+    # Kapton (always) and the Eiger4M silicon sensor (that detector only) are
+    # part of every correction factor, matching MATLAB's
+    # `computePGIXSDetectorCorrectionFactor.m`, which loads both tables itself
+    # rather than taking them from the caller. The explicit fields below are
+    # only a caller-supplied cache -- "Change ai" reuses one loaded table
+    # across a whole per-frame loop -- never a way to opt out.
+    kapton_table = inputs.kapton_attenuation
+    if kapton_table is None:
+        kapton_table = load_attenuation_table("kapton")
+    total *= kapton_efficiency(
+        inputs.q_map,
+        kapton_table,
+        k0,
+        inputs.energy_kev,
+        shape,
+        inputs.beam_position,
+        inputs.pixel_size_mm,
+    )
 
-    if str(inputs.detector_type) == "Eiger4M" and inputs.silicon_attenuation is not None:
-        total *= silicon_efficiency(inputs.q_map, k0, inputs.silicon_attenuation, inputs.energy_kev)
+    if str(inputs.detector_type) == "Eiger4M":
+        silicon_table = inputs.silicon_attenuation
+        if silicon_table is None:
+            silicon_table = load_attenuation_table("silicon")
+        total *= silicon_efficiency(inputs.q_map, k0, silicon_table, inputs.energy_kev)
 
     return total.astype(np.float32, copy=False)
 

@@ -677,9 +677,13 @@ def console_polar_image(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _q_space_cut_inputs(mapping: str) -> tuple[np.ndarray, np.ndarray]:
-    """Build the (regridded intensity, Q-magnitude) pair `console_line_1d`
-    swaps in for `data`/`q_map` when Map format isn't "Pixel" -- port of
+def _q_space_cut_inputs(mapping: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build the (regridded intensity, Q-magnitude, horizontal component,
+    vertical component) tuple `console_line_1d` swaps in for `data`/`q_map`
+    when Map format isn't "Pixel". The two component maps label an *offset*
+    axis-aligned cut, which runs at a fixed nonzero Qz (or Qxy) and so is
+    labelled by the coordinate that actually varies along it, not by |Q|
+    (`Anglecut1d_gi.m`'s `calcQ_Horizontal`/`calcQ_Vertical`) -- port of
     GIXS_gui.m's `Anglecut1d_gi.m` Mapping branch (`data2d = param.Itrans`
     for Qxy/Qz and Qy/Qz), so a line/accumulation/cake cut done in
     Qxy/Qz (or Qy/Qz) mode runs against the actual Q-remapped image
@@ -734,14 +738,25 @@ def _q_space_cut_inputs(mapping: str) -> tuple[np.ndarray, np.ndarray]:
         two_theta = np.arctan(radius_px * pixel_mm / sdd_mm)
         k0 = 2.0 * np.pi / wavelength_a
         q_magnitude = (2.0 * k0 * np.sin(two_theta / 2.0)).astype(np.float32)
-        return result.image, q_magnitude
+        return result.image, q_magnitude, *_axis_component_maps(result)
 
     horizontal_map = qmap.get("qy") if mapping == "Qy/Qz" else qmap.get("qr")
     if horizontal_map is None or "qz" not in qmap:
         raise ValueError(f"{mapping} map is not available.")
     result = image_transform_q_gi(data_for_transform, horizontal_map, qmap["qz"], beam_pos, pixel_mm, wavelength_a, sdd_mm)
     q_magnitude = np.hypot(result.horizontal_axis[np.newaxis, :], result.vertical_axis[:, np.newaxis]).astype(np.float32)
-    return result.image, q_magnitude
+    return result.image, q_magnitude, *_axis_component_maps(result)
+
+
+def _axis_component_maps(result) -> tuple[np.ndarray, np.ndarray]:
+    """The regridded image's own horizontal/vertical Q axes broadcast to full
+    2D maps, matching MATLAB's `meshgrid(param.qr, param.qz)` in the offset
+    branches of `Anglecut1d_gi.m`."""
+
+    shape = result.image.shape
+    horizontal = np.broadcast_to(result.horizontal_axis[np.newaxis, :], shape).astype(np.float32)
+    vertical = np.broadcast_to(result.vertical_axis[:, np.newaxis], shape).astype(np.float32)
+    return horizontal, vertical
 
 
 def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
@@ -769,9 +784,15 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if mapping == "Pixel":
         data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
         q_for_1d = _SESSION.qmap["q"]
+        # GIXS keeps the signed in-plane component as "qr"; TrXS names its
+        # equivalent "qy". Either way these label an offset cut (below).
+        horizontal_component = _SESSION.qmap.get("qr")
+        if horizontal_component is None:
+            horizontal_component = _SESSION.qmap.get("qy")
+        vertical_component = _SESSION.qmap.get("qz")
     else:
         try:
-            data_for_1d, q_for_1d = _q_space_cut_inputs(mapping)
+            data_for_1d, q_for_1d, horizontal_component, vertical_component = _q_space_cut_inputs(mapping)
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
     beam_pos = _SESSION.calibration["beam_pos"]
@@ -790,6 +811,18 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     # (the per-pixel q-uncertainty map, if q-Map Cal. computed one) without
     # duplicating the branch logic -- same geometry, different "data".
     axis_aligned = angle_deg in (0.0, 90.0, 180.0)
+
+    # An offset axis-aligned cut sits at a fixed nonzero Qz (horizontal cut)
+    # or Qxy (vertical cut), so |Q| along it is inflated by that constant
+    # perpendicular component and is not the coordinate the cut scans.
+    # MATLAB switches the axis to the varying component in exactly this case
+    # (`Anglecut1d_gi.m`'s `calcQ_Horizontal`/`calcQ_Vertical`: `Qdata = Qr`
+    # when `zposmv ~= 0`, `Qdata = Qz` when `yposmv ~= 0`); use its magnitude,
+    # since the component is signed and every downstream binning step here
+    # requires q > 0. Accumulation is deliberately excluded -- MATLAB's
+    # `Accumpix_gi.m` labels its band with |Q| regardless of the offset.
+    offset_component = horizontal_component if angle_deg in (0.0, 180.0) else vertical_component
+    offset_cut_q_map = q_for_1d if offset_component is None else np.abs(offset_component)
 
     def _run_cut(values: np.ndarray):
         if accumulation:
@@ -820,7 +853,7 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
             return accumulation_average(
                 values,
-                q_for_1d,
+                offset_cut_q_map,
                 center=beam_pos,
                 angle_deg=angle_deg,
                 perp_offset=perp_offset,
@@ -952,7 +985,7 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
         # 연결되서 그렸어" -- because it was still silently cutting the
         # raw pixel image regardless of Map format).
         try:
-            data_for_1d, _ = _q_space_cut_inputs(mapping)
+            data_for_1d, _, _, _ = _q_space_cut_inputs(mapping)
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
     beam_pos = _SESSION.calibration["beam_pos"]

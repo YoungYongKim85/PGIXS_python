@@ -173,3 +173,29 @@ def test_candidates_to_dicts_round_trips_fields():
         "rough_radius", "fitted_radius", "order", "q_value", "coverage",
         "r_square", "sigma", "sdd_mm", "accepted", "message",
     }
+
+
+def test_find_rough_peaks_threshold_ignores_the_beamstop_core():
+    """Regression: the peak-prominence threshold must be scaled off the
+    *analysis domain* (`r > min_radius`), not the whole profile, matching
+    `analyzePGIXSSDDCandidates.m`'s `max(intensity(valid), [], 'omitnan')`
+    and the reason its comment gives ("A saturated beam-stop/direct-beam
+    feature at a radius rejected by valid must not suppress otherwise usable
+    standard rings"). Scaling off the whole profile made the threshold track
+    the beam-stop core, which on real data is orders of magnitude brighter
+    than any calibrant ring, so Smart Auto Run silently found nothing."""
+
+    n_bins = 500
+    r_axis = np.arange(n_bins, dtype=np.float64) + 0.5
+    intensity = np.full(n_bins, 5.0)
+    # A direct-beam/beam-stop core 1000x the rings, entirely inside r <= 50.
+    intensity += 5.0e5 * np.exp(-((r_axis - 15.0) ** 2) / (2.0 * 6.0**2))
+    for radius in (120.0, 240.0):
+        intensity += 500.0 * np.exp(-((r_axis - radius) ** 2) / (2.0 * 2.0**2))
+    coverage = np.ones(n_bins, dtype=np.float64)
+
+    peaks = find_rough_peaks(r_axis, intensity, coverage)
+
+    found = np.sort(r_axis[peaks])
+    assert found.size == 2, f"expected both rings, got radii {found}"
+    np.testing.assert_allclose(found, [120.5, 240.5], atol=1.5)
