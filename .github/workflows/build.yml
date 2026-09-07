@@ -101,4 +101,12 @@ jobs:
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ github.ref_name }}" artifacts/* --title "${{ github.ref_name }}" --generate-notes
+        # packaging/release_notes.md carries the hand-written part of the body
+        # (notably the "results change in this version" warning); gh appends
+        # its auto-generated commit list underneath. Update that file before
+        # tagging a release.
+        run: >
+          gh release create "${{ github.ref_name }}" artifacts/*
+          --title "${{ github.ref_name }}"
+          --notes-file packaging/release_notes.md
+          --generate-notes
