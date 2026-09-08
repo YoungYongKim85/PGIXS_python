@@ -155,4 +155,4 @@ v0.2.0에서 MATLAB 버전과 대조해 발견된 계산 오류들이 수정됐�
 동작이 바뀐 부분: Grid Remove를 q-Map Cal. 이후 실행하는 경우의 처리, q-Map 입력값 변경 시
 완료 표시 해제, Auto Refresh 직후 저장 실패 수정, Play·Heatmap·ROI·Mask 창 종료 시 오류 수정.
 
-자세한 내용은 저장소의 `docs/desktop_manual_ko.md`(또는 `.docx`) 매뉴얼을 참고하세요.
+자세한 내용은 매뉴얼을 참고하세요 — 저장소의 `docs/desktop_manual_ko.md`, 또는 이 릴리즈에 첨부된 `desktop_manual_ko.docx`.

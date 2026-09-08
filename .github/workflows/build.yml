@@ -80,8 +80,33 @@ jobs:
             ${{ matrix.asset_name }}.tar.gz
           if-no-files-found: ignore
 
+  manual:
+    # The .docx manual is generated, not committed -- Word rewrites its
+    # table-of-contents field the moment anyone opens the file, so a tracked
+    # copy showed up as an uncommitted change over and over. Building it here
+    # also guarantees the manual attached to a release matches that release's
+    # Markdown source. docs/desktop_manual_ko.md is the source of truth.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build the manual
+        working-directory: docs/tools
+        run: |
+          npm install --no-audit --no-fund
+          npm run manual
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manual
+          path: docs/desktop_manual_ko.docx
+
   release:
-    needs: build
+    needs: [build, manual]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

@@ -15,7 +15,10 @@ GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs).
   example data you generate with one command, and states the number you should
   get back at each step.
 - [docs/desktop_manual_ko.md](docs/desktop_manual_ko.md) -- the full user
-  manual covering every control on every tab (Korean).
+  manual covering every control on every tab (Korean). A Word (`.docx`)
+  build of it is attached to every
+  [release](https://github.com/YoungYongKim85/PGIXS_python/releases); to
+  build one yourself, run `npm install && npm run manual` in `docs/tools`.
 
 **End users** (no Python install needed): download the build for your OS
 below, or browse all versions on the [Releases](../../releases) page.

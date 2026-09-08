@@ -1,0 +1,11 @@
+{
+  "name": "pgixs-docs-tools",
+  "private": true,
+  "description": "Builds docs/desktop_manual_ko.docx from the Markdown source. Not published; used by md_to_docx.js and by the release workflow.",
+  "scripts": {
+    "manual": "node md_to_docx.js ../desktop_manual_ko.md ../desktop_manual_ko.docx"
+  },
+  "dependencies": {
+    "docx": "9.7.1"
+  }
+}
