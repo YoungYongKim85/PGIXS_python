@@ -112,9 +112,12 @@ def test_save_standard_calibration_mat_roundtrip(tmp_path):
 
 
 def test_load_standard_calibration_std_reads_a_real_matlab_file():
-    """Real MATLAB `stdsave.m` output (no Energy field, 2-value section 3)
-    -- confirms this app can now read real-world .std files it previously
-    couldn't parse at all."""
+    """A real `.std` written by the calibration GUI, parsed end to end.
+
+    Skips where the fixture is absent: `testdata/` is not committed (the real
+    frames are far too large), so this only runs on a machine that has the
+    beamline data.
+    """
 
     std_file = "testdata/SAXSBattery/standard/20260416_sb_0001_standard.std"
 
@@ -124,16 +127,53 @@ def test_load_standard_calibration_std_reads_a_real_matlab_file():
         pytest.skip("real test fixture not available")
     assert report.ok, report.message
     assert loaded is not None
+    np.testing.assert_allclose(loaded.beam_center, [724.51, 1393.59])
+    assert loaded.wavelength == pytest.approx(1.385298)
+    assert loaded.pixel_size == pytest.approx(0.075)
+    assert loaded.sdd == pytest.approx(889.6241)
+    assert loaded.detector == "Eiger4M"
+    assert loaded.detector_index == "eiger4m"
+    np.testing.assert_allclose(loaded.standard_peak, [275.177])
+    assert loaded.standard_q_value == pytest.approx(0.1052)
+    assert loaded.energy_kev == pytest.approx(8.95, abs=1.0e-4)
+
+
+def test_load_standard_calibration_std_reads_the_original_two_value_layout(tmp_path):
+    """`stdsave.m`'s own layout writes section 3 as (wavelength, pixel size)
+    with no Energy field; this app's own writer adds Energy in the middle.
+
+    This used to be covered only by a real beamline `.std` under `testdata/`,
+    which was later re-saved in the extended layout -- silently taking the
+    original-layout coverage with it. Inline here so it cannot drift again,
+    and so it runs where `testdata/` is not checked out.
+    """
+
+    std_file = tmp_path / "legacy_standard.std"
+    std_file.write_text(
+        """%1 center coordinate(yc,zc)
+  7.243465E+02 ,   1.392226E+03
+%2. Distances from center to peak  and q value ( h1st, q1st)
+  2.752347E+02 ,   1.052000E-01
+%3. Wave length[A] and Pixel size[mm]
+  1.385309E+00  ,   7.500000E-02
+%4. Sample to detector distance[mm]
+  8.898037E+02
+%5. detector type and name
+eiger4m,Eiger4M
+""",
+        encoding="utf-8",
+    )
+
+    loaded, report = load_standard_calibration(std_file, expected_detector="Eiger4M")
+
+    assert report.ok, report.message
+    assert loaded is not None
     np.testing.assert_allclose(loaded.beam_center, [724.3465, 1392.226])
     assert loaded.wavelength == pytest.approx(1.385309)
     assert loaded.pixel_size == pytest.approx(0.075)
     assert loaded.sdd == pytest.approx(889.8037)
-    assert loaded.detector == "Eiger4M"
-    assert loaded.detector_index == "eiger4m"
-    np.testing.assert_allclose(loaded.standard_peak, [275.2347])
-    assert loaded.standard_q_value == pytest.approx(0.1052)
-    # Energy isn't written by real MATLAB .std files -- must still derive
-    # cleanly from wavelength, same as every other format.
+    # Energy is absent from this layout and has to come from the wavelength,
+    # the same way every other format derives it.
     assert loaded.energy_kev == pytest.approx(8.94993, abs=1.0e-4)
 
 
