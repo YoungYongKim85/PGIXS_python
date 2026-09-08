@@ -1,0 +1,18 @@
+{
+  "matlab_repo": "D:/Claude_Code/PGIXS_matlab",
+  "output_dir": "validation_outputs/crosscheck_gixs",
+
+  "mode": "gixs",
+  "frame": "testdata/GrazingIncidence/PTCDI13/PTCDIC13_0001.h5",
+  "detector": "Eiger4M",
+
+  "beam_center": [929.43, 1593.58],
+  "sdd_mm": 210.54778031798710,
+  "wavelength_a": 1.1979243174401932,
+  "incident_angle_deg": 0.1,
+
+  "reductions": {
+    "line": { "angles_deg": [90, 0] },
+    "azimuthal": { "pixel": 202, "range_minus": -1, "range_plus": 1 }
+  }
+}

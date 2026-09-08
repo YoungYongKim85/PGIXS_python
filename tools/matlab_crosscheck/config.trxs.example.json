@@ -1,0 +1,16 @@
+{
+  "matlab_repo": "D:/Claude_Code/PGIXS_matlab",
+  "output_dir": "validation_outputs/crosscheck_trxs",
+
+  "mode": "trxs",
+  "frame": "testdata/SAXSBattery/data/test_10s_0001.h5",
+  "detector": "Eiger4M",
+
+  "beam_center": [724.51, 1393.59],
+  "sdd_mm": 889.6241083358823,
+  "wavelength_a": 1.3852983065162041,
+
+  "reductions": {
+    "circular": { "angle_min": 0, "angle_max": 360, "min_coverage": 0.8, "use_median": false }
+  }
+}
