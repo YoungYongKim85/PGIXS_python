@@ -699,7 +699,13 @@ def trxs2_circular_exec(payload: dict[str, Any]) -> dict[str, Any]:
         "params": {"use_median": use_median, "calc_std": calc_std, "min_coverage": min_coverage},
     }
     if _SESSION.background is not None:
-        bkg_result = radius_average(_SESSION.background, radius_map, use_median=use_median, calc_std=False)
+        # The background frame is already corrected (trxs2_qcal /
+        # trxs2_background_load), so only the gap shoulder is left to blank --
+        # it has to be blanked on the same pixels as the stack, or Subtraction
+        # takes a background that averaged gap-edge pixels the sample did not.
+        bkg_result = radius_average(
+            apply_correction_to(_SESSION.background, None, _SESSION.gap_buffer),
+            radius_map, use_median=use_median, calc_std=False)
         _SESSION.bkg_1d = bkg_result.intensity
     else:
         _SESSION.bkg_1d = None
@@ -760,7 +766,7 @@ def trxs2_line_exec(payload: dict[str, Any]) -> dict[str, Any]:
         try:
             bkg_result = process_linecut_stack(
                 _SESSION.background[np.newaxis, ...], _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                ref_axis=result.x_axis, **kwargs,
+                ref_axis=result.x_axis, gap_buffer=_SESSION.gap_buffer, **kwargs,
             )
             _SESSION.bkg_1d = bkg_result.intensity[0]
         except ValueError:
@@ -831,7 +837,9 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
         "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage, "params": kwargs,
     }
     if _SESSION.background is not None:
-        bkg_result = angular_profile(_SESSION.background, center=beam_pos, **kwargs)
+        bkg_result = angular_profile(
+            apply_correction_to(_SESSION.background, None, _SESSION.gap_buffer),
+            center=beam_pos, **kwargs)
         _SESSION.bkg_azi = bkg_result.intensity
     else:
         _SESSION.bkg_azi = None

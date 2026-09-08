@@ -944,3 +944,75 @@ def test_sorted_x_axis_reorders_the_saved_frames_with_it(tmp_path):
     # temperature *and* still matches each frame's own value.
     np.testing.assert_allclose(saved[:, 0], [10.0, 20.0, 30.0])
     np.testing.assert_allclose(saved[:, 1], [20.0, 40.0, 60.0])
+
+
+def _angle_wedge_gap_buffer(shape, center, lo_deg, hi_deg):
+    """A gap-buffer-shaped boolean mask covering one angular wedge, using the
+    same angle convention `angular_profile` bins with."""
+
+    rows, cols = shape
+    cc, rr = np.meshgrid(np.arange(1, cols + 1, dtype=float), np.arange(1, rows + 1, dtype=float))
+    angle = np.degrees(np.arctan2(-(rr - center[1]), -(cc - center[0]))) % 360.0
+    return (angle >= lo_deg) & (angle < hi_deg)
+
+
+def test_gixs2_azimuthal_exec_blanks_the_gap_shoulder_like_every_other_reduction(tmp_path):
+    """Regression: Exec Azi was the one reduction that never passed
+    `gap_buffer`, so GIXS-series azimuthal curves silently averaged the
+    module-gap shoulder that the 1D cut, Auto Refresh's own azimuthal
+    replay, and both TrXS-series reductions all exclude. Reported as
+    "Reflect missing wedge를 켜면 intensity 값이 달라진다" -- the wedge
+    branch regrids through `_q_remap_stack`, which *did* blank the
+    shoulder, so the two modes disagreed for that reason on top of the
+    regridding itself."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center})
+    session.calibration_loaded = True
+    session.gap_buffer = _angle_wedge_gap_buffer(session.stack.shape[-2:], center, 40.0, 50.0)
+
+    assert gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})["ok"]
+
+    x_axis = session.last_azimuthal["x_axis"]
+    intensity = session.last_azimuthal["intensity"][0]
+    inside = (x_axis >= 41.0) & (x_axis <= 49.0)
+    outside = (x_axis >= 10.0) & (x_axis <= 30.0)
+    # Every bin fully inside the blanked wedge has no pixels left to average.
+    assert np.all(~np.isfinite(intensity[inside]))
+    # ...and nothing outside it was touched.
+    assert np.all(np.isfinite(intensity[outside]))
+
+
+def test_gixs2_azimuthal_exec_does_not_reapply_the_gap_buffer_after_regridding(tmp_path):
+    """The wedge branch blanks the shoulder inside `_q_remap_stack`, before
+    regridding. Applying the detector-pixel buffer *again* to the regridded
+    frame would blank the wrong cells -- the Q grid is no longer indexed by
+    the pixels the mask describes."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=1, center=center, radii=[60.0])
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({})["ok"]
+    session.gap_buffer = _angle_wedge_gap_buffer(session.stack.shape[-2:], center, 40.0, 50.0)
+
+    captured = {}
+    original_process = gs.process_azimuthal_stack
+
+    def spy(stack, *args, **kwargs):
+        captured["gap_buffer"] = kwargs.get("gap_buffer")
+        return original_process(stack, *args, **kwargs)
+
+    gs.process_azimuthal_stack = spy
+    try:
+        result = gs.gixs2_azimuthal_exec(
+            {"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0, "reflect_missing_wedge": True}
+        )
+    finally:
+        gs.process_azimuthal_stack = original_process
+
+    assert result["ok"], result.get("message")
+    assert captured["gap_buffer"] is None

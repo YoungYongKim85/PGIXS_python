@@ -845,8 +845,12 @@ def gixs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
             if stack is None:
                 return {"ok": False, "message": 'Reflect missing wedge needs a plain q-Cal (not "Change ai").'}
             factor = None
+        # `gap_buffer` is None in the wedge branch: `_q_remap_stack` already
+        # blanked the shoulder before regridding, and the detector-pixel mask
+        # no longer maps onto the Q grid afterwards.
         result = process_azimuthal_stack(
-            stack, center=beam_pos, progress_callback=_report, correction_factor=factor, **kwargs
+            stack, center=beam_pos, progress_callback=_report, correction_factor=factor,
+            gap_buffer=None if reflect_missing_wedge else _SESSION.gap_buffer, **kwargs
         )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}

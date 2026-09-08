@@ -801,3 +801,66 @@ def test_lazy_correction_matches_a_pre_corrected_stack_without_holding_one(tmp_p
     reference = process_circular_stack(pre_corrected, session.circular_radius_map, **session.last_1d["params"])
 
     np.testing.assert_array_equal(lazy, reference.intensity)
+
+
+def _wedge_gap_buffer(shape, center, lo_deg, hi_deg):
+    rows, cols = shape
+    cc, rr = np.meshgrid(np.arange(1, cols + 1, dtype=float), np.arange(1, rows + 1, dtype=float))
+    angle = np.degrees(np.arctan2(-(rr - center[1]), -(cc - center[0]))) % 360.0
+    return (angle >= lo_deg) & (angle < hi_deg)
+
+
+def _series_with_background_and_gap_buffer(tmp_path, center):
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    _qcal(center)
+    bkg_dir = tmp_path / "bkg"
+    bkg_dir.mkdir()
+    bkg_files = _write_synthetic_series(bkg_dir, n_frames=1, center=center, prefix="BKG", radii=[60.0])
+    assert ts.trxs2_background_load({"directory": str(bkg_dir), "filename": bkg_files[0].name})["ok"]
+    session = ts.get_session()
+    session.gap_buffer = _wedge_gap_buffer(session.stack.shape[-2:], center, 40.0, 50.0)
+    return session
+
+
+def test_trxs2_background_cuts_blank_the_same_gap_shoulder_as_the_stack(tmp_path):
+    """Regression: all three background cuts (circular, 1D line, azimuthal)
+    reduced `session.background` without the gap buffer, while the sample
+    stack beside them had it applied. Subtraction then took a background
+    that averaged module-gap shoulder pixels the sample curve had already
+    dropped -- a mismatch localized to exactly the gap-crossing bins, which
+    is where a subtraction artifact is hardest to recognize as one."""
+
+    center = (100.5, 100.5)
+    session = _series_with_background_and_gap_buffer(tmp_path, center)
+
+    assert ts.trxs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})["ok"]
+    x_axis = session.last_azimuthal["x_axis"]
+    inside = (x_axis >= 41.0) & (x_axis <= 49.0)
+    outside = (x_axis >= 10.0) & (x_axis <= 30.0)
+    assert session.bkg_azi is not None
+    # The background must lose the wedge exactly where the sample frames do.
+    assert np.all(~np.isfinite(session.bkg_azi[inside]))
+    assert np.all(~np.isfinite(session.last_azimuthal["intensity"][0][inside]))
+    assert np.all(np.isfinite(session.bkg_azi[outside]))
+
+
+def test_trxs2_circular_background_cut_blanks_the_gap_shoulder(tmp_path):
+    center = (100.5, 100.5)
+    session = _series_with_background_and_gap_buffer(tmp_path, center)
+
+    assert ts.trxs2_circular_exec({"angle_min": 40.0, "angle_max": 50.0, "min_coverage": 0.0})["ok"]
+
+    assert session.bkg_1d is not None
+    # The whole sector is inside the blanked wedge, so neither the stack nor
+    # the background has anything left to average anywhere on the axis.
+    assert np.all(~np.isfinite(session.bkg_1d))
+
+
+def test_trxs2_line_background_cut_blanks_the_gap_shoulder(tmp_path):
+    center = (100.5, 100.5)
+    session = _series_with_background_and_gap_buffer(tmp_path, center)
+
+    assert ts.trxs2_line_exec({"angle_deg": 45.0})["ok"]
+
+    assert session.bkg_1d is not None
+    assert np.all(~np.isfinite(session.bkg_1d))
