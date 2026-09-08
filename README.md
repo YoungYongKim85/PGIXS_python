@@ -162,3 +162,22 @@ Pytest test suite:
 ```powershell
 python -m pytest tests
 ```
+
+## Citing
+
+If PGIXS contributed to work you are publishing, please cite it. A paper is
+in preparation; until it appears, cite this repository and the release you
+used.
+
+## Author
+
+Young Yong Kim — beamline scientist and manager, 3C beamline, Pohang
+Accelerator Laboratory (kimyy@postech.ac.kr). Bug reports, questions and
+feature requests belong in
+[Issues](https://github.com/YoungYongKim85/PGIXS_python/issues); see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+Copyright © 2026 Pohang Accelerator Laboratory, POSTECH.

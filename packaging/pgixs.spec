@@ -104,6 +104,7 @@ if sys.platform == "darwin":
             "CFBundleName": "PGIXS",
             "CFBundleDisplayName": "PGIXS",
             "CFBundleShortVersionString": "0.2.4",
+            "NSHumanReadableCopyright": "Copyright (c) 2026 Pohang Accelerator Laboratory, POSTECH. MIT License.",
             "NSHighResolutionCapable": True,
         },
     )
