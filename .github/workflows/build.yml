@@ -31,9 +31,9 @@ jobs:
             asset_name: PGIXS-linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
 
@@ -72,7 +72,7 @@ jobs:
         if: runner.os == 'Linux'
         run: tar -C packaging/dist -czf ${{ matrix.asset_name }}.tar.gz PGIXS
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset_name }}
           path: |
@@ -88,9 +88,9 @@ jobs:
     # Markdown source. docs/desktop_manual_ko.md is the source of truth.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -100,7 +100,7 @@ jobs:
           npm install --no-audit --no-fund
           npm run manual
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: manual
           path: docs/desktop_manual_ko.docx
@@ -114,11 +114,11 @@ jobs:
       # (to work out the commit range for the auto-generated notes) --
       # without a checkout, there's no .git here at all and it fails with
       # "fatal: not a git repository" before ever touching the artifacts.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
