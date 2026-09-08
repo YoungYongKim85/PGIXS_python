@@ -1,0 +1,30 @@
+# Builds the JOSS paper as a PDF so it can be proofread as the reviewers will
+# see it, rather than as Markdown. Run it from the Actions tab
+# (workflow_dispatch) or by pushing a change to paper.md/paper.bib; the PDF is
+# attached to the run as an artifact named "paper".
+name: draft paper
+
+on:
+  push:
+    paths:
+      - paper.md
+      - paper.bib
+      - .github/workflows/draft-paper.yml
+  workflow_dispatch:
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the draft PDF
+        uses: openjournals/openjournals-draft-action@master
+        with:
+          journal: joss
+          paper-path: paper.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper
+          path: paper.pdf
