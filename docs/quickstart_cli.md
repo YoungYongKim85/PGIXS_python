@@ -1,6 +1,11 @@
 # PGIXS Python CLI Quickstart
 
-This guide covers the current Tab1 Python command-line workflow.
+This guide covers the Python command-line workflow.
+
+> New here? Start with [quickstart.md](quickstart.md) instead: it walks the
+> desktop app through calibration, mapping, cuts and a series, on example data
+> you can generate in one command. This page is for scripting the same
+> reductions without the GUI.
 
 ## Environment
 
@@ -9,7 +14,7 @@ Use Python 3.10.
 Windows PowerShell:
 
 ```powershell
-cd C:\Users\owner\Documents\PGIXS_matlab업그레이드\python_tab1
+cd C:\path\to\PGIXS_python
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip

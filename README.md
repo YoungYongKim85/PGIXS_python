@@ -8,9 +8,14 @@ version's workspace, currently covering Tab1 only.
 ## Desktop app
 
 The primary interface is a PySide6 desktop app (SDD Calibration / GIXS /
-GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs). See
-[docs/desktop_manual_ko.md](docs/desktop_manual_ko.md) for a detailed
-(Korean) user manual covering every tab.
+GIXS-series / TrXS / TrXS-series / XTrans / Penetration Depth tabs).
+
+- **[docs/quickstart.md](docs/quickstart.md)** -- start here. Walks the whole
+  reduction chain (calibration, q mapping, 1D cuts, an in-situ series) on
+  example data you generate with one command, and states the number you should
+  get back at each step.
+- [docs/desktop_manual_ko.md](docs/desktop_manual_ko.md) -- the full user
+  manual covering every control on every tab (Korean).
 
 **End users** (no Python install needed): download the build for your OS
 below, or browse all versions on the [Releases](../../releases) page.
