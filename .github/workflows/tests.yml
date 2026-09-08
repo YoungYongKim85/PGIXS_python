@@ -1,0 +1,48 @@
+# Runs the test suite on every push and pull request. Separate from build.yml,
+# which only packages release binaries when a v* tag is pushed -- the suite
+# needs to run on ordinary commits, not just at release time.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    env:
+      # The desktop tests build real Qt widgets; there is no display on CI.
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install Qt's system libraries
+        # PySide6 wheels ship the Qt libraries themselves but still link
+        # against these X11/EGL system libraries, even under the offscreen
+        # platform plugin.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xfixes0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Run the test suite
+        # test_desktop_smoke.py is run in its own process: Qt widget teardown
+        # trips a Windows/Linux access violation when those tests share a
+        # process with the rest of the suite. Both groups pass on their own.
+        run: |
+          python -m pytest tests --ignore=tests/test_desktop_smoke.py -q
+          python -m pytest tests/test_desktop_smoke.py -q
