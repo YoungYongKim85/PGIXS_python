@@ -157,8 +157,11 @@ def make_plot(panels: list[dict], out_path: Path, title: str) -> None:
 
     for k, panel in enumerate(panels):
         r, c = divmod(k, cols)
-        ax = fig.add_subplot(gs[r * 2, c])
-        axr = fig.add_subplot(gs[r * 2 + 1, c])
+        # An odd final panel spans the row instead of sitting next to an empty
+        # cell -- these figures get pasted into the manual.
+        span = slice(None) if (cols == 2 and k == n - 1 and n % 2 == 1) else c
+        ax = fig.add_subplot(gs[r * 2, span])
+        axr = fig.add_subplot(gs[r * 2 + 1, span])
         mx, my, px, py = panel["mx"], panel["my"], panel["px"], panel["py"]
         ax.plot(mx, my, "-", color="#d1495b", lw=0.9, label="MATLAB", alpha=0.85)
         ax.plot(px, py, "-", color="#1b4965", lw=0.9, label="Python", alpha=0.85)

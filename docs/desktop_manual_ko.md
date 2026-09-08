@@ -23,6 +23,7 @@ Penetration Depth** 7개 탭으로 구성된다.
 7. [Penetration Depth 탭](#7-penetration-depth-탭)
 8. [공통 개념 정리](#8-공통-개념-정리)
 9. [문제 해결](#9-문제-해결)
+10. [부록: MATLAB 버전과 결과 비교하기](#10-부록-matlab-버전과-결과-비교하기)
 
 ---
 
@@ -120,8 +121,9 @@ MATLAB 버전의 `SDDcal_gui.m`(+ `OneDplotpixel_gui.m`/`OneDplotpixelR_gui.m`)�
 **Save**
 
 - **Save Calibration** 버튼 — 캘리브레이션 값을 JSON(+ `.mat`/`.std` 동반 파일)으로 저장한다. 이 파일을 GIXS/TrXS 탭의 **Load Info**가 읽는다.
-  - **`{파일명}_standard.json`**: 이 앱 자체의 저장 형식(0-based 픽셀 인덱싱, Python 배열 관례). `pc`(빔 중심 [y,z]), `wavelength`, `pixelsize`, `sdd`, `dttypename`(검출기), `Energy`, `STpeak`/`STqvalue`(피팅된 링 반경/q값), `imgdim`(이미지 크기), `SDDDiagnostics`(Smart Auto Run 후보 테이블 전체)까지 포함한다 — **Load Info**가 실제로 읽는 파일.
-  - **`{파일명}_standard.mat`** / **`{파일명}_standard.std`**: MATLAB 버전과 호환되는 보조 파일. MATLAB은 1-based 픽셀 인덱싱을 쓰므로, 이 두 파일에 쓰는 빔 중심 값은 JSON의 값에 **+1을 더해서** 저장한다(`.mat`은 `SDDcal_gui.m`과 같은 필드명, `.std`는 MATLAB `stdsave.m`과 같은 5줄짜리 텍스트 포맷). `SDDDiagnostics`는 `.mat`에는 담기지 않는다(이기종 구조라 `.mat` 포맷으로 표현이 까다로움 — JSON에만 있음). 이 두 파일은 저장에 실패해도 JSON 저장 자체는 그대로 성공 처리된다(MATLAB 쪽 호환은 best-effort).
+  - **빔 중심 좌표 관례**: 세 파일 모두 **1-based 픽셀 좌표**(첫 픽셀이 1)를 그대로 담는다. MATLAB 버전과 같은 관례이므로 어느 쪽에서 저장한 파일이든 그대로 주고받을 수 있다. 다만 **v0.1.1 이전 Python 빌드가 저장한 `.mat`/`.std`**와 **PGIXS_matlab 커밋 `89c4c85` 이전 MATLAB 빌드가 저장한 `.json`**은 빔 중심이 한 픽셀씩 어긋나 있다 — 해당 파일은 각 프로그램에서 다시 저장해야 한다.
+  - **`{파일명}_standard.json`**: 이 앱 자체의 저장 형식. `pc`(빔 중심 [y,z]), `wavelength`, `pixelsize`, `sdd`, `dttypename`(검출기), `Energy`, `STpeak`/`STqvalue`(피팅된 링 반경/q값), `imgdim`(이미지 크기), `SDDDiagnostics`(Smart Auto Run 후보 테이블 전체)까지 포함한다 — **Load Info**가 실제로 읽는 파일.
+  - **`{파일명}_standard.mat`** / **`{파일명}_standard.std`**: MATLAB 버전과 호환되는 보조 파일(`.mat`은 `SDDcal_gui.m`과 같은 필드명, `.std`는 MATLAB `stdsave.m`과 같은 5줄짜리 텍스트 포맷). `SDDDiagnostics`는 `.mat`에는 담기지 않는다(이기종 구조라 `.mat` 포맷으로 표현이 까다로움 — JSON에만 있음). 이 두 파일은 저장에 실패해도 JSON 저장 자체는 그대로 성공 처리된다(MATLAB 쪽 호환은 best-effort).
 
 ### 2.2 오른쪽 패널
 
@@ -586,6 +588,7 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 
 ## 9. 문제 해결
 
+- **MATLAB에서 만든 `.json`을 Load Info로 읽었더니 q축이 조금씩 어긋난다** → PGIXS_matlab 커밋 `89c4c85` 이전 빌드는 `.json` 빔 중심을 두 축 모두 한 픽셀 낮게 저장했다. 같은 이름의 **`.mat` 파일을 대신 읽거나**, MATLAB 최신 버전에서 캘리브레이션을 다시 저장한다.
 - **q-Map Cal. / q-Cal이 안 눌러진다** → 먼저 **Load Info**로 캘리브레이션을 불러와야 한다. Load Info 없이는 q-Cal이 막혀 있다.
 - **BKG sub. && Norm.을 눌렀는데 이미지가 안 바뀐다** → q-Map Cal.을 이미 한 번 실행한 상태라면, 정규화 후에는 q-Map Cal.을 다시 눌러야 보정된 이미지가 최신 데이터로 갱신된다(안내 표시가 뜬다).
 - **Qxy/Qz 모드에서 클릭한 위치와 다른 곳에 라인/포지션이 잡힌다** → 최신 버전에서 수정된 문제다. 앱을 최신 릴리스로 업데이트했는지 확인한다.
@@ -593,3 +596,92 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 - **Azimuthal 커브가 예상과 다르게 매끈하다 (missing wedge가 안 보임)** → GIXS-series라면 Azimuthal Process의 **Reflect missing wedge (Qxy/Qz)** 체크박스를 켜야 실제 커버리지 공백이 반영된다 (기본은 꺼짐).
 - **macOS에서 처음 실행 시 "확인되지 않은 개발자" 경고** → README의 macOS 안내(우클릭 → 열기, 또는 `xattr -d com.apple.quarantine PGIXS.app`)를 참고한다.
 - 그 외 문제는 GitHub 리포지토리의 Issues에 재현 방법과 함께 남겨준다.
+
+---
+
+## 10. 부록: MATLAB 버전과 결과 비교하기
+
+같은 데이터를 MATLAB 버전(PGIXS_matlab)과 이 Python 버전으로 각각 처리하면 **커브가
+완전히 똑같이 나오지는 않는다.** 이건 버그가 아니라 두 프로그램이 같은 물리량을 서로
+다른 방식으로 추정하기 때문이다. 이 절은 (1) 어디까지가 정상 차이인지, (2) 그걸 직접
+확인하는 도구 사용법을 설명한다.
+
+### 10.1 반드시 같아야 하는 것 / 달라도 되는 것
+
+**반드시 같아야 하는 것 — 다르면 문제다**
+
+| 항목 | 이유 |
+| --- | --- |
+| **피크 위치 (q, 각도)** | 빔 중심·SDD·에너지·검출기 보정이 모두 맞아야 나오는 값이다. 실측 검증에서 **6e-4 Å⁻¹ 이내**(bin 폭보다 훨씬 작음)로 일치했다. |
+| **부호 있는 중앙값 차이** | 전체적으로 한쪽이 더 크거나 작다면 스케일·오프셋 오류다. 0 근처여야 한다. |
+| **bin 개수와 NaN 위치** | 마스크·갭·coverage 처리가 같은지를 본다. TrXS Circular Average는 양쪽 모두 1937 bin, 같은 70개 위치가 NaN이었다. |
+
+**달라도 정상인 것 — 쫓아가면 안 된다**
+
+| 처리 | MATLAB | Python |
+| --- | --- | --- |
+| GIXS 1D 라인컷 | 광선 하나를 이중선형 보간해서 샘플링 | ±1° 쐐기를 q-bin으로 평균 |
+| GIXS Azimuthal | 0.2° 극좌표 격자에서 최근접 픽셀 | 실제 환형 영역 픽셀을 1° bin에 집계 |
+| TrXS Circular Average | bin별 산술평균 | Huber 강건 평균 (c = 1.345) |
+
+이 차이 때문에 생기는, 눈에 보이지만 **정상인** 현상들:
+
+- **Python 커브가 더 늦게 시작한다.** ±1° 쐐기는 반경 26픽셀 아래에서 픽셀이 한 개도
+  안 들어온다. 그래서 이 기하에서는 q ≈ 0.046 아래에 bin이 없다. MATLAB은 보간이라
+  빔스탑 안쪽까지 값을 만들어낸다 — 물리적으로 신뢰할 값은 아니다.
+- **수평(0°) 라인컷이 수직(90°)보다 훨씬 많이 흔들린다.** 쐐기 반폭이 반경에 비례해
+  커지고(q = 0.5에서 ±4.7픽셀, q = 1.5에서 ±14픽셀), GIXS의 수평 방향은 Yoneda/horizon
+  처럼 세기가 급변하는 영역을 가로지른다. 상대차 중앙값 16.9% vs 5.7%인데, 부호 있는
+  중앙값은 여전히 0 근처다. 카운트가 낮은 구간에서는 MATLAB 쪽 한 줄 샘플의 Poisson
+  노이즈가 그대로 드러나는 것이고, **Python 쪽이 노이즈가 적은 추정이다.**
+- **TrXS Circular Average는 빔스탑 가장자리 몇 개 bin에서만 크게(최대 220배) 갈린다.**
+  가려진 픽셀과 안 가려진 픽셀이 한 bin에 섞여 분포가 양봉이 되는 자리다. 어느 추정량을
+  써도 신뢰할 수 없는 구간이므로, **빔스탑을 마스크로 제외하는 것이 옳다.**
+- **q축이 상대적으로 약 1e-5 다르다.** 두 프로그램이 쓰는 hc 값이 미세하게 다르다
+  (MATLAB 12.3985167 keV·Å, Python 12.3984198). 7.8 ppm이며 실사용에 영향이 없다.
+
+![FIGURE 28: MATLAB(빨강)과 Python(파랑) 결과 비교 — GIXS 수직/수평 라인컷과 Azimuthal. 각 그래프 아래는 Python/MATLAB 비율(점선 = 1.0). 피크는 정확히 겹치고, 차이는 카운트가 낮은 구간의 노이즈로 나타난다](figures/fig28.png)
+
+### 10.2 직접 검증해 보기
+
+리포지토리의 `tools/matlab_crosscheck/`에 두 버전을 같은 데이터로 돌려 비교하는 도구가
+들어 있다. 계산 경로(Q map, 검출기 보정, 마스킹, binning)를 수정한 뒤 물리 결과가
+바뀌지 않았는지 확인할 때 쓴다.
+
+> **필요한 것**: MATLAB 설치, `PGIXS_matlab` 체크아웃, 실제 데이터 파일. 셋 다 있어야
+> 하므로 일반 사용자에게 필수는 아니고, 소스에서 직접 수정·빌드하는 경우에 해당한다.
+
+양쪽이 JSON 설정 파일 하나를 같이 읽는다. 빔 중심이나 SDD가 몰래 달라질 수 없게 하기
+위해서다. 저장소 루트에서:
+
+```
+matlab -batch "restoredefaultpath; addpath('tools/matlab_crosscheck'); run_matlab('tools/matlab_crosscheck/config.example.json')"
+python tools/matlab_crosscheck/run_python.py tools/matlab_crosscheck/config.example.json
+python tools/matlab_crosscheck/compare.py    tools/matlab_crosscheck/config.example.json --plot compare.png
+```
+
+`restoredefaultpath`는 생략하면 안 된다. MATLAB은 경로 설정을 세션 간에 기억하기 때문에
+예전에 추가된 디렉토리가 저장소를 가려버릴 수 있다.
+
+설정 파일 예시는 `config.example.json`(GIXS 라인컷·Azimuthal)과
+`config.trxs.example.json`(TrXS Circular Average) 두 개가 들어 있다. 복사해서 경로만
+고쳐 쓰면 되고, 결과는 `validation_outputs/` 아래에 저장된다.
+
+**캘리브레이션 값은 `.mat` 파일에서 가져온다.** 예전 MATLAB 빌드가 저장한 `.json`은 빔
+중심이 두 축 모두 1픽셀씩 낮게 들어 있어서, 그대로 쓰면 q축 전체가 어긋난다
+([9. 문제 해결](#9-문제-해결) 참고).
+
+### 10.3 리포트 읽는 법
+
+`compare.py`가 출력하는 항목 중 **`peak positions`와 `signed median diff` 두 줄만
+보면 된다.** `|rel| diff`(상대차)는 0이 아닌 게 정상이며, 위 표의 이유로 저카운트
+데이터에서는 수십 %까지 나올 수 있다 — 오차 지표가 아니라 노이즈 지표다.
+
+걱정해야 하는 결과는 다음과 같다.
+
+- 피크 위치가 bin 폭 이상으로 이동했다
+- 부호 있는 중앙값이 더 이상 0 근처가 아니다
+- NaN 개수가 한쪽에서만 바뀌었다
+- bin 개수가 바뀌었다
+
+자세한 내용은 `tools/matlab_crosscheck/README.md`에 정리돼 있다.
