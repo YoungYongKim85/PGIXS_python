@@ -30,7 +30,11 @@ from pgixs_python.averaging.radial import RadiusBinMap, build_radius_bin_map, ra
 from pgixs_python.processing.corrections import apply_detector_correction
 
 
-def apply_correction_to(values: np.ndarray, correction_factor: np.ndarray | None) -> np.ndarray:
+def apply_correction_to(
+    values: np.ndarray,
+    correction_factor: np.ndarray | None,
+    gap_buffer: np.ndarray | None = None,
+) -> np.ndarray:
     """Divide by the detector correction factor, or pass through when there
     is none.
 
@@ -40,11 +44,22 @@ def apply_correction_to(values: np.ndarray, correction_factor: np.ndarray | None
     broadcasts over any leading frame axis; the NaN-preserving semantics match
     `apply_detector_correction`, which the single-frame consoles still use.
     "Change ai" is the exception -- its factor differs per frame, so that path
-    materializes the corrected stack up front and passes `None` here."""
+    materializes the corrected stack up front and passes `None` here.
 
-    if correction_factor is None:
+    `gap_buffer` (detector-shaped boolean, from `dilate_gap_mask`) blanks the
+    pixels bordering a module gap, which can carry biased counts. They stay in
+    the geometry so a bin sitting mostly on a gap edge reads as poorly sampled
+    rather than as fully sampled from fewer pixels. ROI sums deliberately do
+    not pass it -- MATLAB applies the buffer only in its averaging paths."""
+
+    if correction_factor is None and gap_buffer is None:
         return values
     array = np.asarray(values, dtype=np.float32)
+    if gap_buffer is not None and gap_buffer.shape == array.shape[-2:]:
+        array = array.copy()
+        array[..., gap_buffer] = np.nan
+    if correction_factor is None:
+        return array
     factor = np.asarray(correction_factor, dtype=np.float32)
     if array.shape == factor.shape:
         return apply_detector_correction(array, factor)
@@ -105,6 +120,7 @@ def process_linecut_stack(
     q_map_stack: np.ndarray | None = None,
     ref_axis: np.ndarray | None = None,
     correction_factor: np.ndarray | None = None,
+    gap_buffer: np.ndarray | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     parallel: bool = False,
     max_workers: int | None = None,
@@ -156,7 +172,7 @@ def process_linecut_stack(
         raise ValueError("q_map is required unless q_map_stack is given.")
 
     def _run_frame(i: int) -> CakeAverageResult:
-        frame = apply_correction_to(stack[i], correction_factor)
+        frame = apply_correction_to(stack[i], correction_factor, gap_buffer)
         frame_q_map = q_map_stack[i] if change_ai else q_map
         if accumulation:
             perp_offset = z_pos_move if angle_deg in (0.0, 180.0) else y_pos_move
@@ -280,6 +296,7 @@ def process_circular_stack(
     parallel: bool = False,
     max_workers: int | None = None,
     correction_factor: np.ndarray | None = None,
+    gap_buffer: np.ndarray | None = None,
 ) -> SeriesCircularResult:
     """Circular Average across a whole series -- same q-binned average as
     `console_session.console_circular_average`, run once per frame against
@@ -306,7 +323,7 @@ def process_circular_stack(
 
     def _run_frame(i: int):
         return radius_average(
-            apply_correction_to(stack[i], correction_factor), radius_map, use_median=use_median, calc_std=calc_std
+            apply_correction_to(stack[i], correction_factor, gap_buffer), radius_map, use_median=use_median, calc_std=calc_std
         )
 
     results = [None] * n_frames
@@ -361,6 +378,7 @@ def process_azimuthal_stack(
     parallel: bool = False,
     max_workers: int | None = None,
     correction_factor: np.ndarray | None = None,
+    gap_buffer: np.ndarray | None = None,
 ) -> SeriesCurveResult:
     """Azimuthal Process across a whole series -- same as
     `console_session.console_azimuthal_1d`, run once per frame.
@@ -378,7 +396,7 @@ def process_azimuthal_stack(
 
     def _run_frame(i: int):
         return angular_profile(
-            apply_correction_to(stack[i], correction_factor), center=center, radius_range=radius_range,
+            apply_correction_to(stack[i], correction_factor, gap_buffer), center=center, radius_range=radius_range,
             n_angle_bins=n_angle_bins, use_median=use_median, angle_range=angle_range,
         )
 

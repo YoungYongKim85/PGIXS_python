@@ -1546,3 +1546,29 @@ def test_console_grid_remove_after_qmap_is_not_a_silent_no_op(tmp_path):
     # The stale corrected copy must be gone, so renders/cuts fall back to the
     # grid-removed `data` instead of silently ignoring the correction.
     assert cs.get_session().corrected_data is None
+
+
+def test_gap_buffer_is_blanked_for_1d_reductions_but_not_for_the_image(tmp_path):
+    """MATLAB drops a 3 px shoulder around every module gap inside its
+    averaging paths only (`dilatePGIXSGapMask`), never from the displayed
+    frame -- those pixels can carry biased counts (partial charge collection,
+    double-pixel summation). The buffer also has to be stored in the same
+    orientation as the frame: the loaders transpose, so a mask-oriented
+    buffer silently matches nothing on a non-square detector."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(2167, 2070))
+    _load(frame_path, detector="Eiger4M")
+    session = cs.get_session()
+
+    assert session.gap_buffer is not None
+    assert session.gap_buffer.shape == session.data.shape
+
+    masked_fraction = np.mean(~np.isfinite(session.data))
+    reduced_fraction = np.mean(~np.isfinite(cs._values_for_reduction(session.data)))
+
+    # The image keeps exactly the detector mask...
+    assert masked_fraction == pytest.approx(np.mean(~np.isfinite(session.mask)), abs=1e-6)
+    # ...while the reduction input additionally loses the shoulder.
+    assert reduced_fraction > masked_fraction + 0.01

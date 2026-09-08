@@ -49,6 +49,30 @@ def mask_zero_to_nan(mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def dilate_gap_mask(mask: np.ndarray, n_pad: int = 3) -> np.ndarray:
+    """Grow a detector gap/dead-pixel mask by `n_pad` pixels.
+
+    Port of MATLAB `dilatePGIXSGapMask.m`: 4-neighbour (row/column) dilation,
+    matching the axis-aligned Eiger module gap geometry. Returns True wherever
+    a pixel is itself a gap or sits within `n_pad` pixels of one.
+
+    Real detector pixels bordering a gap can carry biased counts (partial
+    charge collection / double-pixel summation), so the 1D reductions drop
+    that shoulder. The 2D image itself is deliberately left alone -- MATLAB
+    applies this only inside its averaging paths, never to the displayed
+    frame."""
+
+    grown = ~np.isfinite(np.asarray(mask, dtype=np.float64)) | (np.asarray(mask, dtype=np.float64) <= 0)
+    for _ in range(max(0, int(n_pad))):
+        padded = grown.copy()
+        padded[1:, :] |= grown[:-1, :]
+        padded[:-1, :] |= grown[1:, :]
+        padded[:, 1:] |= grown[:, :-1]
+        padded[:, :-1] |= grown[:, 1:]
+        grown = padded
+    return grown
+
+
 def detector_mask_for_type(detector_type: str, mask_dir: str | Path | None = None) -> DetectorMask:
     """Return detector default mask and pixel size.
 

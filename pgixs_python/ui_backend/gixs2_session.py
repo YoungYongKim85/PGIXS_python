@@ -43,7 +43,7 @@ from pgixs_python.processing.corrections import (
     solid_angle,
 )
 from pgixs_python.processing.grid_remove import grid_remove
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
+from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.transform import image_transform_q_gi
@@ -73,6 +73,10 @@ class GIXS2Session:
     corrected_stack: np.ndarray | None = None
     correction_factor: np.ndarray | None = None
     mask: np.ndarray | None = None
+    # Detector gap/dead pixels grown by 3 px -- blanked in the 1D
+    # reductions (not in the 2D image, and not in ROI sums), matching where
+    # MATLAB applies `dilatePGIXSGapMask`.
+    gap_buffer: np.ndarray | None = None
     counts: np.ndarray | None = None  # (n_frames, 2) IC/BC
     timestamps: np.ndarray | None = None  # (n_frames,), baseline-relative
     temperatures: np.ndarray | None = None  # (n_frames, 3)
@@ -277,6 +281,12 @@ def gixs2_load(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = load_image_file(file_path)
         detector_mask = detector_mask_for_type(detector)
+        # Transposed to match `stack`, stored in the mask's transpose.
+        _SESSION.gap_buffer = (
+            np.ascontiguousarray(dilate_gap_mask(detector_mask.mask, 3).T)
+            if detector_mask.mask is not None
+            else None
+        )
         masked = apply_detector_mask(result.data, detector_mask.mask)
         masked = np.ascontiguousarray(masked.T)
     except Exception as exc:  # noqa: BLE001
@@ -733,7 +743,9 @@ def _q_remap_stack(
     n_frames = stack.shape[0]
     remapped = np.empty_like(stack)
     for i in range(n_frames):
-        frame = apply_correction_to(stack[i], correction_factor)
+        # Blank the gap shoulder before regridding -- once the frame is on
+        # the Qxy/Qz grid the detector-pixel mask no longer maps onto it.
+        frame = apply_correction_to(stack[i], correction_factor, _SESSION.gap_buffer)
         remapped[i] = image_transform_q_gi(frame, qr, qz, beam_pos, pixel_mm, wavelength_a, sdd_mm).image
         _set_load_progress(i + 1, n_frames, progress_label)
     return remapped
@@ -776,12 +788,12 @@ def gixs2_linecut_exec(payload: dict[str, Any]) -> dict[str, Any]:
             result = process_linecut_stack(
                 _data_for_processing(), None, _SESSION.angle_map, center=beam_pos,
                 q_map_stack=_SESSION.q_stack, progress_callback=_report,
-                correction_factor=_processing_correction(), **kwargs
+                correction_factor=_processing_correction(), gap_buffer=_SESSION.gap_buffer, **kwargs
             )
         else:
             result = process_linecut_stack(
                 _data_for_processing(), _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                progress_callback=_report, correction_factor=_processing_correction(), **kwargs
+                progress_callback=_report, correction_factor=_processing_correction(), gap_buffer=_SESSION.gap_buffer, **kwargs
             )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
@@ -1206,12 +1218,12 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
                 extra = process_linecut_stack(
                     new_frames, None, _SESSION.angle_map, center=beam_pos,
                     q_map_stack=new_q_stack, ref_axis=_SESSION.last_1d["x_axis"],
-                    correction_factor=factor, **_SESSION.last_1d["params"]
+                    correction_factor=factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_1d["params"]
                 )
             else:
                 extra = process_linecut_stack(
                     new_frames, _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                    correction_factor=factor, **_SESSION.last_1d["params"]
+                    correction_factor=factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_1d["params"]
                 )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
                 return False
@@ -1227,7 +1239,7 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
                     return False
                 azi_factor = None
             extra = process_azimuthal_stack(
-                frames, center=beam_pos, correction_factor=azi_factor, **_SESSION.last_azimuthal["params"]
+                frames, center=beam_pos, correction_factor=azi_factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_azimuthal["params"]
             )
             if extra.x_axis.shape != _SESSION.last_azimuthal["x_axis"].shape:
                 return False

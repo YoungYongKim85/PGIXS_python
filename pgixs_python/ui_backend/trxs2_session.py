@@ -50,7 +50,7 @@ from pgixs_python.processing.corrections import (
     detector_correction_factor,
 )
 from pgixs_python.processing.grid_remove import grid_remove
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
+from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.trxs import qmap_trxs
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
@@ -79,6 +79,10 @@ class TrXS2Session:
     corrected_stack: np.ndarray | None = None
     correction_factor: np.ndarray | None = None
     mask: np.ndarray | None = None
+    # Detector gap/dead pixels grown by 3 px -- blanked in the 1D
+    # reductions (not in the 2D image, and not in ROI sums), matching where
+    # MATLAB applies `dilatePGIXSGapMask`.
+    gap_buffer: np.ndarray | None = None
     counts: np.ndarray | None = None  # (n_frames, 2) IC/BC
     timestamps: np.ndarray | None = None  # (n_frames,), baseline-relative
     temperatures: np.ndarray | None = None  # (n_frames, 3)
@@ -264,6 +268,12 @@ def trxs2_load(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = load_image_file(file_path)
         detector_mask = detector_mask_for_type(detector)
+        # Transposed to match `stack`, stored in the mask's transpose.
+        _SESSION.gap_buffer = (
+            np.ascontiguousarray(dilate_gap_mask(detector_mask.mask, 3).T)
+            if detector_mask.mask is not None
+            else None
+        )
         masked = apply_detector_mask(result.data, detector_mask.mask)
         masked = np.ascontiguousarray(masked.T)
     except Exception as exc:  # noqa: BLE001
@@ -675,7 +685,7 @@ def trxs2_circular_exec(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = process_circular_stack(
             _data_for_processing(), radius_map, use_median=use_median, calc_std=calc_std,
-            correction_factor=_processing_correction(),
+            correction_factor=_processing_correction(), gap_buffer=_SESSION.gap_buffer,
             min_coverage=min_coverage, progress_callback=_report, parallel=parallel,
         )
     except ValueError as exc:
@@ -734,7 +744,7 @@ def trxs2_line_exec(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = process_linecut_stack(
             _data_for_processing(), _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-            correction_factor=_processing_correction(),
+            correction_factor=_processing_correction(), gap_buffer=_SESSION.gap_buffer,
             progress_callback=_report, **kwargs,
         )
     except ValueError as exc:
@@ -810,7 +820,7 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = process_azimuthal_stack(
             _data_for_processing(), center=beam_pos, progress_callback=_report, parallel=parallel,
-            correction_factor=_processing_correction(), **kwargs
+            correction_factor=_processing_correction(), gap_buffer=_SESSION.gap_buffer, **kwargs
         )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
@@ -1203,7 +1213,7 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
         if _SESSION.auto_met == "circular" and _SESSION.last_1d is not None and _SESSION.circular_radius_map is not None:
             params = _SESSION.last_1d["params"]
             extra = process_circular_stack(
-                new_frames, _SESSION.circular_radius_map, correction_factor=factor, **params
+                new_frames, _SESSION.circular_radius_map, correction_factor=factor, gap_buffer=_SESSION.gap_buffer, **params
             )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
                 return False
@@ -1216,7 +1226,7 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
         if _SESSION.auto_met == "line1d" and _SESSION.last_1d is not None and _SESSION.qmap is not None:
             extra = process_linecut_stack(
                 new_frames, _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                ref_axis=_SESSION.last_1d["x_axis"], correction_factor=factor, **_SESSION.last_1d["params"],
+                ref_axis=_SESSION.last_1d["x_axis"], correction_factor=factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_1d["params"],
             )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
                 return False
@@ -1226,7 +1236,7 @@ def _extend_active_curve(new_frames: np.ndarray) -> bool:
             return True
         if _SESSION.auto_met == "azimuthal" and _SESSION.last_azimuthal is not None:
             extra = process_azimuthal_stack(
-                new_frames, center=beam_pos, correction_factor=factor, **_SESSION.last_azimuthal["params"]
+                new_frames, center=beam_pos, correction_factor=factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_azimuthal["params"]
             )
             if extra.x_axis.shape != _SESSION.last_azimuthal["x_axis"].shape:
                 return False

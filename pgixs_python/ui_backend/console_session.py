@@ -57,7 +57,7 @@ from pgixs_python.processing.corrections import (
     detector_correction_factor,
 )
 from pgixs_python.processing.grid_remove import grid_remove
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
+from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
 from pgixs_python.processing.normalization import process_normalization
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.transform import (
@@ -84,6 +84,11 @@ class ConsoleSession:
     data: np.ndarray | None = None
     corrected_data: np.ndarray | None = None
     mask: np.ndarray | None = None
+    # Detector gap/dead pixels grown by 3 px (`dilate_gap_mask`). Pixels
+    # bordering a module gap can carry biased counts, so every 1D reduction
+    # drops that shoulder -- the 2D image keeps them, matching MATLAB, which
+    # applies this only inside its averaging paths.
+    gap_buffer: np.ndarray | None = None
     counts: np.ndarray | None = None
     background: np.ndarray | None = None
     background_counts: np.ndarray | None = None
@@ -255,6 +260,14 @@ def console_load(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.detector = detector
     _SESSION.data = masked
     _SESSION.mask = detector_mask.mask
+    # Transposed to match `data`/`stack`, which the loaders store in the
+    # mask's transpose (display orientation); the shapes differ (2070x2167
+    # vs 2167x2070 on an Eiger4M), so a mismatch would silently no-op.
+    _SESSION.gap_buffer = (
+        np.ascontiguousarray(dilate_gap_mask(detector_mask.mask, 3).T)
+        if detector_mask.mask is not None
+        else None
+    )
     _SESSION.counts = np.asarray(counts, dtype=np.float32)
     _SESSION.source_path = str(file_path)
     _SESSION.calibration["pixel_mm"] = detector_mask.pixel_size_mm
@@ -767,6 +780,22 @@ def _axis_component_maps(result) -> tuple[np.ndarray, np.ndarray]:
     return horizontal, vertical
 
 
+def _values_for_reduction(values: np.ndarray) -> np.ndarray:
+    """Blank the gap shoulder before a 1D reduction.
+
+    The pixels themselves stay in the geometry, so they still count against
+    `coverage` -- a bin sitting mostly on a module edge should read as poorly
+    sampled, not as fully sampled from fewer pixels."""
+
+    buffer_mask = _SESSION.gap_buffer
+    array = np.asarray(values)
+    if buffer_mask is None or buffer_mask.shape != array.shape:
+        return array
+    out = array.astype(np.float32, copy=True)
+    out[buffer_mask] = np.nan
+    return out
+
+
 def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.qmap is None or _SESSION.data is None:
         return {"ok": False, "message": "Run q-Map Cal. first."}
@@ -790,7 +819,9 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Turn off Cakecut before using Accumulation."}
 
     if mapping == "Pixel":
-        data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+        data_for_1d = _values_for_reduction(
+            _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+        )
         q_for_1d = _SESSION.qmap["q"]
         # GIXS keeps the signed in-plane component as "qr"; TrXS names its
         # equivalent "qy". Either way these label an offset cut (below).
@@ -1002,7 +1033,9 @@ def console_azimuthal_1d(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": f"Invalid azimuthal parameters: {exc}"}
 
     if mapping == "Pixel":
-        data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+        data_for_1d = _values_for_reduction(
+            _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+        )
     else:
         # Same independence already given to the line/accumulation/cake
         # cuts: cut the actual Qxy/Qz-regridded (Itrans) image, not the
@@ -1074,7 +1107,9 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid circular average parameters: {exc}"}
 
-    data_for_1d = _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    data_for_1d = _values_for_reduction(
+        _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
+    )
     mask_active = False
     if _SESSION.circular_mask is not None and _SESSION.circular_mask.shape == data_for_1d.shape:
         # ROI mask (see console_set_circular_mask): pixels outside the

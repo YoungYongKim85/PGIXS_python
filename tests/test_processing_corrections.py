@@ -207,3 +207,24 @@ def test_detector_masks_load_from_the_packaged_files_not_the_fallback():
     assert not marccd.report.fallback_used, marccd.report.message
     assert marccd.mask.shape == (2048, 2048)
     assert 0.20 < np.mean(~np.isfinite(marccd.mask)) < 0.23
+
+
+def test_dilate_gap_mask_grows_the_exclusion_by_n_pad():
+    """Port of MATLAB `dilatePGIXSGapMask.m`: 4-neighbour dilation, seeded
+    from NaN/non-positive mask entries."""
+
+    from pgixs_python.processing.masking import dilate_gap_mask
+
+    mask = np.ones((7, 7), dtype=np.float32)
+    mask[3, :] = np.nan
+
+    assert sorted(set(np.nonzero(dilate_gap_mask(mask, 0))[0].tolist())) == [3]
+    assert sorted(set(np.nonzero(dilate_gap_mask(mask, 1))[0].tolist())) == [2, 3, 4]
+    assert sorted(set(np.nonzero(dilate_gap_mask(mask, 2))[0].tolist())) == [1, 2, 3, 4, 5]
+
+    # Zero and negative entries seed the exclusion too, same as NaN.
+    zero_seeded = np.ones((5, 5), dtype=np.float32)
+    zero_seeded[2, 2] = 0.0
+    assert dilate_gap_mask(zero_seeded, 1)[2, 2]
+    assert dilate_gap_mask(zero_seeded, 1)[1, 2]
+    assert not dilate_gap_mask(zero_seeded, 1)[0, 0]
