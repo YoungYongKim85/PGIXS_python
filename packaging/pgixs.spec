@@ -100,7 +100,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "PGIXS",
             "CFBundleDisplayName": "PGIXS",
-            "CFBundleShortVersionString": "0.2.2",
+            "CFBundleShortVersionString": "0.2.3",
             "NSHighResolutionCapable": True,
         },
     )

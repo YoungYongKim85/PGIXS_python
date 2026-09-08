@@ -4,6 +4,52 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.2.3 — Azimuthal / 배경 뺀 결과가 달라집니다 / Azimuthal and background-subtracted results change
+
+검출기 모듈 갭 경계 3픽셀 제외가 **네 곳에서 빠져 있었습니다.** 영향 범위는 갭을
+지나는 bin으로 좁지만, **같은 원본 데이터에서 이전과 다른 값이 나옵니다.**
+
+The 3-pixel module-gap shoulder exclusion was missing from four reductions.
+The affected range is narrow — only bins that cross a gap — but the same raw
+data now produces different numbers.
+
+### 수치에 영향을 주는 수정 / Fixes that change values
+
+- **GIXS-series Azimuthal Process** — Exec Azi가 갭 경계 버퍼를 적용하지 않던 유일한
+  축약 경로였습니다. 같은 탭의 1D 컷도, **Auto Refresh가 프레임을 덧붙일 때 도는 재실행
+  경로도** 적용하고 있었으므로, Exec으로 만든 프레임과 Auto Refresh로 덧붙인 프레임이
+  **서로 다른 방식으로 계산된 커브가 한 행렬에 섞여** 있었습니다. 실측(Eiger4M,
+  r = 202 ± 1) 기준 180개 각도 bin 중 **4개**(모듈 갭 가장자리, 118.5–124.5°)가
+  최대 21.8% 바뀌고, 2개 bin은 NaN이 되어야 했습니다.
+
+- **TrXS-series Background Subtraction** — 배경 컷 세 개(Circular / 1D Line / Azimuthal)가
+  모두 버퍼 없이 계산되고 있었습니다. 시료 커브는 갭 어깨 픽셀을 버린 값인데 배경은
+  포함한 값이라, **Subtraction을 켜면 갭을 지나는 bin에서만 어긋난 뺄셈**이 되었습니다.
+  아티팩트로 알아차리기 가장 어려운 자리입니다.
+
+### 참고: "Reflect missing wedge"는 원래 값이 다릅니다 / Expected, not a bug
+
+이번 수정은 GIXS-series Azimuthal의 **Reflect missing wedge 켜고/끈 차이를 없애지
+않습니다.** 두 모드는 같은 값을 다르게 계산하는 게 아니라 **다른 질문에 답합니다.**
+
+- 리그리딩한 이미지는 약 30%가 NaN입니다(픽셀 공간은 약 8%). 이 공백이 missing wedge
+  그 자체이고, 그걸 보여주는 게 이 옵션의 목적입니다.
+- Qxy ≈ 0, 즉 **90° 부근 bin은 통째로 비어 NaN이 될 수 있습니다** — 실측 데이터에서는
+  커브 전체의 최대 피크가 여기에 있어서 그 피크가 사라집니다.
+- 링의 물리적 위치도 약 0.4% 다르고(균일 q 격자 기준 반경 vs 픽셀 반경),
+  bilinear 재샘플링 자체가 몇 % 산포를 만듭니다.
+
+그러므로 **두 모드의 절대 강도를 직접 비교하지 마십시오.** 정량적인 강도가 필요하면
+기본(픽셀) 모드를, 커버리지 공백을 확인하려면 wedge 모드를 쓰십시오.
+
+### 개발자용 / For developers
+
+`tools/matlab_crosscheck/`에 MATLAB 버전과 같은 데이터로 결과를 대조하는 검증 도구가
+추가됐습니다. 매뉴얼 `docs/desktop_manual_ko.md`의 **10장 부록**에 사용법과, 두 버전
+사이에서 어디까지가 정상 차이인지 정리돼 있습니다.
+
+---
+
 ## ⚠️ v0.2.2 — 결과 수치가 또 달라집니다 / Numerical results change again
 
 v0.2.1 이하에서 처리한 결과와 **직접 비교하지 마세요.** MATLAB 버전과의 남은 차이를
