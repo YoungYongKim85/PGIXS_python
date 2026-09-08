@@ -24,7 +24,9 @@ repo_root = Path(SPECPATH).resolve().parent
 # runtime (the in-app window/taskbar icon) -- separate from the
 # packaging/icon.* files below, which are the *frozen executable's own*
 # icon (what Explorer/Finder/the Dock show before the app even launches).
-intrologo = repo_root / "pgixs_python" / "Intrologo.png"
+# All of them come out of packaging/make_icons.py.
+app_icon_png = repo_root / "pgixs_python" / "app_icon.png"
+app_icon_ico = repo_root / "pgixs_python" / "app_icon.ico"
 
 # Non-Python data files each read from disk at runtime via a
 # Path(__file__)-relative lookup (see refrac.py's/corrections.py's own
@@ -50,7 +52,8 @@ a = Analysis(
     pathex=[str(repo_root)],
     binaries=[],
     datas=[
-        (str(intrologo), "pgixs_python"),
+        (str(app_icon_png), "pgixs_python"),
+        (str(app_icon_ico), "pgixs_python"),
         (str(atomic_scattering_factor_dir), "pgixs_python/physics/data/atomic_scattering_factor"),
         (str(processing_data_dir), "pgixs_python/processing/data"),
     ],

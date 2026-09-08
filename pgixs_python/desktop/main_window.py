@@ -14,8 +14,16 @@ from pgixs_python.desktop.sddcal_widget import SDDcalWidget
 from pgixs_python.desktop.trxs2_widget import TrXS2Widget
 from pgixs_python.desktop.xtrans_widget import XTransWidget
 
-# pgixs_python/desktop/main_window.py -> pgixs_python/Intrologo.png
-_ICON_PATH = Path(__file__).resolve().parent.parent / "Intrologo.png"
+# Square, unlike the Intrologo.png banner this used to load, which Qt had to
+# letterbox into the icon slot. The .ico is preferred because Qt reads all
+# seven sizes out of it, so a 16 px taskbar entry gets art drawn for 16 px
+# rather than a 512 px image scaled down; the .png is there for a Qt build
+# without the ICO plugin. Regenerate both with packaging/make_icons.py.
+_PACKAGE_DIR = Path(__file__).resolve().parent.parent
+_ICON_PATH = next(
+    (p for p in (_PACKAGE_DIR / "app_icon.ico", _PACKAGE_DIR / "app_icon.png") if p.exists()),
+    _PACKAGE_DIR / "app_icon.png",
+)
 
 
 class MainWindow(QMainWindow):
