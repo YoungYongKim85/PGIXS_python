@@ -203,8 +203,8 @@ while (i < lines.length) {
       // don't resolve once converted -- skip the .md's own numbered list
       // right below this heading (still useful as a plain-text fallback
       // in the .md/GitHub rendering) and insert a native TOC field
-      // instead. Readers need to right-click -> "Update Field" (or F9)
-      // once if Word doesn't refresh it automatically on open.
+      // instead. `features.updateFields` above asks Word to fill it in on
+      // open; F9 forces it in a reader that ignores that.
       inToc = true;
       children.push(new TableOfContents("", { hyperlink: true, headingStyleRange: "2-3" }));
       children.push(new Paragraph({ spacing: { after: 160 }, children: [new TextRun("")] }));
@@ -285,6 +285,11 @@ while (i < lines.length) {
 
 const doc = new Document({
   numbering,
+  // Ask Word to refresh field results when the document is opened. Without
+  // it the table-of-contents field renders empty until a reader hits F9, and
+  // Word silently populates and re-saves it the first time anyone opens the
+  // file -- which shows up as an uncommitted change to a generated artifact.
+  features: { updateFields: true },
   styles: {
     default: {
       document: { run: { font: FONT, size: BODY_SIZE } },
