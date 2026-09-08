@@ -733,7 +733,10 @@ def test_trxs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monke
 
     widget.save_xaxis_button.click()
     xaxis_csv = tmp_path / "ABCD" / "ABCD_XAxis.csv"
-    assert xaxis_csv.exists()
+    # Directory listing, not Path.exists(): exists() ignores case on Windows
+    # and macOS, so it would accept a wrong-cased name here and only fail on
+    # Linux (as the GIXS-series equivalent of this assertion did).
+    assert xaxis_csv.name in {p.name for p in xaxis_csv.parent.iterdir()}
 
 
 def test_trxs2_widget_save_1d_interleaves_std_columns(qapp, tmp_path, monkeypatch):

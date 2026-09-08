@@ -1076,8 +1076,12 @@ def test_gixs2_widget_save_1d_azi_integ_write_matching_png(qapp, tmp_path, monke
     # SavegetX_Callback doesn't call savePanelSnapshot either) -- no PNG
     # alongside it, and no `canvas` argument in its own button wiring.
     widget.save_xaxis_button.click()
-    xaxis_csv = tmp_path / "ABCD" / "ABCD_Xaxis.csv"
-    assert xaxis_csv.exists()
+    xaxis_csv = tmp_path / "ABCD" / "ABCD_XAxis.csv"
+    # Compared against the directory listing rather than Path.exists(): on a
+    # case-insensitive filesystem exists() happily matches a name whose case
+    # is wrong, which hid a misspelling here ("ABCD_Xaxis.csv") until the
+    # suite first ran on Linux.
+    assert xaxis_csv.name in {p.name for p in xaxis_csv.parent.iterdir()}
     assert not xaxis_csv.with_suffix(".png").exists()
 
 
