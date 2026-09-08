@@ -180,4 +180,4 @@ feature requests belong in
 ## License
 
 MIT — see [LICENSE](LICENSE).
-Copyright © 2026 Pohang Accelerator Laboratory, POSTECH.
+Copyright © 2026 Pohang Accelerator Laboratory.
