@@ -4,6 +4,53 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.2.4 — 아이콘, 문서, 예제 데이터 / Icons, documentation, example data
+
+**계산 결과는 v0.2.3과 완전히 동일합니다.** 축약 경로(q 매핑, 검출기 보정, 마스킹,
+비닝, 평균) 코드는 한 줄도 바뀌지 않았습니다. v0.2.3에서 처리한 결과를 그대로
+비교하셔도 됩니다.
+
+Numerically identical to v0.2.3 — not one line of the reduction path changed.
+Output from v0.2.3 remains directly comparable.
+
+### 프로그램 아이콘 / Application icon
+
+기존 아이콘이 흐릿했던 건 해상도만의 문제가 아니었습니다. 512픽셀 마스터 하나에서
+모든 크기를 만들었는데, **그림이 캔버스의 6.3%**만 차지하고 배경이 투명했습니다.
+그래서 실제로 표시되는 16·32픽셀에서 글자 높이가 3~7픽셀에 불과했고, 어두운
+작업표시줄에서는 검은 글자가 배경에 묻혔습니다.
+
+- **마스터를 1024픽셀로** 다시 그렸습니다. macOS `.icns`도 512를 늘린 게 아니라
+  진짜 1024 항목을 담습니다.
+- **불투명 배경**을 넣어 밝은 바탕과 어두운 바탕에서 똑같이 보입니다.
+- **크기에 따라 다른 그림**을 씁니다. 48픽셀 이하에서는 산란 패턴 마크만
+  (horizon 선·Bragg rod·in-plane 반사) 나와 16픽셀에서도 형태가 읽히고, 64픽셀
+  이상에서 `p-GIXS` 워드마크가 함께 나옵니다.
+- **실행 중인 창·작업표시줄 아이콘**도 고쳤습니다. 이전에는 399×150 가로 배너를
+  정사각 아이콘 자리에 넣고 있어서 실행 파일 아이콘보다 오히려 나빴습니다.
+
+### 새 문서 / New documentation
+
+- **[영어 quickstart](../docs/quickstart.md)** — 캘리브레이션부터 q 매핑, 1D 컷,
+  in-situ 시리즈까지 전체 흐름을 따라가는 안내서. **각 단계에서 나와야 하는 값**을
+  같이 적어두어, 실제 측정에 쓰기 전에 프로그램이 제대로 도는지 확인할 수 있습니다.
+- **예제 데이터 생성기** — `python examples/make_example_data.py` 한 줄이면 약 15MB의
+  합성 프레임(silver behenate 캘리브런트 + 온도 램프 GIXS 3프레임)이 만들어집니다.
+  실제 Eiger4M 기하와 빔라인 HDF5 레이아웃을 그대로 쓰므로 실제 데이터와 같은 경로로
+  처리됩니다. **알려진 값으로 만들었기 때문에** 프로그램이 되돌려주는 SDD·피크 위치를
+  검증할 수 있습니다(SDD 220.0 mm → 220.02 mm로 복원).
+- 기여·문의 안내(`CONTRIBUTING.md`)와 **MIT 라이선스**를 추가했습니다.
+
+### 그 밖에 / Also
+
+- 테스트가 이제 모든 커밋에서 CI로 실행됩니다(632개). 이전에는 릴리즈 태그를 밀 때만
+  패키징이 돌고 테스트는 돌지 않았습니다.
+- 오래된 테스트 실패 하나를 정리했습니다. 코드 문제가 아니라 기댓값이 낡은 것이었고,
+  그 과정에서 사라져 있던 `.std` 구형 레이아웃 파싱 검증을 되살렸습니다.
+- 학술지(JOSS) 투고용 원고 초안이 저장소에 들어왔습니다(`paper.md`).
+
+---
+
 ## ⚠️ v0.2.3 — Azimuthal / 배경 뺀 결과가 달라집니다 / Azimuthal and background-subtracted results change
 
 검출기 모듈 갭 경계 3픽셀 제외가 **네 곳에서 빠져 있었습니다.** 영향 범위는 갭을
