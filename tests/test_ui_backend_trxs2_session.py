@@ -864,3 +864,41 @@ def test_trxs2_line_background_cut_blanks_the_gap_shoulder(tmp_path):
 
     assert session.bkg_1d is not None
     assert np.all(~np.isfinite(session.bkg_1d))
+
+
+def test_trxs2_normalized_matrix_matches_what_save_integ_writes(tmp_path):
+    """The public helper is what a UI drawing ROI sums has to call.
+
+    Save Integ.'s ROI branch normalizes with this same function, so a
+    caller that reimplemented the IC divide would put a curve on screen
+    that disagrees with the file on disk.
+    """
+
+    session = _setup_circular_with_background(tmp_path)
+    assert session.counts is not None
+
+    matrix = np.arange(session.counts.shape[0] * 3, dtype=np.float32).reshape(-1, 3) + 1.0
+
+    raw = ts.trxs2_normalized_matrix(matrix, "None")
+    np.testing.assert_allclose(raw, matrix)
+
+    normalized = ts.trxs2_normalized_matrix(matrix, "IC")
+    for index in range(matrix.shape[0]):
+        np.testing.assert_allclose(normalized[index], matrix[index] / session.counts[index, 0], rtol=1e-6)
+
+
+def test_trxs2_normalized_matrix_leaves_the_input_alone(tmp_path):
+    """It returns a copy -- normalizing must not quietly rewrite
+    `last_1d["intensity"]`, which every later render starts from."""
+
+    session = _setup_circular_with_background(tmp_path)
+    matrix = np.ones((session.counts.shape[0], 3), dtype=np.float32)
+    before = matrix.copy()
+
+    ts.trxs2_normalized_matrix(matrix, "IC")
+
+    np.testing.assert_allclose(matrix, before)
+
+
+def test_trxs2_normalized_matrix_is_exported():
+    assert "trxs2_normalized_matrix" in ts.__all__

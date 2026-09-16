@@ -30,6 +30,21 @@ def get_session() -> PenetrationSession:
     return _SESSION
 
 
+def set_session(session: PenetrationSession) -> None:
+    """Install `session` as the active module-level session.
+
+    Every `penetration_*` function operates on whatever session is
+    installed here. One desktop tab never needed to swap, but a caller
+    serving more than one user at a time does -- without this, two of them
+    would share `last_result` and one's Save Data would write the other's
+    curve. Mirrors `console_session.set_session` and the two series
+    modules'.
+    """
+
+    global _SESSION
+    _SESSION = session
+
+
 def reset_session() -> None:
     global _SESSION
     _SESSION = PenetrationSession()
@@ -108,4 +123,4 @@ def penetration_save(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "path": str(path)}
 
 
-__all__ = ["PenetrationSession", "get_session", "penetration_calculate", "penetration_save", "reset_session"]
+__all__ = ["PenetrationSession", "get_session", "penetration_calculate", "penetration_save", "reset_session", "set_session"]

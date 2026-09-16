@@ -75,3 +75,26 @@ def test_penetration_save_writes_a_file(tmp_path):
 
     assert result["ok"], result.get("message")
     assert (tmp_path / "PenetrationDepth_0_to_1.dat").exists()
+
+
+def test_set_session_isolates_two_independent_sessions():
+    """Regression for any caller serving more than one user at a time:
+    each owns a PenetrationSession and swaps it in before dispatching, so
+    one user's Save Data can never write the other's curve."""
+
+    alice = ps.PenetrationSession()
+    bob = ps.PenetrationSession()
+
+    ps.set_session(alice)
+    result = ps.penetration_calculate(
+        {"chem_formula": "Si", "mass_density": 2.329, "energy_kev": 11.3, "angle_min": 0.0, "angle_max": 1.0}
+    )
+    assert result["ok"], result.get("message")
+
+    ps.set_session(bob)
+    assert bob.last_result is None
+    assert ps.penetration_save({"directory": "."})["ok"] is False
+
+    ps.set_session(alice)
+    assert ps.get_session() is alice
+    assert alice.last_result["chem_formula"] == "Si"

@@ -883,10 +883,15 @@ def trxs2_roi_exec(payload: dict[str, Any]) -> dict[str, Any]:
 # column-wise (per-frame) re-normalize-and-subtract over the already-
 # computed stack curve matrix; never re-runs the per-frame averaging loop.
 # ----------------------------------------------------------------------
-def _normalized_series_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
+def trxs2_normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
     """Per-frame IC/BC divide (or leave raw for "None") -- same loop shape
     as `gixs2_session.gixs2_normalized_matrix`, shared by both the live
-    render below and Save Integ.'s ROI branch."""
+    render below and Save Integ.'s ROI branch.
+
+    Public for the same reason its GIXS2 twin is: a UI that draws ROI sums
+    has to normalize them exactly the way Save Integ. does, or the curve
+    on screen and the file on disk disagree.
+    """
 
     if method == "None" or _SESSION.counts is None:
         return np.asarray(matrix, dtype=np.float32).copy()
@@ -895,6 +900,7 @@ def _normalized_series_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
     for i in range(matrix.shape[0]):
         out[i] = normalize_by_count(matrix[i], _SESSION.counts[i, column])
     return out
+
 
 
 def _background_count_value(method: str) -> float | None:
@@ -926,7 +932,7 @@ def trxs2_render_1d(payload: dict[str, Any]) -> dict[str, Any]:
     method = str(payload.get("normalize", _SESSION.last_1d.get("normalize", "None")))
     _SESSION.last_1d["normalize"] = method
 
-    rendered = _normalized_series_matrix(_SESSION.last_1d["intensity"], method)
+    rendered = trxs2_normalized_matrix(_SESSION.last_1d["intensity"], method)
     if _SESSION.subtract_background and _SESSION.bkg_1d is not None:
         bkg_curve = normalize_by_count(_SESSION.bkg_1d, _background_count_value(method))
         rendered = rendered - bkg_curve[np.newaxis, :]
@@ -946,7 +952,7 @@ def trxs2_render_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
     method = str(payload.get("normalize", _SESSION.last_azimuthal.get("normalize", "None")))
     _SESSION.last_azimuthal["normalize"] = method
 
-    rendered = _normalized_series_matrix(_SESSION.last_azimuthal["intensity"], method)
+    rendered = trxs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method)
     if _SESSION.subtract_background and _SESSION.bkg_azi is not None:
         bkg_curve = normalize_by_count(_SESSION.bkg_azi, _background_count_value(method))
         rendered = rendered - bkg_curve[np.newaxis, :]
@@ -1093,7 +1099,7 @@ def trxs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "message": "Run Exec ROI first."}
         columns = [f"ROI{i + 1}" for i in range(_SESSION.last_roi.shape[1])]
         method = str(payload.get("normalize", "None"))
-        matrix = order_frames(_normalized_series_matrix(_SESSION.last_roi, method)).T
+        matrix = order_frames(trxs2_normalized_matrix(_SESSION.last_roi, method)).T
     elif _SESSION.auto_met == "azimuthal":
         if _SESSION.last_azimuthal is None or _SESSION.last_azimuthal.get("rendered") is None:
             return {"ok": False, "message": "Run Azimuthal Exec first."}
@@ -1277,6 +1283,7 @@ __all__ = [
     "trxs2_load_info",
     "trxs2_load_progress",
     "trxs2_load_series",
+    "trxs2_normalized_matrix",
     "trxs2_qcal",
     "trxs2_render_1d",
     "trxs2_render_azimuthal",

@@ -91,3 +91,33 @@ def test_xtrans_save_writes_a_file(tmp_path):
 
     assert result["ok"], result.get("message")
     assert (tmp_path / "Transmittance_8_to_10.dat").exists()
+
+
+def test_set_session_isolates_two_independent_sessions():
+    """Regression for any caller serving more than one user at a time:
+    each owns an XTransSession and swaps it in before dispatching, so one
+    user's Save Data can never write the other's curve."""
+
+    alice = xs.XTransSession()
+    bob = xs.XTransSession()
+
+    xs.set_session(alice)
+    result = xs.xtrans_calculate(
+        {
+            "chem_formula": "C8H8",
+            "mass_density": 1.05,
+            "energy_min": 8.5,
+            "energy_max": 15.0,
+            "n_points": 5,
+            "mode": "Transmittance",
+        }
+    )
+    assert result["ok"], result.get("message")
+
+    xs.set_session(bob)
+    assert bob.last_result is None
+    assert xs.xtrans_save({"directory": "."})["ok"] is False
+
+    xs.set_session(alice)
+    assert xs.get_session() is alice
+    assert alice.last_result["mode"] == "Transmittance"

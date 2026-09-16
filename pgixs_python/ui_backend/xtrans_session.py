@@ -32,6 +32,20 @@ def get_session() -> XTransSession:
     return _SESSION
 
 
+def set_session(session: XTransSession) -> None:
+    """Install `session` as the active module-level session.
+
+    Every `xtrans_*` function operates on whatever session is installed
+    here. One desktop tab never needed to swap, but a caller serving more
+    than one user at a time does -- without this, two of them would share
+    `last_result` and one's Save Data would write the other's curve.
+    Mirrors `console_session.set_session` and the two series modules'.
+    """
+
+    global _SESSION
+    _SESSION = session
+
+
 def reset_session() -> None:
     global _SESSION
     _SESSION = XTransSession()
@@ -130,4 +144,4 @@ def xtrans_save(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "path": str(path)}
 
 
-__all__ = ["XTransSession", "get_session", "reset_session", "xtrans_calculate", "xtrans_save"]
+__all__ = ["XTransSession", "get_session", "reset_session", "set_session", "xtrans_calculate", "xtrans_save"]
