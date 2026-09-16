@@ -74,13 +74,11 @@ Out of scope for this folder:
 
 - Tab3 crystal indexing.
 - HKL/Solve/Fine-tune GUIs.
-- The browser front end. That lives in
-  [PGIXS_web](https://github.com/YoungYongKim85/PGIXS_web), a separate
-  app that installs this package as a dependency and adds what a browser
-  needs on top of it — an HTTP API, per-browser session isolation, a
-  measurement database and a job queue. No reduction code is duplicated
-  there, so the web UI and the desktop app cannot drift apart
-  numerically.
+- The browser front end. That lives in `PGIXS_web`, a separate app that
+  installs this package as a dependency and adds what a browser needs on
+  top of it — an HTTP API, per-browser session isolation, a measurement
+  database and a job queue. No reduction code is duplicated there, so the
+  web UI and the desktop app cannot drift apart numerically.
 
 ## First Milestone
 
@@ -168,8 +166,7 @@ python -m pgixs_python.ui_backend.local_server
 
 Then open `http://127.0.0.1:8765/`. This is a single-session development
 scaffold for exercising `ui_backend` without the desktop app — for the
-actual browser front end, use
-[PGIXS_web](https://github.com/YoungYongKim85/PGIXS_web).
+actual browser front end, use `PGIXS_web`.
 
 Pytest test suite:
 
