@@ -138,12 +138,6 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Install CUDA Torch only if/when a later analysis module needs it:
-
-```powershell
-python -m pip install -r requirements-torch-cu113.txt
-```
-
 Minimal smoke test without pytest:
 
 ```powershell

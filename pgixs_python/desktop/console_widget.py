@@ -17,13 +17,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 from PySide6.QtCore import QPointF, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
-    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,

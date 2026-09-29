@@ -148,7 +148,6 @@ def sector_average(
     sector_geom_mask = finite_q & sector_mask
 
     sector_bins = build_radius_bin_map(q, center, sector_geom_mask)
-    full_bins = build_radius_bin_map(q, center, finite_q)
     if sector_bins.is_valid:
         radial: RadiusAverageResult = radius_average(image, sector_bins, use_median=use_median, calc_std=calc_std)
         full_ring_counts = _estimate_full_counts_for_sector_bins(center, finite_q, radial.r_axis)

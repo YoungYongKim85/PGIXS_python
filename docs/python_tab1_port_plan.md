@@ -42,8 +42,6 @@ Out of scope for this folder:
 
 - Create Python 3.10 virtual environment.
 - Install `requirements.txt`.
-- Install `requirements-torch-cu113.txt` only if a later module genuinely needs
-  Torch.
 - Run:
 
 ```powershell

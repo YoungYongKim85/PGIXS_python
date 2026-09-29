@@ -35,7 +35,7 @@ from pgixs_python.calibration.calibration_io import (
 from pgixs_python.calibration.center_refine import fine_tune_center, refine_center_from_ring
 from pgixs_python.calibration.peak_fit import fit_gaussian_peak
 from pgixs_python.calibration.ring_candidates import SDDCandidateReport, analyze_sdd_candidates, candidates_to_dicts
-from pgixs_python.calibration.sdd import compute_sdd_from_ring, wavelength_from_energy_kev
+from pgixs_python.calibration.sdd import compute_sdd_from_ring
 from pgixs_python.calibration.standards import standard_q_value
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type

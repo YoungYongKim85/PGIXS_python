@@ -31,14 +31,6 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Install CUDA Torch only if a later module actually needs it.
-
-Windows PowerShell or Linux shell:
-
-```powershell
-python -m pip install -r requirements-torch-cu113.txt
-```
-
 ## Single Workflow
 
 Windows PowerShell:
