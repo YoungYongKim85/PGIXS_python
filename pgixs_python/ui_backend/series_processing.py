@@ -433,7 +433,8 @@ def process_azimuthal_stack(
         intensity_rows.append(result.intensity)
         coverage_rows.append(result.coverage)
 
-    assert x_axis is not None
+    if x_axis is None:
+        raise ValueError("Azimuthal Process needs at least one frame.")
     return SeriesCurveResult(x_axis=x_axis, intensity=np.vstack(intensity_rows), coverage=np.vstack(coverage_rows))
 
 

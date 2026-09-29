@@ -474,6 +474,7 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
     counts_sum = np.zeros(2, dtype=np.float64)
     loaded = 0
     meta_loaded = 0
+    skipped: list[str] = []
     total = len(files)
     _SESSION.load_progress = None
     try:
@@ -484,8 +485,10 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
                 masked = apply_detector_mask(result.data, _SESSION.mask)
                 masked = np.ascontiguousarray(masked.T)
             except Exception:  # noqa: BLE001
+                skipped.append(series_path.name)
                 continue
             if masked.shape != target_shape:
+                skipped.append(series_path.name)
                 continue
             running_sum += masked
             loaded += 1
@@ -508,7 +511,10 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.background = background
     _SESSION.background_counts = background_counts
 
-    warning = None
+    warnings: list[str] = []
+    if skipped:
+        shown = ", ".join(skipped[:3]) + (" ..." if len(skipped) > 3 else "")
+        warnings.append(f"{len(skipped)} of {total} file(s) skipped (unreadable or wrong shape): {shown}.")
     if _SESSION.corrected and _SESSION.qmap is not None and _SESSION.background.shape == target_shape:
         try:
             factor = detector_correction_factor(
@@ -522,11 +528,11 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
             )
             _SESSION.background = apply_detector_correction(_SESSION.background, factor)
         except Exception as exc:  # noqa: BLE001
-            warning = f"Background loaded but correction failed: {exc}"
+            warnings.append(f"Background loaded but correction failed: {exc}")
 
     result_dict = {"ok": True, "path": str(file_path), "n_files": loaded}
-    if warning is not None:
-        result_dict["warning"] = warning
+    if warnings:
+        result_dict["warning"] = " ".join(warnings)
     return result_dict
 
 

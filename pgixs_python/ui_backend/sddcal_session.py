@@ -366,12 +366,17 @@ def sddcal_auto_run(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid energy: {exc}"}
 
+    # Both refinement steps fall back like AutoRun_Callback's own try/catch,
+    # but say so: the center they leave behind fixes every q axis downstream.
+    warnings: list[str] = []
+
     # Step 1: coarse center refinement (circle fit to the strongest ring).
     approx_y, approx_z = _SESSION.center
     try:
         refined_y, refined_z = refine_center_from_ring(_SESSION.data, (approx_y, approx_z))
-    except Exception:  # noqa: BLE001 - matches AutoRun_Callback's own try/catch fallback.
+    except Exception as exc:  # noqa: BLE001
         refined_y, refined_z = approx_y, approx_z
+        warnings.append(f"Center refinement failed ({exc}); keeping the center you set. Please verify it.")
 
     # Step 2: fine-tune using the single strongest ring above r=80 with
     # good coverage -- AutoRun_Callback's own separate, simpler peak
@@ -391,8 +396,8 @@ def sddcal_auto_run(payload: dict[str, Any]) -> dict[str, Any]:
                     valid_idx = np.flatnonzero(valid)
                     target_radius = float(profile.r_axis[valid_idx[best_local]])
                     refined_y, refined_z = fine_tune_center(_SESSION.data, (refined_y, refined_z), target_radius)
-    except Exception:  # noqa: BLE001 - fine-tuning is best-effort; keep the step-1 center on failure.
-        pass
+    except Exception as exc:  # noqa: BLE001 - best-effort; keep the step-1 center on failure.
+        warnings.append(f"Center fine-tuning failed ({exc}); keeping the coarse center. Please verify it.")
 
     _SESSION.center = (round(refined_y, 2), round(refined_z, 2))
 
@@ -445,7 +450,6 @@ def sddcal_auto_run(payload: dict[str, Any]) -> dict[str, Any]:
         "energy_kev": energy_kev,
     }
 
-    warnings: list[str] = []
     if np.isfinite(fit.r_square) and fit.r_square < 0.85:
         warnings.append(f"Gaussian fit quality is low (R^2={fit.r_square:.3f}). Please verify manually.")
     if report.accepted_count > 1 and np.isfinite(report.sdd_std) and report.sdd_std > 5.0:

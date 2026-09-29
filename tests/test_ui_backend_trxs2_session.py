@@ -902,3 +902,22 @@ def test_trxs2_normalized_matrix_leaves_the_input_alone(tmp_path):
 
 def test_trxs2_normalized_matrix_is_exported():
     assert "trxs2_normalized_matrix" in ts.__all__
+
+
+def test_trxs2_background_load_reports_files_it_had_to_skip(tmp_path):
+    """A corrupt frame in a background series used to be dropped without a
+    word, so the average quietly came from fewer frames than the user chose."""
+
+    center = (100.5, 100.5)
+    _load_series(tmp_path, n_frames=2, center=center, radii=[60.0, 60.0])
+    bkg_dir = tmp_path / "bkg"
+    bkg_dir.mkdir()
+    bkg_files = _write_synthetic_series(bkg_dir, n_frames=3, center=center, prefix="BKG", radii=[60.0] * 3)
+    bkg_files[1].write_bytes(b"not an hdf5 file")
+
+    result = ts.trxs2_background_load({"directory": str(bkg_dir), "filename": bkg_files[0].name})
+
+    assert result["ok"], result.get("message")
+    assert result["n_files"] == 2
+    assert "1 of 3" in result["warning"]
+    assert bkg_files[1].name in result["warning"]

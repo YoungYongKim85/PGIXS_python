@@ -474,3 +474,8 @@ def test_process_circular_stack_rejects_empty_geometry():
     stack = _synthetic_ring_stack(n_frames=1, center=center, radii=[60.0])
     with pytest.raises(ValueError):
         process_circular_stack(stack, radius_map)
+
+
+def test_process_azimuthal_stack_rejects_an_empty_stack_with_a_clear_error():
+    with pytest.raises(ValueError, match="at least one frame"):
+        process_azimuthal_stack(np.empty((0, 20, 20), dtype=np.float32), center=(10.0, 10.0), radius_range=(3.0, 6.0))

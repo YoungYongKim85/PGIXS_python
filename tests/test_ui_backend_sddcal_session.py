@@ -388,3 +388,35 @@ def test_sddcal_save_writes_the_session_center_verbatim_to_every_format(tmp_path
     loaded_std, _ = load_standard_calibration(payload["std_path"])
     assert loaded_std is not None
     np.testing.assert_allclose(loaded_std.beam_center, [12.0, 34.0])
+
+
+def test_sddcal_auto_run_says_so_when_center_refinement_fails(tmp_path, monkeypatch):
+    """Both refinement steps fall back to the center the user clicked. That
+    center fixes every q axis downstream, so a silent fallback is a wrong
+    calibration that looks like a right one."""
+
+    from pgixs_python.calibration.standards import standard_q_value
+
+    energy_kev, true_center = 9.5, (200.5, 200.5)
+    wavelength = 12.398419843320026 / energy_kev
+    radii = tuple(
+        250.0 * np.tan(2.0 * np.arcsin(standard_q_value("Silver behenate", n) * wavelength / (4.0 * np.pi))) / 0.075
+        for n in range(1, 5)
+    )
+    s.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    with h5py.File(frame_path, "w") as handle:
+        handle.create_dataset(
+            "entry/data/data", data=_synthetic_multi_ring_frame(center=true_center, radii=radii)[None, :, :]
+        )
+    _load(frame_path)
+    s.sddcal_set_center({"y": true_center[0] + 4.0, "z": true_center[1] - 3.0})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("circle fit did not converge")
+
+    monkeypatch.setattr(s, "refine_center_from_ring", boom)
+    result = s.sddcal_auto_run({"standard_sample": "Silver behenate", "energy_kev": energy_kev})
+
+    assert result["ok"], result.get("message")
+    assert any("Center refinement failed" in w and "did not converge" in w for w in result["warnings"])
