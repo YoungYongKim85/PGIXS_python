@@ -1041,25 +1041,25 @@ def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.x_axis_values is None:
         return {"ok": False, "message": "Set the series X-axis first."}
 
+    method = str(payload.get("normalize", "None"))
     if _SESSION.auto_met == "roi":
         if _SESSION.last_roi is None:
             return {"ok": False, "message": "Run Exec ROI first."}
         columns = [f"ROI{i + 1}" for i in range(_SESSION.last_roi.shape[1])]
-        method = str(payload.get("normalize", "None"))
         matrix = order_frames(gixs2_normalized_matrix(_SESSION.last_roi, method)).T
     elif _SESSION.auto_met == "azimuthal":
         if _SESSION.last_azimuthal is None:
             return {"ok": False, "message": "Run Exec Azi first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = order_frames(np.nansum(_SESSION.last_azimuthal["intensity"], axis=1, keepdims=True)).T
+            matrix = order_frames(np.nansum(gixs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method), axis=1, keepdims=True)).T
         columns = ["Integrated_Azimuthal"]
     else:
         if _SESSION.last_1d is None:
             return {"ok": False, "message": "Run Exec Cut first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = order_frames(np.nansum(_SESSION.last_1d["intensity"], axis=1, keepdims=True)).T
+            matrix = order_frames(np.nansum(gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method), axis=1, keepdims=True)).T
         columns = ["Integrated_1D"]
 
     path = _save_path(directory, "_Integ.csv")

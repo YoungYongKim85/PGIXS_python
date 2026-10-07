@@ -408,7 +408,7 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_row(self.save_1d_button, self.save_azi_button))
         self.save_integ_button = QPushButton("Save Integ.")
         self.save_integ_button.clicked.connect(
-            lambda: self._save(gs.gixs2_save_integration, self.normalize_roi_combo.currentText(), self.integ_canvas)
+            lambda: self._save(gs.gixs2_save_integration, self._integ_normalize(), self.integ_canvas)
         )
         self.save_xaxis_button = QPushButton("Save X-Axis")
         self.save_xaxis_button.clicked.connect(lambda: self._save(gs.gixs2_save_x_axis))
@@ -1861,6 +1861,15 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
+    def _integ_normalize(self) -> str:
+        # The same combo the Integration plot uses for the current mode.
+        auto_met = gs.get_session().auto_met
+        if auto_met == "roi":
+            return self.normalize_roi_combo.currentText()
+        if auto_met == "azimuthal":
+            return self.normalize_azi_combo.currentText()
+        return self.normalize_1d_combo.currentText()
+
     def _save(self, save_fn, normalize: str | None = None, canvas: CurveCanvas | None = None) -> None:
         payload = {"directory": self._last_dir}
         if normalize is not None:
