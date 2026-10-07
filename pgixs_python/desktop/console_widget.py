@@ -1390,6 +1390,13 @@ class ConsoleWidget(QWidget):
         self._pixel_centered = True
         if self._axis_mode == "pixel":
             self._render_pixel_image()
+        if result.get("message"):
+            # q-Map ran against the previous calibration; the session dropped
+            # it, so a Q-axis view has nothing left to draw.
+            self._render_pixel_image()
+            self._mark_ok(self.qmap_button, False)
+            self._set_status(result["message"], True)
+            return
         self._set_status("Calibration loaded.", True)
 
     # ------------------------------------------------------------------

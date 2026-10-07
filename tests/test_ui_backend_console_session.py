@@ -1572,3 +1572,25 @@ def test_gap_buffer_is_blanked_for_1d_reductions_but_not_for_the_image(tmp_path)
     assert masked_fraction == pytest.approx(np.mean(~np.isfinite(session.mask)), abs=1e-6)
     # ...while the reduction input additionally loses the shoulder.
     assert reduced_fraction > masked_fraction + 0.01
+
+
+def test_console_load_info_after_qmap_drops_the_stale_qmap(tmp_path):
+    from pgixs_python.calibration.calibration_io import StandardCalibration, save_standard_calibration_json
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    save_standard_calibration_json(
+        tmp_path / "calibration.json",
+        StandardCalibration(beam_center=np.array([24.0, 24.0]), wavelength=1.3051, pixel_size=0.075, sdd=300.0),
+    )
+    info = {"directory": str(tmp_path), "filename": "calibration.json"}
+    assert cs.console_load_info(info)["message"] == ""
+    assert cs.console_qmap({})["ok"]
+
+    payload = cs.console_load_info(info)
+
+    assert "q-Map" in payload["message"]
+    session = cs.get_session()
+    assert session.qmap is None and session.angle_map is None and session.corrected_data is None
