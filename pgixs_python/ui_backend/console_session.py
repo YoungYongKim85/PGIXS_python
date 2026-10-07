@@ -310,8 +310,16 @@ def console_load_info(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.calibration["sdd_mm"] = float(calibration.sdd)
     _SESSION.calibration["pixel_mm"] = float(calibration.pixel_size)
     _SESSION.calibration_loaded = True
+    message = ""
+    if _SESSION.qmap is not None:
+        # Cuts read the new beam center against the old q-map otherwise.
+        _SESSION.qmap = None
+        _SESSION.angle_map = None
+        _SESSION.corrected_data = None
+        _SESSION.last_curve = None
+        message = "New calibration loaded: run q-Map Cal. again."
 
-    return {"ok": True, "path": path, "calibration": _json_calibration()}
+    return {"ok": True, "path": path, "calibration": _json_calibration(), "message": message}
 
 
 def console_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001 - payload kept for endpoint symmetry.
