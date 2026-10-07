@@ -133,7 +133,7 @@ def test_trxs2_grid_remove_corrects_each_frame_individually(tmp_path):
     assert corrected_stack.shape == raw_before.shape
 
     for i in range(raw_before.shape[0]):
-        # trxs2_grid_remove applies grid_remove in the untransposed
+        # trxs2_grid_remove applies grid_remove in the load_h5_frame
         # orientation (same convention as console_session.console_grid_remove).
         expected, report = grid_remove(raw_before[i].T, "Eiger4M")
         assert report.applied, report.message

@@ -318,11 +318,9 @@ def console_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG
     if _SESSION.data is None:
         return {"ok": False, "message": "Load a detector image first."}
 
-    # `grid_remove`'s Eiger4M pixel indices are calibrated against the raw
-    # (pre-display-transpose) orientation, matching the batch workflow's
-    # untransposed data. Un-transpose, correct, then re-transpose so the
-    # console keeps its display orientation without touching those indices
-    # (which would break the batch pathway that never transposes).
+    # `grid_remove` takes the `load_h5_frame` orientation (what the batch
+    # workflow passes), so undo the console's display transpose, correct,
+    # then re-transpose.
     corrected, report = grid_remove(_SESSION.data.T, _SESSION.detector)
     if not report.applied:
         return {"ok": False, "message": report.message or "Grid remove is not applicable."}

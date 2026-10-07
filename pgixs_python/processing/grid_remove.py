@@ -33,6 +33,11 @@ def grid_remove(data: np.ndarray, detector_type: str = "Eiger4M") -> tuple[np.nd
         report.message = "Grid remover expects a 2D numeric detector image."
         return out, report
 
+    # The indices below are MATLAB's, for its (2167, 2070) frame. Every caller
+    # passes the `load_h5_frame` orientation (2070, 2167), so index a
+    # transposed view; the in-place scaling below still lands in `out`.
+    work = out.T
+
     hordata = _idx([255, 260, 513, 518, 771, 776, 1295, 1300, 1553, 1558, 1811, 1816])
     horgap = _idx([256, 259, 514, 517, 772, 775, 1296, 1299, 1554, 1557, 1812, 1815])
     verdata = _idx([255, 260, 806, 811, 1357, 1362, 1908, 1913])
@@ -43,12 +48,12 @@ def grid_remove(data: np.ndarray, detector_type: str = "Eiger4M") -> tuple[np.nd
 
     required_rows = max(max(verdata), max(vergap), *(int(group.max()) for group in row_groups)) + 1
     required_cols = max(max(hordata), max(horgap), *(int(group.max()) for group in col_groups)) + 1
-    if out.shape[0] < required_rows or out.shape[1] < required_cols:
-        report.message = f"Detector image size {out.shape[0]}x{out.shape[1]} is too small for Eiger grid removal."
+    if work.shape[0] < required_rows or work.shape[1] < required_cols:
+        report.message = f"Detector image size {work.shape[0]}x{work.shape[1]} is too small for Eiger grid removal."
         return out, report
 
-    original = np.concatenate([out[:, hordata].ravel(), out[verdata, :].ravel()]).astype(np.float64)
-    grid = np.concatenate([out[:, horgap].ravel(), out[vergap, :].ravel()]).astype(np.float64)
+    original = np.concatenate([work[:, hordata].ravel(), work[verdata, :].ravel()]).astype(np.float64)
+    grid = np.concatenate([work[:, horgap].ravel(), work[vergap, :].ravel()]).astype(np.float64)
 
     valid = np.isfinite(original) & np.isfinite(grid) & (original != 0) & (grid != 0)
     if not np.any(valid):
@@ -67,13 +72,13 @@ def grid_remove(data: np.ndarray, detector_type: str = "Eiger4M") -> tuple[np.nd
         return out, report
 
     correction_factor = float(np.clip(1.0 / median_ratio, 0.25, 4.0))
-    grid_mask = np.zeros(out.shape, dtype=bool)
+    grid_mask = np.zeros(work.shape, dtype=bool)
     for rows in row_groups:
         grid_mask[rows, :] = True
     for cols in col_groups:
         grid_mask[:, cols] = True
 
-    out[grid_mask] *= np.float32(correction_factor)
+    work[grid_mask] *= np.float32(correction_factor)
     report.applied = True
     report.median_ratio = median_ratio
     report.correction_factor = correction_factor
