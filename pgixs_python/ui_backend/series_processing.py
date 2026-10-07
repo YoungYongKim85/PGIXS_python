@@ -28,6 +28,7 @@ from pgixs_python.averaging.angular import angular_profile, make_sector_mask
 from pgixs_python.averaging.cake import CakeAverageResult, accumulation_average, cake_average
 from pgixs_python.averaging.radial import RadiusBinMap, build_radius_bin_map, radius_average
 from pgixs_python.processing.corrections import apply_detector_correction
+from pgixs_python.processing.grid_remove import grid_remove
 
 
 def apply_correction_to(
@@ -83,6 +84,34 @@ class SeriesCircularResult:
     intensity: np.ndarray  # (n_frames, n_bins)
     coverage: np.ndarray  # (n_frames, n_bins)
     std: np.ndarray | None  # (n_frames, n_bins), or None when calc_std=False
+
+
+def grid_remove_stack(stack: np.ndarray, detector: str) -> tuple[np.ndarray | None, str]:
+    """Grid-remove every display-orientation frame on its own (each frame's
+    own reference-pixel ratio). `grid_remove` takes the `load_h5_frame`
+    orientation, hence the transposes. Returns (None, message) if any frame
+    can't be corrected, so a series never ends up half-corrected."""
+
+    frames = []
+    message = ""
+    for frame in stack:
+        corrected, report = grid_remove(frame.T, detector)
+        if not report.applied:
+            return None, report.message or "Grid remove is not applicable."
+        message = report.message
+        frames.append(np.ascontiguousarray(corrected.T))
+    return np.stack(frames, axis=0), message
+
+
+def _match_to_reference(x: np.ndarray, y: np.ndarray, ref_x: np.ndarray) -> np.ndarray:
+    """Place a static-geometry frame's curve onto the shared axis by exact Q
+    value, NaN where this frame has no point. Accumulation cuts drop a
+    column whose band reads all-NaN in that one frame, so frames can share
+    a length yet not a Q axis; every Q value still comes from the same
+    q-map, so exact matching is safe (no interpolation across the gap)."""
+
+    lookup = dict(zip(np.asarray(x).tolist(), np.asarray(y).tolist()))
+    return np.array([lookup.get(v, np.nan) for v in np.asarray(ref_x).tolist()], dtype=np.float32)
 
 
 def _align_to_reference(x: np.ndarray, y: np.ndarray, ref_x: np.ndarray) -> np.ndarray:
@@ -216,8 +245,20 @@ def process_linecut_stack(
                 progress_callback(i + 1, n_frames)
 
     x_axis: np.ndarray | None = np.asarray(ref_axis, dtype=np.float32) if ref_axis is not None else None
+    if x_axis is None and not change_ai:
+        valid = [r for r in results if r.is_valid]
+        if valid and any(not np.array_equal(r.q_axis, valid[0].q_axis) for r in valid[1:]):
+            # Frames disagree on which points they kept: use the union of
+            # their Q values, ordered by distance from the beam like each cut.
+            r_of_q: dict[float, float] = {}
+            for r in valid:
+                r_of_q.update(zip(r.q_axis.tolist(), r.r_axis.tolist()))
+            x_axis = np.asarray(sorted(r_of_q, key=r_of_q.__getitem__), dtype=np.float32)
     intensity_rows: list[np.ndarray] = []
     coverage_rows: list[np.ndarray] = []
+    # Change-ai frames invalid before the first valid one: their NaN rows
+    # can only be sized once that frame fixes the axis.
+    n_leading_invalid = 0
 
     for i, result in enumerate(results):
         if not result.is_valid:
@@ -225,6 +266,7 @@ def process_linecut_stack(
                 # Matches alignLineToRef's own tolerance for a dropped
                 # frame: an all-NaN row rather than aborting the series.
                 if x_axis is None:
+                    n_leading_invalid += 1
                     continue
                 intensity_rows.append(np.full(x_axis.shape, np.nan, dtype=np.float32))
                 coverage_rows.append(np.full(x_axis.shape, np.nan, dtype=np.float32))
@@ -233,16 +275,16 @@ def process_linecut_stack(
 
         if x_axis is None:
             x_axis = result.q_axis
+            intensity_rows.extend([np.full(x_axis.shape, np.nan, dtype=np.float32)] * n_leading_invalid)
+            coverage_rows.extend([np.full(x_axis.shape, np.nan, dtype=np.float32)] * n_leading_invalid)
             intensity_rows.append(result.intensity)
             coverage_rows.append(result.coverage)
         elif change_ai:
             intensity_rows.append(_align_to_reference(result.q_axis, result.intensity, x_axis))
             coverage_rows.append(_align_to_reference(result.q_axis, result.coverage, x_axis))
-        elif result.q_axis.shape != x_axis.shape:
-            raise ValueError(
-                f"Frame {i + 1} produced a {result.q_axis.shape[0]}-point curve, "
-                f"expected {x_axis.shape[0]} (geometry must stay fixed across the series)."
-            )
+        elif not np.array_equal(result.q_axis, x_axis):
+            intensity_rows.append(_match_to_reference(result.q_axis, result.intensity, x_axis))
+            coverage_rows.append(_match_to_reference(result.q_axis, result.coverage, x_axis))
         else:
             intensity_rows.append(result.intensity)
             coverage_rows.append(result.coverage)
