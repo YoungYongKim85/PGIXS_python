@@ -42,7 +42,6 @@ from pgixs_python.processing.corrections import (
     silicon_efficiency,
     solid_angle,
 )
-from pgixs_python.processing.grid_remove import grid_remove
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.gixs import qmap_gixs
@@ -51,6 +50,7 @@ from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2
 from pgixs_python.ui_backend.series_processing import (
     apply_correction_to,
     compute_experiment_x_axis,
+    grid_remove_stack,
     process_azimuthal_stack,
     process_linecut_stack,
     process_roi_stack,
@@ -245,7 +245,16 @@ def _mean_ignoring_all_nan(stack: np.ndarray) -> np.ndarray:
         return np.nanmean(stack, axis=0)
 
 
-def _reset_for_new_series() -> None:
+def _clear_results() -> None:
+    _SESSION.last_1d = None
+    _SESSION.last_azimuthal = None
+    _SESSION.last_roi = None
+
+
+def _invalidate_qcal() -> None:
+    """Drop everything q-Cal derived from the calibration, so nothing keeps
+    cutting an old q-map against a new beam center/SDD/energy."""
+
     _SESSION.qmap = None
     _SESSION.angle_map = None
     _SESSION.change_ai = False
@@ -254,11 +263,13 @@ def _reset_for_new_series() -> None:
     _SESSION.corrected_stack = None
     _SESSION.correction_factor = None
     _SESSION.corrected = False
+    _clear_results()
+
+
+def _reset_for_new_series() -> None:
+    _invalidate_qcal()
     _SESSION.grid_removed = False
     _SESSION.roi_list = []
-    _SESSION.last_1d = None
-    _SESSION.last_azimuthal = None
-    _SESSION.last_roi = None
     _SESSION.x_axis_values = None
     _SESSION.x_axis_order = None
     _SESSION.x_axis_label = ""
@@ -426,8 +437,14 @@ def gixs2_load_info(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.calibration["sdd_mm"] = float(calibration.sdd)
     _SESSION.calibration["pixel_mm"] = float(calibration.pixel_size)
     _SESSION.calibration_loaded = True
+    message = ""
+    if _SESSION.corrected:
+        _invalidate_qcal()
+        if _SESSION.stack is not None:
+            _SESSION.data = _mean_ignoring_all_nan(_SESSION.stack)
+        message = "New calibration loaded: run q-Cal again."
 
-    return {"ok": True, "path": path, "calibration": dict(_SESSION.calibration)}
+    return {"ok": True, "path": path, "calibration": dict(_SESSION.calibration), "message": message}
 
 
 def gixs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
@@ -445,17 +462,11 @@ def gixs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG00
     if _SESSION.corrected:
         return {"ok": False, "message": "Run Grid Remove before q-Cal (reload the series to redo Grid Remove after q-Cal)."}
 
-    n_frames = _SESSION.stack.shape[0]
-    corrected_frames = []
-    applied_message = ""
-    for i in range(n_frames):
-        corrected, report = grid_remove(_SESSION.stack[i].T, _SESSION.detector)
-        if not report.applied:
-            return {"ok": False, "message": report.message or "Grid remove is not applicable."}
-        applied_message = report.message
-        corrected_frames.append(np.ascontiguousarray(corrected.T))
+    stack, applied_message = grid_remove_stack(_SESSION.stack, _SESSION.detector)
+    if stack is None:
+        return {"ok": False, "message": applied_message}
 
-    _SESSION.stack = np.stack(corrected_frames, axis=0)
+    _SESSION.stack = stack
     _SESSION.data = _mean_ignoring_all_nan(_SESSION.stack)
     _SESSION.grid_removed = True
     return {"ok": True, "message": applied_message, "preview": downsample_2d_for_json(_SESSION.data, max_points=1024)}
@@ -658,6 +669,8 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.corrected_stack = corrected
     _SESSION.correction_factor = static_factor
     _SESSION.corrected = True
+    # Curves cut against the previous q-Cal's geometry no longer match it.
+    _clear_results()
     # mean_i(x_i / f) == mean_i(x_i) / f for a frame-independent f, so the
     # displayed average costs one divide instead of a corrected copy.
     _SESSION.data = (
@@ -1097,6 +1110,10 @@ def gixs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
 
     if _SESSION.stack is None or not _SESSION.file_paths:
         return {"ok": False, "message": "Load an initial series first."}
+    if _SESSION.auto_n_old == 0:
+        # LOAD DATA alone holds one preview frame with no counts/timestamps;
+        # appending the series to it would load that frame twice.
+        return {"ok": False, "message": "Import the series via Set/Table first."}
 
     directory = str(payload.get("directory", str(_SESSION.file_paths[0].parent)))
     # Prefer the prefix actually typed into the Filename field over
@@ -1128,6 +1145,10 @@ def gixs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.load_progress = None
 
     new_stack = np.ascontiguousarray(np.transpose(result.stack, (0, 2, 1)))
+    if _SESSION.grid_removed:
+        new_stack, message = grid_remove_stack(new_stack, _SESSION.detector)
+        if new_stack is None:
+            return {"ok": False, "message": f"New frames could not be grid-removed: {message}"}
     new_timestamps = result.timestamps.astype(np.float64)
     if _SESSION.timestamp_reference is not None:
         new_timestamps = new_timestamps - _SESSION.timestamp_reference
@@ -1227,6 +1248,7 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
             else:
                 extra = process_linecut_stack(
                     new_frames, _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
+                    ref_axis=_SESSION.last_1d["x_axis"],
                     correction_factor=factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_1d["params"]
                 )
             if extra.x_axis.shape != _SESSION.last_1d["x_axis"].shape:
@@ -1237,13 +1259,17 @@ def _extend_active_curve(new_frames: np.ndarray, new_q_stack: np.ndarray | None 
         if _SESSION.auto_met == "azimuthal" and _SESSION.last_azimuthal is not None:
             frames = new_frames
             azi_factor = factor
+            gap_buffer = _SESSION.gap_buffer
             if _SESSION.last_azimuthal.get("reflect_missing_wedge"):
                 frames = _q_remap_stack(frames, "Azimuthal (Qxy/Qz remap)", correction_factor=azi_factor)
                 if frames is None:
                     return False
+                # As in Exec Azi: the remap spent both, and the pixel gap
+                # mask no longer maps onto the Q grid.
                 azi_factor = None
+                gap_buffer = None
             extra = process_azimuthal_stack(
-                frames, center=beam_pos, correction_factor=azi_factor, gap_buffer=_SESSION.gap_buffer, **_SESSION.last_azimuthal["params"]
+                frames, center=beam_pos, correction_factor=azi_factor, gap_buffer=gap_buffer, **_SESSION.last_azimuthal["params"]
             )
             if extra.x_axis.shape != _SESSION.last_azimuthal["x_axis"].shape:
                 return False

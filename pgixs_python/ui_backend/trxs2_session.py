@@ -49,7 +49,6 @@ from pgixs_python.processing.corrections import (
     apply_detector_correction,
     detector_correction_factor,
 )
-from pgixs_python.processing.grid_remove import grid_remove
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.trxs import qmap_trxs
@@ -58,6 +57,7 @@ from pgixs_python.ui_backend.series_processing import (
     apply_correction_to,
     build_circular_radius_map,
     compute_experiment_x_axis,
+    grid_remove_stack,
     process_azimuthal_stack,
     process_circular_stack,
     process_linecut_stack,
@@ -119,6 +119,9 @@ class TrXS2Session:
     # background/background_counts fields.
     background: np.ndarray | None = None
     background_counts: np.ndarray | None = None
+    # The averaged background before any correction. `background` is always
+    # derived from it, so a re-q-Cal never corrects an already-corrected one.
+    background_raw: np.ndarray | None = None
     # User-drawn ROI mask for Circular Process (True = keep, False =
     # exclude) -- mirrors console_session.py's own circular_mask.
     circular_mask: np.ndarray | None = None
@@ -224,6 +227,25 @@ def _mean_ignoring_all_nan(stack: np.ndarray) -> np.ndarray:
         return np.nanmean(stack, axis=0)
 
 
+def _invalidate_qcal() -> None:
+    """Drop everything q-Cal derived from the calibration, so nothing keeps
+    cutting an old q-map against a new beam center/SDD/energy."""
+
+    _SESSION.qmap = None
+    _SESSION.angle_map = None
+    _SESSION.corrected_stack = None
+    _SESSION.correction_factor = None
+    _SESSION.corrected = False
+    _SESSION.last_1d = None
+    _SESSION.last_azimuthal = None
+    _SESSION.last_roi = None
+    _SESSION.circular_radius_map = None
+    _SESSION.bkg_1d = None
+    _SESSION.bkg_azi = None
+    if _SESSION.background_raw is not None:
+        _SESSION.background = _SESSION.background_raw.copy()
+
+
 def _reset_for_new_series() -> None:
     """Reset per-series derived state on a fresh Load/Set-Table Import --
     deliberately leaves `background`/`background_counts`/
@@ -232,23 +254,13 @@ def _reset_for_new_series() -> None:
     loaded across a new series until the user explicitly reloads it via
     Bkgload2_Callback again)."""
 
-    _SESSION.qmap = None
-    _SESSION.angle_map = None
-    _SESSION.corrected_stack = None
-    _SESSION.correction_factor = None
-    _SESSION.corrected = False
+    _invalidate_qcal()
     _SESSION.grid_removed = False
     _SESSION.roi_list = []
-    _SESSION.last_1d = None
-    _SESSION.last_azimuthal = None
-    _SESSION.last_roi = None
     _SESSION.x_axis_values = None
     _SESSION.x_axis_order = None
     _SESSION.x_axis_label = ""
     _SESSION.circular_mask = None
-    _SESSION.circular_radius_map = None
-    _SESSION.bkg_1d = None
-    _SESSION.bkg_azi = None
 
 
 # ----------------------------------------------------------------------
@@ -398,8 +410,14 @@ def trxs2_load_info(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.calibration["sdd_mm"] = float(calibration.sdd)
     _SESSION.calibration["pixel_mm"] = float(calibration.pixel_size)
     _SESSION.calibration_loaded = True
+    message = ""
+    if _SESSION.corrected:
+        _invalidate_qcal()
+        if _SESSION.stack is not None:
+            _SESSION.data = _mean_ignoring_all_nan(_SESSION.stack)
+        message = "New calibration loaded: run q-Cal again."
 
-    return {"ok": True, "path": path, "calibration": dict(_SESSION.calibration)}
+    return {"ok": True, "path": path, "calibration": dict(_SESSION.calibration), "message": message}
 
 
 def trxs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
@@ -419,17 +437,11 @@ def trxs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG00
     if _SESSION.corrected:
         return {"ok": False, "message": "Run Grid Remove before q-Cal (reload the series to redo Grid Remove after q-Cal)."}
 
-    n_frames = _SESSION.stack.shape[0]
-    corrected_frames = []
-    applied_message = ""
-    for i in range(n_frames):
-        corrected, report = grid_remove(_SESSION.stack[i].T, _SESSION.detector)
-        if not report.applied:
-            return {"ok": False, "message": report.message or "Grid remove is not applicable."}
-        applied_message = report.message
-        corrected_frames.append(np.ascontiguousarray(corrected.T))
+    stack, applied_message = grid_remove_stack(_SESSION.stack, _SESSION.detector)
+    if stack is None:
+        return {"ok": False, "message": applied_message}
 
-    _SESSION.stack = np.stack(corrected_frames, axis=0)
+    _SESSION.stack = stack
     _SESSION.data = _mean_ignoring_all_nan(_SESSION.stack)
     _SESSION.grid_removed = True
     return {"ok": True, "message": applied_message, "preview": downsample_2d_for_json(_SESSION.data, max_points=1024)}
@@ -508,27 +520,20 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
         (counts_sum / meta_loaded).astype(np.float32) if meta_loaded else np.full(2, np.nan, dtype=np.float32)
     )
 
-    _SESSION.background = background
+    _SESSION.background_raw = background
+    _SESSION.background = background.copy()
     _SESSION.background_counts = background_counts
 
     warnings: list[str] = []
     if skipped:
         shown = ", ".join(skipped[:3]) + (" ..." if len(skipped) > 3 else "")
         warnings.append(f"{len(skipped)} of {total} file(s) skipped (unreadable or wrong shape): {shown}.")
-    if _SESSION.corrected and _SESSION.qmap is not None and _SESSION.background.shape == target_shape:
-        try:
-            factor = detector_correction_factor(
-                DetectorCorrectionInputs(
-                    data_size=target_shape, beam_position=_SESSION.calibration["beam_pos"],
-                    pixel_size_mm=float(_SESSION.calibration["pixel_mm"]), sdd_mm=float(_SESSION.calibration["sdd_mm"]),
-                    q_map=_SESSION.qmap["q"], energy_kev=float(_SESSION.calibration["energy_kev"]),
-                    detector_type=_SESSION.detector,
-                ),
-                k0=float(2.0 * np.pi / wavelength_from_energy_kev(float(_SESSION.calibration["energy_kev"]))),
-            )
-            _SESSION.background = apply_detector_correction(_SESSION.background, factor)
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"Background loaded but correction failed: {exc}")
+    if _SESSION.corrected and _SESSION.correction_factor is not None:
+        # The same factor the stack is corrected with, not one rebuilt from
+        # `calibration`, which can have moved on since q-Cal.
+        _SESSION.background = apply_detector_correction(background, _SESSION.correction_factor)
+    # Curves cut from the previous background would keep being subtracted.
+    _background_cuts()
 
     result_dict = {"ok": True, "path": str(file_path), "n_files": loaded}
     if warnings:
@@ -621,8 +626,8 @@ def trxs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     # mean_i(x_i / f) == mean_i(x_i) / f for a frame-independent f.
     _SESSION.data = apply_detector_correction(_mean_ignoring_all_nan(_SESSION.stack), factor)
 
-    if _SESSION.background is not None and _SESSION.background.shape == shape:
-        _SESSION.background = apply_detector_correction(_SESSION.background, factor)
+    if _SESSION.background_raw is not None and _SESSION.background_raw.shape == shape:
+        _SESSION.background = apply_detector_correction(_SESSION.background_raw, factor)
 
     return {
         "ok": True,
@@ -701,20 +706,11 @@ def trxs2_circular_exec(payload: dict[str, Any]) -> dict[str, Any]:
 
     _SESSION.circular_radius_map = radius_map
     _SESSION.last_1d = {
+        "kind": "circular",
         "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage, "std": result.std,
         "params": {"use_median": use_median, "calc_std": calc_std, "min_coverage": min_coverage},
     }
-    if _SESSION.background is not None:
-        # The background frame is already corrected (trxs2_qcal /
-        # trxs2_background_load), so only the gap shoulder is left to blank --
-        # it has to be blanked on the same pixels as the stack, or Subtraction
-        # takes a background that averaged gap-edge pixels the sample did not.
-        bkg_result = radius_average(
-            apply_correction_to(_SESSION.background, None, _SESSION.gap_buffer),
-            radius_map, use_median=use_median, calc_std=False)
-        _SESSION.bkg_1d = bkg_result.intensity
-    else:
-        _SESSION.bkg_1d = None
+    _background_cuts()
     _SESSION.auto_met = "circular"
 
     render = trxs2_render_1d({})
@@ -765,24 +761,11 @@ def trxs2_line_exec(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.load_progress = None
 
     _SESSION.last_1d = {
+        "kind": "line1d",
         "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage, "std": None,
         "params": kwargs,
     }
-    if _SESSION.background is not None:
-        try:
-            bkg_result = process_linecut_stack(
-                _SESSION.background[np.newaxis, ...], _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
-                ref_axis=result.x_axis, gap_buffer=_SESSION.gap_buffer, **kwargs,
-            )
-            _SESSION.bkg_1d = bkg_result.intensity[0]
-        except ValueError:
-            # The background's own valid-pixel geometry didn't produce the
-            # same-length axis as the main stack (see this module's own
-            # test coverage) -- Subtraction just has nothing to subtract,
-            # rather than failing the whole Exec.
-            _SESSION.bkg_1d = None
-    else:
-        _SESSION.bkg_1d = None
+    _background_cuts()
     _SESSION.auto_met = "line1d"
 
     render = trxs2_render_1d({})
@@ -842,13 +825,7 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.last_azimuthal = {
         "x_axis": result.x_axis, "intensity": result.intensity, "coverage": result.coverage, "params": kwargs,
     }
-    if _SESSION.background is not None:
-        bkg_result = angular_profile(
-            apply_correction_to(_SESSION.background, None, _SESSION.gap_buffer),
-            center=beam_pos, **kwargs)
-        _SESSION.bkg_azi = bkg_result.intensity
-    else:
-        _SESSION.bkg_azi = None
+    _background_cuts()
     _SESSION.auto_met = "azimuthal"
 
     render = trxs2_render_azimuthal({})
@@ -889,6 +866,40 @@ def trxs2_roi_exec(payload: dict[str, Any]) -> dict[str, Any]:
 # column-wise (per-frame) re-normalize-and-subtract over the already-
 # computed stack curve matrix; never re-runs the per-frame averaging loop.
 # ----------------------------------------------------------------------
+def _background_cuts() -> None:
+    """Cut the loaded background with the geometry of the current 1D and
+    Azimuthal results (`bkg_1d`/`bkg_azi`), or clear them when there is no
+    background. Run by every Exec and by Load Bkg., so Subtraction always
+    uses the background that is actually loaded."""
+
+    _SESSION.bkg_1d = None
+    _SESSION.bkg_azi = None
+    if _SESSION.background is None:
+        return
+    beam_pos = _SESSION.calibration["beam_pos"]
+    # The background is already corrected (trxs2_qcal / trxs2_background_load),
+    # so only the gap shoulder is left to blank -- on the same pixels as the
+    # stack, or Subtraction takes gap-edge pixels the sample did not average.
+    blanked = apply_correction_to(_SESSION.background, None, _SESSION.gap_buffer)
+    last = _SESSION.last_1d
+    if last is not None and last.get("kind") == "circular" and _SESSION.circular_radius_map is not None:
+        _SESSION.bkg_1d = radius_average(
+            blanked, _SESSION.circular_radius_map, use_median=last["params"]["use_median"], calc_std=False
+        ).intensity
+    elif last is not None and last.get("kind") == "line1d" and _SESSION.qmap is not None:
+        try:
+            _SESSION.bkg_1d = process_linecut_stack(
+                _SESSION.background[np.newaxis, ...], _SESSION.qmap["q"], _SESSION.angle_map, center=beam_pos,
+                ref_axis=last["x_axis"], gap_buffer=_SESSION.gap_buffer, **last["params"],
+            ).intensity[0]
+        except ValueError:
+            # No valid background pixels along this line -- Subtraction just
+            # has nothing to subtract, rather than failing the whole Exec.
+            pass
+    if _SESSION.last_azimuthal is not None:
+        _SESSION.bkg_azi = angular_profile(blanked, center=beam_pos, **_SESSION.last_azimuthal["params"]).intensity
+
+
 def trxs2_normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
     """Per-frame IC/BC divide (or leave raw for "None") -- same loop shape
     as `gixs2_session.gixs2_normalized_matrix`, shared by both the live
@@ -920,6 +931,22 @@ def _background_count_value(method: str) -> float | None:
     return value if np.isfinite(value) else None
 
 
+def _subtract_background(rendered: np.ndarray, bkg: np.ndarray | None, method: str) -> tuple[np.ndarray, str]:
+    """Subtract `bkg` normalized the same way as `rendered`, or leave
+    `rendered` alone with a warning when only one side has IC/BC counters --
+    a raw curve minus a normalized one is off by the counter value."""
+
+    if not _SESSION.subtract_background or bkg is None:
+        return rendered, ""
+    bkg_count = _background_count_value(method)
+    if method != "None":
+        if bkg_count is None:
+            return rendered, f"Background has no {method} counter: not subtracted."
+        if _SESSION.counts is None:
+            return rendered, f"Series has no {method} counters: background not subtracted."
+    return rendered - normalize_by_count(bkg, bkg_count)[np.newaxis, :], ""
+
+
 def trxs2_render_1d(payload: dict[str, Any]) -> dict[str, Any]:
     """Re-normalize (None/IC/BC) + conditionally subtract the background
     over `session.last_1d["intensity"]` (the raw per-frame matrix Circular/
@@ -938,13 +965,12 @@ def trxs2_render_1d(payload: dict[str, Any]) -> dict[str, Any]:
     method = str(payload.get("normalize", _SESSION.last_1d.get("normalize", "None")))
     _SESSION.last_1d["normalize"] = method
 
-    rendered = trxs2_normalized_matrix(_SESSION.last_1d["intensity"], method)
-    if _SESSION.subtract_background and _SESSION.bkg_1d is not None:
-        bkg_curve = normalize_by_count(_SESSION.bkg_1d, _background_count_value(method))
-        rendered = rendered - bkg_curve[np.newaxis, :]
+    rendered, warning = _subtract_background(
+        trxs2_normalized_matrix(_SESSION.last_1d["intensity"], method), _SESSION.bkg_1d, method
+    )
 
     _SESSION.last_1d["rendered"] = rendered.astype(np.float32)
-    return {"ok": True, "x": downsample_1d_for_json(_SESSION.last_1d["x_axis"], max_points=600)}
+    return {"ok": True, "x": downsample_1d_for_json(_SESSION.last_1d["x_axis"], max_points=600), "warning": warning}
 
 
 def trxs2_render_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
@@ -958,13 +984,14 @@ def trxs2_render_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
     method = str(payload.get("normalize", _SESSION.last_azimuthal.get("normalize", "None")))
     _SESSION.last_azimuthal["normalize"] = method
 
-    rendered = trxs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method)
-    if _SESSION.subtract_background and _SESSION.bkg_azi is not None:
-        bkg_curve = normalize_by_count(_SESSION.bkg_azi, _background_count_value(method))
-        rendered = rendered - bkg_curve[np.newaxis, :]
+    rendered, warning = _subtract_background(
+        trxs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method), _SESSION.bkg_azi, method
+    )
 
     _SESSION.last_azimuthal["rendered"] = rendered.astype(np.float32)
-    return {"ok": True, "x": downsample_1d_for_json(_SESSION.last_azimuthal["x_axis"], max_points=600)}
+    return {
+        "ok": True, "x": downsample_1d_for_json(_SESSION.last_azimuthal["x_axis"], max_points=600), "warning": warning
+    }
 
 
 # ----------------------------------------------------------------------
@@ -1156,6 +1183,10 @@ def trxs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
 
     if _SESSION.stack is None or not _SESSION.file_paths:
         return {"ok": False, "message": "Load an initial series first."}
+    if _SESSION.auto_n_old == 0:
+        # LOAD DATA alone holds one preview frame with no counts/timestamps;
+        # appending the series to it would load that frame twice.
+        return {"ok": False, "message": "Import the series via Set/Table first."}
 
     directory = str(payload.get("directory", str(_SESSION.file_paths[0].parent)))
     match_name = _SESSION.series_filename_prefix or _SESSION.file_paths[0].name
@@ -1181,6 +1212,10 @@ def trxs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.load_progress = None
 
     new_stack = np.ascontiguousarray(np.transpose(result.stack, (0, 2, 1)))
+    if _SESSION.grid_removed:
+        new_stack, message = grid_remove_stack(new_stack, _SESSION.detector)
+        if new_stack is None:
+            return {"ok": False, "message": f"New frames could not be grid-removed: {message}"}
     new_timestamps = result.timestamps.astype(np.float64)
     if _SESSION.timestamp_reference is not None:
         new_timestamps = new_timestamps - _SESSION.timestamp_reference

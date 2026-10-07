@@ -741,6 +741,11 @@ class TrXS2Widget(QWidget):
         self._mark_ok(self.load_info_button, True)
         self._pixel_centered = True
         self._render_image(force_reset=True)
+        if result.get("message"):
+            # q-Cal ran against the previous calibration; the session dropped it.
+            self._mark_ok(self.qcal_button, False)
+            self._set_status(result["message"], True)
+            return
         self._set_status(f"Loaded Info: SDD={cal['sdd_mm']:.1f} mm, Energy={cal['energy_kev']:.3f} keV.", True)
 
     def _on_grid_remove_clicked(self) -> None:
@@ -780,6 +785,8 @@ class TrXS2Widget(QWidget):
         if warning:
             message += f" {warning}"
         self._set_status(message, True)
+        # The session re-cut the new background; redraw what Subtraction shows.
+        self._refresh_all_plots()
 
     # ------------------------------------------------------------------
     # 2D image render
@@ -1248,12 +1255,16 @@ class TrXS2Widget(QWidget):
         result = ts.trxs2_render_1d(dict(payload or {}))
         if not result.get("ok"):
             return
+        if result.get("warning"):
+            self._set_status(result["warning"], False)
         self._render_1d_curve()
 
     def _refresh_azimuthal(self, payload: dict[str, Any] | None = None) -> None:
         result = ts.trxs2_render_azimuthal(dict(payload or {}))
         if not result.get("ok"):
             return
+        if result.get("warning"):
+            self._set_status(result["warning"], False)
         self._render_azimuthal_curve()
 
     def _refresh_all_plots(self, payload: dict[str, Any] | None = None) -> None:

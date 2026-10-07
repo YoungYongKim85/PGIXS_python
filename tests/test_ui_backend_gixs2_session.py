@@ -1024,3 +1024,99 @@ def test_gixs2_azimuthal_exec_does_not_reapply_the_gap_buffer_after_regridding(t
 
     assert result["ok"], result.get("message")
     assert captured["gap_buffer"] is None
+
+
+def _write_calibration(tmp_path, beam_center):
+    from pgixs_python.calibration.calibration_io import StandardCalibration, save_standard_calibration_json
+
+    cal = StandardCalibration(
+        beam_center=np.asarray(beam_center, dtype=float), wavelength=1.3051, pixel_size=0.075, sdd=300.0,
+        detector="Eiger4M",
+    )
+    save_standard_calibration_json(tmp_path / "calibration.json", cal)
+    return {"directory": str(tmp_path), "filename": "calibration.json"}
+
+
+def _qcal_series(tmp_path, center=(100.5, 100.5), **kwargs):
+    _load_series(tmp_path, center=center, **kwargs)
+    session = gs.get_session()
+    session.calibration.update({"beam_pos": center, "sdd_mm": 300.0, "energy_kev": 9.5})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({})["ok"]
+    return session
+
+
+def test_gixs2_rerunning_qcal_drops_curves_cut_with_the_old_geometry(tmp_path):
+    session = _qcal_series(tmp_path, n_frames=2)
+    assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
+    assert gs.gixs2_roi_exec({"rois": [(1, 2, 1, 2)]})["ok"]
+
+    assert gs.gixs2_qcal({"sdd_mm": 350.0})["ok"]
+
+    assert session.last_1d is None
+    assert session.last_roi is None
+
+
+def test_gixs2_load_info_after_qcal_drops_the_qcal(tmp_path):
+    session = _qcal_series(tmp_path, n_frames=2)
+    assert gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
+
+    result = gs.gixs2_load_info(_write_calibration(tmp_path, (90.0, 95.0)))
+
+    assert result["ok"], result.get("message")
+    assert "q-Cal" in result["message"]
+    assert session.qmap is None and session.correction_factor is None and not session.corrected
+    assert session.last_1d is None
+    assert not gs.gixs2_linecut_exec({"angle_deg": 90.0})["ok"]
+
+
+def test_gixs2_auto_refresh_needs_an_imported_series(tmp_path):
+    files = _write_synthetic_series(tmp_path, n_frames=3)
+    assert gs.gixs2_load({"directory": str(tmp_path), "filename": files[0].name, "detector": "TestDetector"})["ok"]
+
+    result = gs.gixs2_auto_refresh({"directory": str(tmp_path)})
+
+    assert not result["ok"]
+    assert gs.get_session().stack.shape[0] == 1
+
+
+def test_gixs2_auto_refresh_wedge_azimuthal_matches_a_fresh_exec(tmp_path):
+    center = (100.5, 100.5)
+    files = _write_synthetic_series(tmp_path, n_frames=3, center=center, radii=[60.0, 62.0, 64.0])
+    assert gs.gixs2_load_series(
+        {"directory": str(tmp_path), "filenames": [f.name for f in files[:2]], "insitu_mode": "Temperature"}
+    )["ok"]
+    session = gs.get_session()
+    # A short SDD and steep incidence keep the Q grid far from the pixel
+    # grid, so a detector gap mask stamped onto it lands on new pixels.
+    session.calibration.update({"beam_pos": center, "sdd_mm": 20.0, "energy_kev": 9.5, "incident_angle_deg": 5.0})
+    session.calibration_loaded = True
+    assert gs.gixs2_qcal({})["ok"]
+    cc, rr = np.meshgrid(np.arange(1, 201, dtype=float), np.arange(1, 201, dtype=float))
+    session.gap_buffer = (rr > 60) & (rr < 75)
+    payload = {"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0, "reflect_missing_wedge": True}
+    assert gs.gixs2_azimuthal_exec(payload)["ok"]
+
+    assert gs.gixs2_auto_refresh({"directory": str(tmp_path)})["curve_extended"]
+    extended = session.last_azimuthal["intensity"].copy()
+    assert gs.gixs2_azimuthal_exec(payload)["ok"]
+
+    np.testing.assert_allclose(extended, session.last_azimuthal["intensity"], equal_nan=True)
+
+
+def test_gixs2_auto_refresh_grid_removes_new_frames_after_grid_remove(tmp_path):
+    from pgixs_python.ui_backend.series_processing import grid_remove_stack
+
+    shape = (2167, 2070)  # grid_remove's fixed indices need the full Eiger4M size
+    files = _write_synthetic_series(tmp_path, n_frames=2, shape=shape, center=(1000.5, 1000.5), radii=[60.0, 400.0])
+    assert gs.gixs2_load_series(
+        {"directory": str(tmp_path), "filenames": [files[0].name], "insitu_mode": "Temperature"}
+    )["ok"]
+    assert gs.gixs2_grid_remove({})["ok"]
+
+    assert gs.gixs2_auto_refresh({"directory": str(tmp_path)})["ok"]
+
+    session = gs.get_session()
+    raw = np.ascontiguousarray(np.asarray(h5py.File(files[1], "r")["/entry/data/data"]))
+    expected, _ = grid_remove_stack(raw[np.newaxis], "Eiger4M")
+    np.testing.assert_allclose(session.stack[1], expected[0], equal_nan=True)
