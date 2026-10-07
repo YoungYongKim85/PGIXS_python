@@ -99,6 +99,25 @@ def test_load_h5_frame_rejects_out_of_range_frame_index(tmp_path):
         raise AssertionError("out-of-range frame index should fail")
 
 
+def test_load_h5_frame_ambiguous_and_4d_stacks_use_leading_frame_axes(tmp_path):
+    import pytest
+
+    h5py = pytest.importorskip("h5py")
+    from pgixs_python.io.h5_loader import load_h5_frame
+
+    # 8 frames of 6x10: the frame count is not the smallest edge, so this
+    # must still be read as (frame, z, y) like MATLAB, not cut along axis 2.
+    raw = np.arange(8 * 6 * 10, dtype=np.float32).reshape(8, 6, 10)
+    four_d = raw[:1].reshape(1, 1, 6, 10)
+    with h5py.File(tmp_path / "s3.h5", "w") as h5:
+        h5.create_dataset("/entry/data/data", data=raw)
+    with h5py.File(tmp_path / "s4.h5", "w") as h5:
+        h5.create_dataset("/entry/data/data", data=four_d)
+
+    np.testing.assert_array_equal(load_h5_frame(tmp_path / "s3.h5", frame_index=3), raw[3].T)
+    np.testing.assert_array_equal(load_h5_frame(tmp_path / "s4.h5"), raw[0].T)
+
+
 def test_load_h5_frame_with_retry_returns_nan_fallback(tmp_path):
     from pgixs_python.io.h5_loader import load_h5_frame_with_retry
 

@@ -101,10 +101,10 @@ def _read_frame(dataset: Any, frame_index: int = 0) -> np.ndarray:
             raise IndexError(f"H5 2D detector dataset only has frame_index 0, got {frame_index}.")
         return np.asarray(dataset[()])
 
-    # EIGER stacks commonly appear as (frame, z, y) in h5py, while some files
-    # are stored as (z, y, frame). Choose the smallest edge as the frame axis
-    # when it is clearly not an image dimension; otherwise match MATLAB's
-    # first-frame behavior on the last extra dimension.
+    # EIGER stacks appear as (frame, z, y) in h5py, which is also what MATLAB
+    # reads (its trailing dims are h5py's leading ones). Some files are stored
+    # as (z, y, frame); treat the last axis as frames only when it is clearly
+    # the smallest edge, and fall back to axis 0 otherwise.
     if len(shape) == 3:
         frame_axis = _infer_frame_axis(shape)
         if int(frame_index) >= shape[frame_axis]:
@@ -116,7 +116,7 @@ def _read_frame(dataset: Any, frame_index: int = 0) -> np.ndarray:
         if frame_axis == 2:
             return np.asarray(dataset[:, :, int(frame_index)])
 
-    index = [slice(None), slice(None)] + [0] * (len(shape) - 2)
+    index = [0] * (len(shape) - 2) + [slice(None), slice(None)]
     if int(frame_index) != 0:
         raise IndexError(
             f"H5 frame_index selection for {len(shape)}D detector datasets currently supports only frame_index 0."
@@ -129,7 +129,7 @@ def _infer_frame_axis(shape: tuple[int, int, int]) -> int:
         return 0
     if shape[2] < shape[0] and shape[2] < shape[1]:
         return 2
-    return 2
+    return 0
 
 
 def _import_h5py() -> Any:
