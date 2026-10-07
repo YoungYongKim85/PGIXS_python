@@ -146,6 +146,16 @@ def sddcal_load(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _move_center(y: float, z: float) -> None:
+    """Every SDD is measured around the center it was fitted at, so moving
+    the center drops it -- Save would otherwise write the new center with
+    an SDD from the old one."""
+
+    if (y, z) != tuple(_SESSION.center):
+        _SESSION.sdd_result = None
+    _SESSION.center = (y, z)
+
+
 def sddcal_set_center(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.data is None:
         return {"ok": False, "message": "Load a detector image first."}
@@ -156,7 +166,7 @@ def sddcal_set_center(payload: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid center: {exc}"}
 
-    _SESSION.center = (y, z)
+    _move_center(y, z)
     return {"ok": True, "center": [y, z]}
 
 
@@ -314,7 +324,9 @@ def sddcal_apply_fit_to_center(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         return {"ok": False, "message": "Apply to Center only applies to a Y_Plot/Z_Plot fit."}
 
-    _SESSION.center = (round(beam_y, 2), round(beam_z, 2))
+    _move_center(round(beam_y, 2), round(beam_z, 2))
+    # The offset is now spent; a second click must not add it again.
+    _SESSION.fit_result = None
     return {"ok": True, "center": list(_SESSION.center)}
 
 
@@ -399,7 +411,7 @@ def sddcal_auto_run(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - best-effort; keep the step-1 center on failure.
         warnings.append(f"Center fine-tuning failed ({exc}); keeping the coarse center. Please verify it.")
 
-    _SESSION.center = (round(refined_y, 2), round(refined_z, 2))
+    _move_center(round(refined_y, 2), round(refined_z, 2))
 
     # Step 3: multi-ring candidate search + order assignment at the refined center.
     profile = compute_radial_profile(_SESSION.data, center=_SESSION.center)

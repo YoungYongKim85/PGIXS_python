@@ -420,3 +420,23 @@ def test_sddcal_auto_run_says_so_when_center_refinement_fails(tmp_path, monkeypa
 
     assert result["ok"], result.get("message")
     assert any("Center refinement failed" in w and "did not converge" in w for w in result["warnings"])
+
+
+def test_sddcal_send_to_main_applies_the_offset_once_and_drops_the_old_sdd(tmp_path):
+    s.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_ring_frame(frame_path, center=(105.5, 100.5), ring_radius=60.0)
+    _load(frame_path)
+    s.sddcal_set_center({"y": 100.5, "z": 100.5})
+    assert s.sddcal_calc_sdd({"pixel_radius": 60.0, "energy_kev": 9.5})["ok"]
+    s.sddcal_line_cut({"direction": "y"})
+    s.sddcal_fit_peak({"mode": "symmetric", "cl1": -80.0, "cl2": -40.0, "cr1": 40.0, "cr2": 80.0})
+
+    first = s.sddcal_apply_fit_to_center({})
+    second = s.sddcal_apply_fit_to_center({})
+
+    assert first["ok"]
+    assert not second["ok"]
+    assert list(s.get_session().center) == first["center"]
+    # The SDD was measured around the old center; Save must not pair them.
+    assert not s.sddcal_save({})["ok"]
