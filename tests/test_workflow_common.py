@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from pgixs_python.calibration.calibration_io import StandardCalibration, save_standard_calibration_json
 from pgixs_python.io.h5_loader import H5RetryReport
@@ -157,6 +158,37 @@ def test_process_workflow_stack_applies_normalization_and_diagnostics():
     np.testing.assert_allclose(processed.stack_result.stack[0], np.array([[1, 2]], dtype=np.float32))
     np.testing.assert_allclose(processed.stack_result.stack[1], np.array([[6, 8]], dtype=np.float32))
     assert "normalization: IC" in format_processing_summary(processed)
+
+
+def _two_frame_result(counts):
+    return H5SeriesLoadResult(
+        stack=np.full((2, 1, 2), 1000, dtype=np.float32),
+        records=[
+            H5FrameRecord(Path("a.h5"), 1, True, H5RetryReport(True, 1)),
+            H5FrameRecord(Path("b.h5"), 2, True, H5RetryReport(True, 1)),
+        ],
+        counts=np.array(counts, dtype=np.float32),
+        timestamps=np.array([0.0, 1.0], dtype=np.float64),
+        temperatures=np.full((2, 3), np.nan, dtype=np.float32),
+        retry_failed_frames=np.array([], dtype=np.int32),
+        metadata_failed_frames=np.array([], dtype=np.int32),
+    )
+
+
+def test_process_workflow_stack_drops_frames_whose_normalization_failed():
+    args = argparse.Namespace(
+        normalization="IC", background=None, no_clamp_negative=False,
+        grid_remove=False, detector_correction=False, detector="Eiger4M",
+    )
+
+    processed = process_workflow_stack(args, _two_frame_result([[1000, 1], [np.nan, 1]]))
+
+    np.testing.assert_allclose(processed.stack_result.stack[0], 1.0)
+    assert np.all(np.isnan(processed.stack_result.stack[1]))
+    assert "(1/2 successful)" in format_processing_summary(processed)
+
+    with pytest.raises(RuntimeError, match="every frame"):
+        process_workflow_stack(args, _two_frame_result([[np.nan, 1], [0, 1]]))
 
 
 def test_nanmean_no_warning_keeps_all_nan_pixels():
