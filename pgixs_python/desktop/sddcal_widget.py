@@ -459,6 +459,11 @@ class SDDcalWidget(QWidget):
     def _on_update_center_clicked(self) -> None:
         self._apply_center(self.center_y_spin.value(), self.center_z_spin.value())
 
+    def _sync_sdd_label(self) -> None:
+        # Moving the center drops the session's SDD result (see _move_center).
+        if ss.get_session().sdd_result is None:
+            self.sdd_result_label.setText("Result: - mm")
+
     def _apply_center(self, y: float, z: float) -> None:
         result = ss.sddcal_set_center({"y": y, "z": z})
         if not result.get("ok"):
@@ -468,6 +473,7 @@ class SDDcalWidget(QWidget):
         self.center_z_spin.setValue(result["center"][1])
         self.image_canvas.clear_overlays()
         self._draw_crosshair()
+        self._sync_sdd_label()
         self._set_status(f"Center set to ({result['center'][0]:.2f}, {result['center'][1]:.2f}).", True)
 
     # ------------------------------------------------------------------
@@ -592,6 +598,7 @@ class SDDcalWidget(QWidget):
         self.center_z_spin.setValue(result["center"][1])
         self.image_canvas.clear_overlays()
         self._draw_crosshair()
+        self._sync_sdd_label()
         self._set_curve_status(f"Center updated to ({result['center'][0]:.2f}, {result['center'][1]:.2f}).", True)
 
     # ------------------------------------------------------------------
@@ -609,6 +616,7 @@ class SDDcalWidget(QWidget):
             self.center_z_spin.setValue(result["center"][1])
             self.image_canvas.clear_overlays()
             self._draw_crosshair()
+            self._sync_sdd_label()
         self._populate_candidate_table(result.get("candidates", []))
 
         if not result.get("ok"):
