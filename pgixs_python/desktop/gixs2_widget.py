@@ -867,6 +867,11 @@ class GIXS2Widget(QWidget):
         # the pixel axis re-centers on the beam position from here on.
         self._pixel_centered = True
         self._render_image(force_reset=True)
+        if result.get("message"):
+            # q-Cal ran against the previous calibration; the session dropped it.
+            self._mark_ok(self.qcal_button, False)
+            self._set_status(result["message"], True)
+            return
         self._set_status(f"Loaded Info: SDD={cal['sdd_mm']:.1f} mm, Energy={cal['energy_kev']:.3f} keV.", True)
 
     def _on_grid_remove_clicked(self) -> None:

@@ -921,3 +921,61 @@ def test_trxs2_background_load_reports_files_it_had_to_skip(tmp_path):
     assert result["n_files"] == 2
     assert "1 of 3" in result["warning"]
     assert bkg_files[1].name in result["warning"]
+
+
+def test_trxs2_new_background_replaces_the_subtracted_curve(tmp_path):
+    session = _setup_circular_with_background(tmp_path, bkg_radius=60.0)
+    old_bkg_1d = session.bkg_1d.copy()
+
+    bkg_dir = tmp_path / "bkg2"
+    bkg_dir.mkdir()
+    bkg_files = _write_synthetic_series(bkg_dir, n_frames=1, center=(100.5, 100.5), prefix="NEW", radii=[85.0])
+    assert ts.trxs2_background_load({"directory": str(bkg_dir), "filename": bkg_files[0].name})["ok"]
+    reloaded = session.bkg_1d.copy()
+
+    assert not np.allclose(np.nan_to_num(old_bkg_1d), np.nan_to_num(reloaded))
+    assert ts.trxs2_circular_exec({})["ok"]
+    np.testing.assert_allclose(reloaded, session.bkg_1d, equal_nan=True)
+
+
+def test_trxs2_subtraction_never_mixes_normalized_and_raw(tmp_path):
+    session = _setup_circular_with_background(tmp_path)
+    session.background_counts = np.full(2, np.nan, dtype=np.float32)
+
+    render = ts.trxs2_render_1d({"normalize": "IC", "subtract": True})
+
+    assert "not subtracted" in render["warning"]
+    np.testing.assert_allclose(
+        session.last_1d["rendered"], ts.trxs2_normalized_matrix(session.last_1d["intensity"], "IC"), equal_nan=True
+    )
+
+
+def test_trxs2_load_info_after_qcal_drops_the_qcal_and_the_background_correction(tmp_path):
+    from pgixs_python.calibration.calibration_io import StandardCalibration, save_standard_calibration_json
+
+    session = _setup_circular_with_background(tmp_path)
+    raw_background = session.background_raw.copy()
+    save_standard_calibration_json(
+        tmp_path / "calibration.json",
+        StandardCalibration(beam_center=np.array([90.0, 95.0]), wavelength=1.3051, pixel_size=0.075, sdd=300.0,
+                            detector="Eiger4M"),
+    )
+
+    result = ts.trxs2_load_info({"directory": str(tmp_path), "filename": "calibration.json"})
+
+    assert "q-Cal" in result["message"]
+    assert session.qmap is None and not session.corrected and session.last_1d is None
+    np.testing.assert_array_equal(session.background, raw_background)
+    # q-Cal can run again, and corrects the background once, not twice.
+    _qcal((90.0, 95.0))
+    np.testing.assert_allclose(
+        session.background, raw_background / session.correction_factor, rtol=1e-5, equal_nan=True
+    )
+
+
+def test_trxs2_auto_refresh_needs_an_imported_series(tmp_path):
+    files = _write_synthetic_series(tmp_path, n_frames=3)
+    assert ts.trxs2_load({"directory": str(tmp_path), "filename": files[0].name, "detector": "TestDetector"})["ok"]
+
+    assert not ts.trxs2_auto_refresh({"directory": str(tmp_path)})["ok"]
+    assert ts.get_session().stack.shape[0] == 1
