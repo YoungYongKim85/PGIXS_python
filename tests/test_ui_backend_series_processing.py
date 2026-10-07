@@ -479,3 +479,39 @@ def test_process_circular_stack_rejects_empty_geometry():
 def test_process_azimuthal_stack_rejects_an_empty_stack_with_a_clear_error():
     with pytest.raises(ValueError, match="at least one frame"):
         process_azimuthal_stack(np.empty((0, 20, 20), dtype=np.float32), center=(10.0, 10.0), radius_range=(3.0, 6.0))
+
+
+def test_process_linecut_stack_change_ai_keeps_a_row_for_leading_invalid_frames():
+    center = (100.5, 100.5)
+    stack, q_map_stack = _synthetic_ring_stack_change_ai(n_frames=3, center=center)
+    q_map_stack = q_map_stack.copy()
+    q_map_stack[0] = np.nan  # no pixels selectable in frame 1
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    result = process_linecut_stack(stack, None, angle_map, center=center, angle_deg=90.0, q_map_stack=q_map_stack)
+
+    assert result.intensity.shape[0] == 3
+    assert np.all(np.isnan(result.intensity[0]))
+    assert np.any(np.isfinite(result.intensity[1]))
+
+
+def test_process_linecut_stack_static_frames_dropping_different_points_stay_aligned_by_q():
+    center = (100.5, 100.5)
+    frame = _synthetic_ring_stack(n_frames=1, center=center, radii=[60.0])[0]
+    stack = np.stack([frame, frame], axis=0)
+    # A 1-px accumulation band (rows 100-101, 1-based) loses a different
+    # column in each frame, so each frame's own cut drops a different point.
+    stack[0, 99:101, 50] = np.nan
+    stack[1, 99:101, 60] = np.nan
+    angle_map = pixel_angle_map(stack.shape[1:], center=center)
+
+    result = process_linecut_stack(
+        stack, _q_map(center), angle_map, center=center, angle_deg=0.0,
+        accumulation=True, accum_minus=0.0, accum_plus=0.0,
+    )
+
+    both = np.isfinite(result.intensity).all(axis=0)
+    assert result.x_axis.shape == (100,)
+    assert np.count_nonzero(~both) == 2
+    # Same frame data, so every point both frames kept must agree.
+    np.testing.assert_array_equal(result.intensity[0, both], result.intensity[1, both])
