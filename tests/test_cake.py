@@ -115,10 +115,21 @@ def test_accumulation_average_matches_manual_band_mean():
     result = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=0.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0)
 
     assert result.is_valid
-    manual_band_mean = np.nanmean(data[24:27, :], axis=0)
+    manual_band_mean = np.nanmean(data[23:26, :], axis=0)  # 1-based rows 24-26 around beam_z=25
     # Nearest output point to the beam is the last one kept (angle 0 keeps
     # the left half, sorted ascending by distance from the beam).
     assert result.intensity[0] == pytest.approx(manual_band_mean[19])
+
+
+def test_accumulation_average_90_band_is_centred_on_beam_column():
+    rng = np.random.default_rng(0)
+    data, q_map, (beam_y, beam_z) = _synthetic_frame(rng)
+
+    result = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=90.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0)
+
+    # 1-based columns 19-21 around beam_y=20; first point is the beam row.
+    manual_band_mean = np.nanmean(data[:, 18:21], axis=1)
+    assert result.intensity[0] == pytest.approx(manual_band_mean[24])
 
 
 def test_accumulation_average_perp_offset_shifts_the_band():
@@ -127,7 +138,7 @@ def test_accumulation_average_perp_offset_shifts_the_band():
 
     result = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=0.0, perp_offset=5.0, band_minus=-1.0, band_plus=1.0)
 
-    manual_band_mean = np.nanmean(data[24 - 5 : 27 - 5, :], axis=0)
+    manual_band_mean = np.nanmean(data[23 - 5 : 26 - 5, :], axis=0)
     assert result.intensity[0] == pytest.approx(manual_band_mean[19])
 
 

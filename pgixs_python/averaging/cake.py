@@ -186,7 +186,8 @@ def accumulation_average(
     reducer = np.nanmedian if use_median else np.nanmean
 
     if angle in (0.0, 180.0):
-        row_center = beam_z - float(perp_offset)
+        # beam_z is 1-based; the slice below is 0-based.
+        row_center = beam_z - 1.0 - float(perp_offset)
         row_start = max(0, min(n_rows - 1, int(np.floor(row_center + band_minus))))
         row_end = max(row_start, min(n_rows - 1, int(np.ceil(row_center + band_plus))))
         band = image[row_start : row_end + 1, :]
@@ -203,7 +204,7 @@ def accumulation_average(
         keep = (col_offset <= 0) if angle == 0.0 else (col_offset >= 0)
         r_axis = np.abs(col_offset)
     else:  # angle == 90.0
-        col_center = beam_y + float(perp_offset)
+        col_center = beam_y - 1.0 + float(perp_offset)
         col_start = max(0, min(n_cols - 1, int(np.floor(col_center + band_minus))))
         col_end = max(col_start, min(n_cols - 1, int(np.ceil(col_center + band_plus))))
         band = image[:, col_start : col_end + 1]
