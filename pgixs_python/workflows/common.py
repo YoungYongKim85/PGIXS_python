@@ -372,6 +372,12 @@ def process_workflow_stack(
             clamp_negative=not getattr(args, "no_clamp_negative", False),
         )
         norm_success[idx] = 1 if norm_report.success else 0
+        if not norm_report.success:
+            # A failed IC/BC normalization hands back the raw frame; averaging
+            # that with normalized frames would be off by the counter value.
+            # NaN keeps it out of every downstream nanmean.
+            frame = np.full_like(frame, np.nan)
+            norm_failure = norm_report.message
 
         if getattr(args, "grid_remove", False):
             frame, grid_report = grid_remove(frame, detector_type=getattr(args, "detector", ""))
@@ -382,6 +388,9 @@ def process_workflow_stack(
             correction_applied[idx] = 1
 
         stack[idx, :, :] = frame
+
+    if not np.any(norm_success):
+        raise RuntimeError(f"Normalization failed for every frame: {norm_failure}")
 
     processed = replace(stack_result, stack=stack)
     diagnostics: dict[str, np.ndarray | str | int | float] = {
