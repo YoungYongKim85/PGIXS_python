@@ -134,6 +134,24 @@ def test_grid_remove_only_applies_to_eiger4m():
     assert corrected.shape == data.shape
 
 
+def test_grid_remove_restores_grid_lines_in_loader_orientation():
+    # Build a MATLAB-orientation (2167, 2070) frame whose chip-boundary
+    # lines read half, then hand it over the way callers do: transposed to
+    # `load_h5_frame`'s (2070, 2167).
+    matlab = np.ones((2167, 2070), dtype=np.float32)
+    for start in (256, 807, 1358, 1909):
+        matlab[start - 1 : start + 3, :] = 0.5
+    for start in (256, 514, 772, 1296, 1554, 1812):
+        matlab[:, start - 1 : start + 3] = 0.5
+
+    corrected, report = grid_remove(matlab.T, detector_type="Eiger4M")
+
+    assert report.applied
+    assert report.correction_factor == pytest.approx(2.0)
+    assert corrected.shape == (2070, 2167)
+    np.testing.assert_allclose(corrected, 1.0)
+
+
 def _correction_inputs(detector_type):
     shape = (12, 12)
     center = (6.5, 6.5)
