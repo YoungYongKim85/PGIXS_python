@@ -824,6 +824,14 @@ def test_gixs2_save_integration_uses_active_auto_met(tmp_path):
     assert result["ok"], result.get("message")
     assert Path(result["path"]).exists()
 
+    # The 1D branch must honour Normalize too, like the Integration plot.
+    raw = np.genfromtxt(result["path"], delimiter=",", skip_header=1)
+    session.counts = np.array([[2.0, 1.0], [4.0, 1.0]], dtype=np.float32)
+    result_ic = gs.gixs2_save_integration({"directory": str(out_dir), "normalize": "IC"})
+    assert result_ic["ok"], result_ic.get("message")
+    ic = np.genfromtxt(result_ic["path"], delimiter=",", skip_header=1)
+    np.testing.assert_allclose(ic[:, -1], raw[:, -1] / np.array([2.0, 4.0]), rtol=1e-5)
+
 
 def test_gixs2_save_x_axis_writes_a_file(tmp_path):
     _load_series(tmp_path, n_frames=2)
