@@ -1298,13 +1298,16 @@ class ConsoleWidget(QWidget):
         self._set_status(f"Loading {file_path.name}...", True)
         self.load_button.setEnabled(False)
         self.busy_changed.emit(True)
-        if multishot:
-            self._start_progress_dialog("Loading multishot series...")
+        # Always modal, multishot or not: it is what stops a second load (or
+        # Grid Remove, q-Map...) from touching the session, and from dropping
+        # this still-running QThread, until the worker hands it back.
+        self._start_progress_dialog("Loading multishot series..." if multishot else f"Loading {file_path.name}...")
         self._activate()
         self._load_thread = run_in_background(cs.console_load, payload, self._on_load_finished)
 
     def _start_progress_dialog(self, title: str) -> None:
-        dialog = QProgressDialog(title, None, 0, 100, self)
+        # Indeterminate until `_poll_load_progress` sees a multishot total.
+        dialog = QProgressDialog(title, None, 0, 0, self)
         dialog.setWindowTitle("Loading")
         dialog.setWindowModality(Qt.WindowModal)
         dialog.setMinimumDuration(0)
@@ -1470,8 +1473,7 @@ class ConsoleWidget(QWidget):
         self._set_status("Loading background...", True)
         self.bkg_button.setEnabled(False)
         self.busy_changed.emit(True)
-        if multishot:
-            self._start_progress_dialog("Loading background series...")
+        self._start_progress_dialog("Loading background series..." if multishot else "Loading background...")
         self._activate()
         self._load_thread = run_in_background(cs.console_background_load, payload, self._on_bkg_load_finished)
 
