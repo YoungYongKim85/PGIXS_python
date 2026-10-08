@@ -54,27 +54,18 @@ def test_load_h5_frame_selects_frame_first_axis(tmp_path):
     assert np.all(data == 7)
 
 
-def test_load_h5_frame_selects_frame_last_axis(tmp_path):
-    if importlib.util.find_spec("h5py") is None:
-        import pytest
+def test_load_h5_frame_reads_frames_first_even_when_the_last_edge_is_smallest(tmp_path):
+    import pytest
 
-        pytest.skip("h5py is not installed")
-
-    import h5py
-
+    h5py = pytest.importorskip("h5py")
     from pgixs_python.io.h5_loader import load_h5_frame
 
-    h5_file = tmp_path / "stack_last_axis.h5"
-    raw = np.zeros((4, 5, 2), dtype=np.float32)
-    raw[:, :, 0] = 1
-    raw[:, :, 1] = 9
-    with h5py.File(h5_file, "w") as h5:
+    # 12 frames of 6x4: the old shape heuristic read this as (z, y, frame).
+    raw = np.arange(12 * 6 * 4, dtype=np.float32).reshape(12, 6, 4)
+    with h5py.File(tmp_path / "s.h5", "w") as h5:
         h5.create_dataset("/entry/data/data", data=raw)
 
-    data = load_h5_frame(h5_file, frame_index=1)
-
-    assert data.shape == (5, 4)
-    assert np.all(data == 9)
+    np.testing.assert_array_equal(load_h5_frame(tmp_path / "s.h5", frame_index=11), raw[11].T)
 
 
 def test_load_h5_frame_rejects_out_of_range_frame_index(tmp_path):
@@ -89,10 +80,10 @@ def test_load_h5_frame_rejects_out_of_range_frame_index(tmp_path):
 
     h5_file = tmp_path / "stack.h5"
     with h5py.File(h5_file, "w") as h5:
-        h5.create_dataset("/entry/data/data", data=np.ones((4, 5, 2), dtype=np.float32))
+        h5.create_dataset("/entry/data/data", data=np.ones((2, 4, 5), dtype=np.float32))
 
     try:
-        load_h5_frame(h5_file, frame_index=3)
+        load_h5_frame(h5_file, frame_index=2)
     except IndexError:
         pass
     else:
