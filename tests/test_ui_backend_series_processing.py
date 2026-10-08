@@ -7,6 +7,7 @@ from pgixs_python.ui_backend.series_processing import (
     average_exposure_seconds,
     build_circular_radius_map,
     compute_experiment_x_axis,
+    normalize_rows_by_counter,
     process_azimuthal_stack,
     process_circular_stack,
     process_linecut_stack,
@@ -515,3 +516,14 @@ def test_process_linecut_stack_static_frames_dropping_different_points_stay_alig
     assert np.count_nonzero(~both) == 2
     # Same frame data, so every point both frames kept must agree.
     np.testing.assert_array_equal(result.intensity[0, both], result.intensity[1, both])
+
+
+def test_normalize_rows_by_counter_blanks_frames_without_a_counter():
+    matrix = np.full((4, 3), 10.0, dtype=np.float32)
+    counts = np.array([[2.0, 1.0], [np.nan, 1.0], [0.0, 1.0], [5.0, 1.0]], dtype=np.float32)
+
+    out = normalize_rows_by_counter(matrix, counts, "IC")
+
+    np.testing.assert_allclose(out[[0, 3]], [[5.0] * 3, [2.0] * 3])
+    assert np.all(np.isnan(out[1:3]))
+    assert np.all(np.isnan(normalize_rows_by_counter(matrix, None, "BC")))
