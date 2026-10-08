@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,11 +30,11 @@ def save_workflow_report_json(file_path: str | Path, report: WorkflowReport) -> 
         "measurement_mode": report.measurement_mode,
         "input_files": report.input_files,
         "output_files": report.output_files,
-        "options": _json_safe(report.options),
-        "calibration": _json_safe(report.calibration),
-        "diagnostics": _json_safe(report.diagnostics),
+        "options": report.options,
+        "calibration": report.calibration,
+        "diagnostics": report.diagnostics,
     }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(_json_safe(payload), indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return path
 
 
@@ -41,9 +42,13 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return _json_safe(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        # Bare NaN/Infinity tokens are not JSON; strict parsers (PGIXS_web's
+        # JavaScript JSON.parse) reject the whole file.
+        return None
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
