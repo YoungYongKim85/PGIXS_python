@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
-import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from pgixs_python.workflows.common import parse_workflow_args
+from pgixs_python.workflows.common import capture_output, parse_workflow_args
 
 
 WorkflowRunner = Callable[[list[str] | None], int]
@@ -46,12 +44,17 @@ def validate_workflow(request: UIWorkflowRequest, parsers: dict[str, ParserBuild
         parser_builder = (parsers or default_parsers())[workflow]
     except Exception as exc:  # noqa: BLE001 - UI layer must report invalid requests.
         return UIWorkflowResult(workflow=request.workflow, ok=False, exit_code=1, message=str(exc))
+    if workflow == "batch" and parsers is None:
+        # Parsing a batch's own argv says nothing about the jobs inside it
+        # (a missing file, a bad job config); only a dry run checks each one.
+        args = list(request.args or [])
+        if "--dry-run" not in args:
+            args.append("--dry-run")
+        return run_workflow(replace(request, args=args))
     argv = build_workflow_argv(request)
 
-    stdout = io.StringIO()
-    stderr = io.StringIO()
     try:
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with capture_output() as (stdout, stderr):
             parse_workflow_args(parser_builder(), argv)
     except SystemExit as exc:
         exit_code, message = system_exit_result(exc)
@@ -88,10 +91,8 @@ def run_workflow(request: UIWorkflowRequest, runners: dict[str, WorkflowRunner] 
         return UIWorkflowResult(workflow=request.workflow, ok=False, exit_code=1, message=str(exc))
     argv = build_workflow_argv(request)
 
-    stdout = io.StringIO()
-    stderr = io.StringIO()
     try:
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with capture_output() as (stdout, stderr):
             exit_code = int(runner(argv) or 0)
     except SystemExit as exc:
         exit_code, message = system_exit_result(exc)

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import sys
+import threading
 from numbers import Real
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -26,6 +30,64 @@ from pgixs_python.processing import (
 )
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.trxs import qmap_trxs
+
+
+class _ThreadRoutedStream:
+    """Stands in for sys.stdout/sys.stderr: a write goes to the calling
+    thread's capture buffer when it has one, else to the stream replaced."""
+
+    def __init__(self, fallback) -> None:
+        self.fallback = fallback
+        self.local = threading.local()
+
+    def _target(self):
+        buffer = getattr(self.local, "buffer", None)
+        return self.fallback if buffer is None else buffer
+
+    def write(self, text: str) -> int:
+        return self._target().write(text)
+
+    def flush(self) -> None:
+        self._target().flush()
+
+    def __getattr__(self, name: str):
+        return getattr(self.fallback, name)
+
+
+_ROUTE_LOCK = threading.Lock()
+
+
+def _routed(name: str) -> _ThreadRoutedStream:
+    with _ROUTE_LOCK:
+        stream = getattr(sys, name)
+        if not isinstance(stream, _ThreadRoutedStream):
+            stream = _ThreadRoutedStream(stream)
+            setattr(sys, name, stream)
+        return stream
+
+
+@contextlib.contextmanager
+def capture_output():
+    """Capture this thread's stdout/stderr into two StringIOs.
+
+    `contextlib.redirect_stdout`/`redirect_stderr` swap the streams for the
+    whole process, so concurrent workflow runs (PGIXS_web's job queue and
+    threadpool endpoints) took each other's output -- including the result
+    message argparse's `parser.exit` writes to stderr -- and could leave
+    sys.stderr pointing at a finished run's buffer. The routing stream stays
+    installed afterwards and passes other threads' writes straight through.
+    """
+
+    out, err = io.StringIO(), io.StringIO()
+    routes = [(_routed("stdout"), out), (_routed("stderr"), err)]
+    previous = [getattr(route.local, "buffer", None) for route, _ in routes]
+    for route, buffer in routes:
+        route.local.buffer = buffer
+    try:
+        yield out, err
+    finally:
+        for (route, _), buffer in zip(routes, previous):
+            route.local.buffer = buffer
 
 
 @dataclass
