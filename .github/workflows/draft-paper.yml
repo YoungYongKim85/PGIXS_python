@@ -6,6 +6,9 @@ name: draft paper
 
 on:
   push:
+    # Branches only: GitHub skips the `paths` filter for tag pushes, so
+    # without this every release tag rebuilt the (unchanged) paper.
+    branches: ["**"]
     paths:
       - paper.md
       - paper.bib
