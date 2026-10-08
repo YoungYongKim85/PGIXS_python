@@ -103,6 +103,23 @@ def grid_remove_stack(stack: np.ndarray, detector: str) -> tuple[np.ndarray | No
     return np.stack(frames, axis=0), message
 
 
+def normalize_rows_by_counter(matrix: np.ndarray, counts: np.ndarray | None, method: str) -> np.ndarray:
+    """Divide each frame's row by its IC ("IC") or BC (otherwise) counter.
+    A frame without a usable counter (missing, NaN or 0) comes out all-NaN
+    rather than raw: a raw row next to normalized ones is off by the
+    counter value."""
+
+    out = np.full(np.shape(matrix), np.nan, dtype=np.float32)
+    if counts is None:
+        return out
+    column = 0 if method == "IC" else 1
+    for i, row in enumerate(np.asarray(matrix, dtype=np.float32)):
+        count = float(counts[i, column]) if i < counts.shape[0] else float("nan")
+        if np.isfinite(count) and count != 0:
+            out[i] = row / np.float32(count)
+    return out
+
+
 def _match_to_reference(x: np.ndarray, y: np.ndarray, ref_x: np.ndarray) -> np.ndarray:
     """Place a static-geometry frame's curve onto the shared axis by exact Q
     value, NaN where this frame has no point. Accumulation cuts drop a

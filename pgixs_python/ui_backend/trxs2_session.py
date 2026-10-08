@@ -58,6 +58,7 @@ from pgixs_python.ui_backend.series_processing import (
     build_circular_radius_map,
     compute_experiment_x_axis,
     grid_remove_stack,
+    normalize_rows_by_counter,
     process_azimuthal_stack,
     process_circular_stack,
     process_linecut_stack,
@@ -910,13 +911,9 @@ def trxs2_normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
     on screen and the file on disk disagree.
     """
 
-    if method == "None" or _SESSION.counts is None:
+    if method == "None":
         return np.asarray(matrix, dtype=np.float32).copy()
-    column = 0 if method == "IC" else 1
-    out = np.asarray(matrix, dtype=np.float32).copy()
-    for i in range(matrix.shape[0]):
-        out[i] = normalize_by_count(matrix[i], _SESSION.counts[i, column])
-    return out
+    return normalize_rows_by_counter(matrix, _SESSION.counts, method)
 
 
 

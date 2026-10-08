@@ -43,7 +43,6 @@ from pgixs_python.processing.corrections import (
     solid_angle,
 )
 from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
-from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.transform import image_transform_q_gi
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
@@ -51,6 +50,7 @@ from pgixs_python.ui_backend.series_processing import (
     apply_correction_to,
     compute_experiment_x_axis,
     grid_remove_stack,
+    normalize_rows_by_counter,
     process_azimuthal_stack,
     process_linecut_stack,
     process_roi_stack,
@@ -962,13 +962,9 @@ def gixs2_normalized_matrix(matrix: np.ndarray, method: str) -> np.ndarray:
     Viewer renders in gixs2_widget.py, so the on-screen curves and the
     saved file always agree."""
 
-    if method == "None" or _SESSION.counts is None:
+    if method == "None":
         return matrix
-    column = 0 if method == "IC" else 1
-    out = matrix.copy()
-    for i in range(matrix.shape[0]):
-        out[i] = normalize_by_count(matrix[i], _SESSION.counts[i, column])
-    return out
+    return normalize_rows_by_counter(matrix, _SESSION.counts, method)
 
 
 def order_frames(values: np.ndarray, axis: int = 0) -> np.ndarray:
