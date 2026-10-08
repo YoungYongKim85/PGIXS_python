@@ -1114,12 +1114,18 @@ class CurveCanvas(QWidget):
         return (center - (center - lo) * factor, center + (hi - center) * factor)
 
     def _on_motion(self, event) -> None:
-        if self._hover_marker is None or self._data_x.size == 0:
+        if self._hover_marker is None or self._data_x.size == 0 or self._data_y.shape != self._data_x.shape:
             return
         if event.inaxes != self.ax or event.xdata is None:
             self._hide_hover()
             return
-        idx = int(np.argmin(np.abs(self._data_x - event.xdata)))
+        # argmin would snap to the first NaN point; skip gaps instead.
+        distance = np.abs(np.asarray(self._data_x, dtype=float) - event.xdata)
+        distance[~(np.isfinite(self._data_x) & np.isfinite(self._data_y))] = np.inf
+        if not np.isfinite(distance).any():
+            self._hide_hover()
+            return
+        idx = int(np.argmin(distance))
         px, py = float(self._data_x[idx]), float(self._data_y[idx])
         self._hover_marker.set_data([px], [py])
         self._hover_marker.set_visible(True)

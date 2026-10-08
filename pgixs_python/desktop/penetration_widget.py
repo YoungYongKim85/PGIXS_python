@@ -234,6 +234,7 @@ class PenetrationWidget(QWidget):
             table.setItem(row, 1, QTableWidgetItem(f"{y_val:.6g}"))
         layout.addWidget(table)
         dialog.exec()
+        dialog.deleteLater()  # parented to this widget; would otherwise live until exit
 
     def _on_save_clicked(self) -> None:
         result = ps.penetration_save({"directory": self._last_dir})

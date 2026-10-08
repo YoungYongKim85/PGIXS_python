@@ -604,6 +604,8 @@ class TrXS2Widget(QWidget):
         self._pixel_centered = False
         self._active_overlay = None
         self._position_mode = None
+        self._reset_contrast()
+        self._close_play_dialog()
         self._render_image()
         self._mark_ok(self.load_button, True)
         # New raw data invalidates whatever q-Cal/Grid Remove/series import
@@ -653,9 +655,12 @@ class TrXS2Widget(QWidget):
         button_row.addWidget(cancel_button)
         layout.addLayout(button_row)
 
-        if dialog.exec() != QDialog.Accepted:
-            return
+        accepted = dialog.exec() == QDialog.Accepted
         checked = [list_widget.item(i).text() for i in range(list_widget.count()) if list_widget.item(i).checkState() == Qt.Checked]
+        # Parented to this widget, so it would otherwise live until exit.
+        dialog.deleteLater()
+        if not accepted:
+            return
         if not checked:
             self._set_status("No files selected.", False)
             return
@@ -719,6 +724,8 @@ class TrXS2Widget(QWidget):
             return
         self.n_files_label.setText(f"# of Files: {result['n_files']}")
         self._current_image_data = None
+        self._reset_contrast()
+        self._close_play_dialog()
         self._render_image()
         self._mark_ok(self.set_table_button, True)
         self._mark_ok(self.qcal_button, False)
@@ -791,6 +798,16 @@ class TrXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # 2D image render
     # ------------------------------------------------------------------
+    def _reset_contrast(self) -> None:
+        """Back to the 0/0 auto-contrast sentinel, so a newly loaded image
+        is not drawn with the previous image's min/max (which can leave it
+        looking blank or blown out)."""
+
+        for spin in (self.image_cmin_spin, self.image_cmax_spin):
+            spin.blockSignals(True)
+            spin.setValue(0.0)
+            spin.blockSignals(False)
+
     def _render_image(self, force_reset: bool = False, redraw_overlays: bool = True) -> None:
         session = ts.get_session()
         if session.data is None:
@@ -1094,6 +1111,12 @@ class TrXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # Play (Frame Viewer)
     # ------------------------------------------------------------------
+    def _close_play_dialog(self) -> None:
+        # The Play window captured the old series' frame count; left open
+        # over a new series it shows the wrong frames and indexes past the end.
+        if self._play_dialog is not None:
+            self._play_dialog.close()
+
     def _on_play_clicked(self) -> None:
         session = ts.get_session()
         # Raw frames plus the shared correction factor: q-Cal no longer
