@@ -79,6 +79,10 @@ jobs:
             ${{ matrix.asset_name }}.zip
             ${{ matrix.asset_name }}.tar.gz
           if-no-files-found: ignore
+          # Only the release job below (same run) or a manual test build
+          # needs these; at the 90-day default, ~350 MB per run filled the
+          # artifact storage quota and v0.3.0's first build could not upload.
+          retention-days: 5
 
   manual:
     # The .docx manual is generated, not committed -- Word rewrites its
@@ -104,6 +108,7 @@ jobs:
         with:
           name: manual
           path: docs/desktop_manual_ko.docx
+          retention-days: 5
 
   release:
     needs: [build, manual]
