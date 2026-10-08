@@ -206,3 +206,25 @@ def test_save_standard_calibration_std_roundtrip(tmp_path):
     assert loaded.standard_q_value == pytest.approx(0.1052)
     # The extended field this app adds over the original stdsave.m format.
     assert loaded.raw["Energy"] == pytest.approx(8.9499)
+
+
+def test_calibration_json_is_strict_json_and_round_trips_missing_values(tmp_path):
+    import json
+
+    from pgixs_python.calibration.calibration_io import (
+        StandardCalibration,
+        load_standard_calibration,
+        save_standard_calibration_json,
+    )
+
+    path = tmp_path / "cal.json"
+    save_standard_calibration_json(path, StandardCalibration(
+        beam_center=np.array([10.0, 20.0]), wavelength=1.3, pixel_size=0.075, sdd=300.0,
+        standard_q_value=float("nan"), standard_peak=np.array([np.nan]),
+    ))
+
+    json.loads(path.read_text(encoding="utf-8"), parse_constant=lambda token: pytest.fail(token))
+    loaded, report = load_standard_calibration(path)
+    assert report.ok
+    assert loaded.standard_q_value is None
+    assert np.isnan(loaded.standard_peak).all()

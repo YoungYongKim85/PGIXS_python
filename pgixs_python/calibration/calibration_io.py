@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -107,9 +108,9 @@ def save_standard_calibration_json(file_path: str | Path, calibration: StandardC
         "STqvalue": calibration.standard_q_value,
         "index_dt": calibration.detector_index,
         "imgdim": _array_to_json(calibration.image_shape),
-        "SDDDiagnostics": _json_safe(calibration.diagnostics),
+        "SDDDiagnostics": calibration.diagnostics,
     }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(_json_safe(payload), indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
 
 
 def save_standard_calibration_mat(file_path: str | Path, calibration: StandardCalibration) -> None:
@@ -301,9 +302,13 @@ def _array_to_json(value: Any) -> Any:
 
 def _json_safe(value: Any) -> Any:
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return _json_safe(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        # Bare NaN/Infinity tokens are not JSON; strict parsers (PGIXS_web's
+        # JavaScript JSON.parse) reject the whole file. Loads back as None/NaN.
+        return None
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

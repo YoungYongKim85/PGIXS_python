@@ -25,3 +25,26 @@ def test_save_workflow_report_json_converts_numpy(tmp_path):
     assert loaded["options"]["q_bins"] == 10
     assert loaded["calibration"]["beam_center"] == [1.0, 2.0]
     assert loaded["diagnostics"]["retry_failed_frames"] == [2]
+
+
+def _strict_json(text):
+    def reject(token):
+        raise ValueError(f"non-standard JSON token {token}")
+
+    return json.loads(text, parse_constant=reject)
+
+
+def test_workflow_report_writes_nan_as_null(tmp_path):
+    from pathlib import Path
+
+    report = WorkflowReport(
+        measurement_mode="GIXS",
+        input_files=[Path("a.h5")],
+        output_files={"h5": None},
+        diagnostics={"timestamps": np.array([1.0, np.nan]), "energy": float("nan")},
+    )
+
+    payload = _strict_json(save_workflow_report_json(tmp_path / "r.json", report).read_text(encoding="utf-8"))
+
+    assert payload["diagnostics"] == {"timestamps": [1.0, None], "energy": None}
+    assert payload["input_files"] == ["a.h5"]
