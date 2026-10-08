@@ -4,6 +4,30 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.3.2 — Q-space 1D 컷 결과가 달라집니다 / Q-space 1D cuts change
+
+GIXS·TrXS 탭에서 **Map format을 Qxy/Qz 또는 Qy/Qz로 두고** 1D 컷(Line, Cakecut,
+Accumulation, Azimuthal)을 하면, 이제 **검출기 모듈 갭 옆 3픽셀**(갭 경계 버퍼)을 빼고
+Q 격자로 재보간합니다. 이전에는 이 픽셀들이 빠지지 않아, 값이 치우칠 수 있는 갭 옆
+픽셀이 보간을 거쳐 커브에 섞였습니다.
+
+In the GIXS and TrXS tabs, 1D cuts made with Map format set to Qxy/Qz or Qy/Qz
+now drop the 3-pixel module-gap shoulder before regridding to the Q grid. Before,
+those possibly biased pixels were interpolated into the curve.
+
+- **영향 범위:** 갭을 지나는 bin만 값이 바뀝니다. Pixel 모드의 컷과 GIXS-series 결과는
+  그대로입니다.
+- **2D 이미지 표시는 바뀌지 않습니다.** Qxy/Qz 이미지와 Polar 이미지는 지금처럼 모든
+  픽셀을 보여줍니다.
+- 이제 Pixel 모드, Q-space 모드, GIXS-series의 Reflect missing wedge 모드가 모두 같은
+  기준으로 갭 옆 픽셀을 제외합니다.
+
+**MATLAB 버전과의 차이:** MATLAB은 Q 재보간 이미지에서는 이 버퍼를 적용하지 않습니다.
+그래서 Q-space 컷에서 갭을 지나는 bin은 두 버전의 값이 다를 수 있습니다. 이 차이는
+의도한 것입니다.
+
+---
+
 ## ⚠️ v0.3.1 — 일부 결과가 달라집니다 / Some results change
 
 v0.3.0 이후 남아 있던 작은 오류들을 정리했습니다. 대부분은 저장·불러오기·설정 관련이지만,
