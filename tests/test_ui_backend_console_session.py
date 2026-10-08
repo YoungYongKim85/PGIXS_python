@@ -1594,3 +1594,29 @@ def test_console_load_info_after_qmap_drops_the_stale_qmap(tmp_path):
     assert "q-Map" in payload["message"]
     session = cs.get_session()
     assert session.qmap is None and session.angle_map is None and session.corrected_data is None
+
+
+def test_q_space_cuts_blank_the_gap_shoulder_before_regridding(tmp_path):
+    from pgixs_python.calibration.sdd import wavelength_from_energy_kev
+    from pgixs_python.qmap.transform import image_transform_q_gi
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path)
+    _load(frame_path)
+    session = cs.get_session()
+    session.calibration_loaded = True
+    assert cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 24.0, "beam_z": 24.0, "incident_angle_deg": 0.2})["ok"]
+    session.gap_buffer = np.zeros(session.data.shape, dtype=bool)
+    session.gap_buffer[:, 30:34] = True
+
+    regridded, _, _, _ = cs._q_space_cut_inputs("Qxy/Qz")
+
+    blanked = np.where(session.gap_buffer, np.nan, session.corrected_data).astype(np.float32)
+    expected = image_transform_q_gi(
+        blanked, session.qmap["qr"], session.qmap["qz"], (24.0, 24.0), float(session.calibration["pixel_mm"]),
+        wavelength_from_energy_kev(9.5), 300.0,
+    ).image
+    np.testing.assert_allclose(regridded, expected, equal_nan=True)
+    # The 2D Qxy/Qz display is not a reduction and keeps those pixels.
+    assert cs.console_qspace_image({"mapping": "Qxy/Qz"})["ok"]

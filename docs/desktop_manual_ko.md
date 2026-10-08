@@ -573,7 +573,7 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 | **Map format (Pixel / Qxy·Qy / Qz)** | 2D 이미지를 픽셀 좌표로 볼지, Q-space 균일 그리드로 리그리딩해서 볼지 선택. Q-space 모드에서는 Line/Cake/Accumulation/Azimuthal 컷이 실제로 리그리딩된 이미지를 잘라서 pixel-space와 독립적인 결과를 낸다. |
 | **Grid Remove** | Eiger4M 등 일부 검출기의 물리적 모듈 간격(그리드)을 보정하는 처리. |
 | **Detector mask** | 검출기별로 알려진 불량 픽셀·비활성 영역을 NaN으로 제외하는 마스크. 데이터를 불러오는 시점에 자동 적용되며(Eiger4M은 약 6.2%, MarCCD/SX165는 약 21.6%가 제외됨), 이후 모든 평균·컷 계산에서 빠진다. MATLAB 버전과 동일한 마스크 파일을 사용한다. |
-| **Gap 경계 버퍼 (3픽셀)** | 검출기 모듈 갭에 바로 인접한 픽셀은 전하 수집이 불완전하거나 이웃 픽셀과 합산되어 값이 치우칠 수 있다. 그래서 마스크를 3픽셀 팽창시킨 영역을 **1D 축약(Circular Average, 1D 컷, Azimuthal)에서만** 추가로 제외한다(Eiger4M 기준 6.2% → 약 7.9%). **2D 이미지 표시와 ROI 합계에는 적용되지 않는다** — MATLAB이 평균 계산 경로에서만 적용하는 것과 동일하다. 제외된 픽셀은 기하에는 그대로 남아 있어 coverage를 떨어뜨리므로, 갭을 많이 지나는 bin은 Min coverage에 걸려 실제로 빠질 수 있다. |
+| **Gap 경계 버퍼 (3픽셀)** | 검출기 모듈 갭에 바로 인접한 픽셀은 전하 수집이 불완전하거나 이웃 픽셀과 합산되어 값이 치우칠 수 있다. 그래서 마스크를 3픽셀 팽창시킨 영역을 **1D 축약(Circular Average, 1D 컷, Azimuthal)에서만** 추가로 제외한다(Eiger4M 기준 6.2% → 약 7.9%). **2D 이미지 표시와 ROI 합계에는 적용되지 않는다** — MATLAB이 평균 계산 경로에서만 적용하는 것과 동일하다. Map format이 Qxy/Qz·Qy/Qz일 때의 1D 컷도 **Q 격자로 재보간하기 전에** 이 픽셀을 뺀다(GIXS-series의 Reflect missing wedge와 같은 방식). MATLAB은 Q 재보간 이미지에서는 버퍼를 적용하지 않으므로, 갭을 지나는 bin에서 두 프로그램의 값이 다를 수 있다. 제외된 픽셀은 기하에는 그대로 남아 있어 coverage를 떨어뜨리므로, 갭을 많이 지나는 bin은 Min coverage에 걸려 실제로 빠질 수 있다. |
 | **Background / Normalization** | 배경 프레임을 빼고(subtraction), IC(ion chamber)/BC(beam counter) 값으로 정규화하는 처리. |
 | **Cakecut / Accumulation** | (GIXS 1D 컷 전용) Cakecut은 기준 각도 주변의 각도 쐐기(wedge) 평균, Accumulation은 컷 라인에 수직인 픽셀 밴드 평균. |
 | **Circular Average** | (TrXS 전용) 지정한 각도 범위에서 q-binned 평균 — TrXS의 기본 1D 처리 방식. |
