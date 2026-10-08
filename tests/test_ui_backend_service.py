@@ -67,3 +67,46 @@ def test_validate_workflow_reports_unsupported_workflow():
 
     assert not result.ok
     assert "Unsupported workflow" in result.message
+
+
+def test_run_workflow_keeps_concurrent_runs_output_apart():
+    import sys
+    import threading
+    import time
+
+    from pgixs_python.ui_backend.service import UIWorkflowRequest, run_workflow
+
+    def runner(argv):
+        name = argv[0]
+        for _ in range(20):
+            print(name)
+            sys.stderr.write(name + "\n")
+            time.sleep(0.001)
+        raise SystemExit(f"done {name}")
+
+    results = {}
+
+    def go(name):
+        results[name] = run_workflow(UIWorkflowRequest("gixs", args=[name]), runners={"gixs": runner})
+
+    threads = [threading.Thread(target=go, args=(n,)) for n in ("A", "B")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    for name, other in (("A", "B"), ("B", "A")):
+        assert results[name].stdout.split() == [name] * 20
+        assert other not in results[name].stderr
+        assert results[name].message == f"done {name}"
+
+
+def test_validate_workflow_checks_the_jobs_inside_a_batch(tmp_path):
+    bad = tmp_path / "gixs.json"
+    bad.write_text(json.dumps({"q_bnis": 64}), encoding="utf-8")
+    batch = tmp_path / "batch.json"
+    batch.write_text(json.dumps({"jobs": [{"workflow": "gixs", "config": str(bad)}]}), encoding="utf-8")
+
+    result = validate_workflow(UIWorkflowRequest(workflow="batch", args=["--batch", str(batch)]))
+
+    assert not result.ok

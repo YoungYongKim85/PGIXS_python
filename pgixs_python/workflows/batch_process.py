@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
-import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+from pgixs_python.workflows.common import capture_output
 
 
 WorkflowRunner = Callable[[list[str] | None], int]
@@ -237,10 +237,8 @@ def _default_validators() -> dict[str, WorkflowRunner]:
 
 
 def _validate_one_job(job: BatchJob, argv: list[str], validator: WorkflowRunner) -> BatchJobResult:
-    stdout = io.StringIO()
-    stderr = io.StringIO()
     try:
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with capture_output() as (stdout, stderr):
             exit_code = int(validator(argv) or 0)
     except SystemExit as exc:
         exit_code, message = _system_exit_result(exc)
@@ -256,9 +254,7 @@ def _run_one_job(job: BatchJob, argv: list[str], runner: WorkflowRunner, capture
     if not capture:
         return _invoke_runner(job, argv, runner)
 
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+    with capture_output() as (stdout, stderr):
         result = _invoke_runner(job, argv, runner)
     result.stdout = stdout.getvalue()
     result.stderr = stderr.getvalue()
