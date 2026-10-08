@@ -101,7 +101,9 @@ def fit_gaussian_peak(
 
     x_min, x_max = float(x_roi.min()), float(x_roi.max())
     span = max(abs(x_max - x_min), 0.2)
-    lower = [0.0, x_min, 0.1, 0.0]
+    # A background-subtracted profile can sit below zero; a 0 floor on the
+    # offset would make the min(y) start guess infeasible and fail the fit.
+    lower = [0.0, x_min, 0.1, min(0.0, offset0)]
     upper = [np.inf, x_max, span, float(np.max(y_roi))]
     p0 = [amp0, np.clip(center0, x_min, x_max), np.clip(sigma0, 0.1, span), offset0]
 

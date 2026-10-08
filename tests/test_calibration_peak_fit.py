@@ -58,3 +58,14 @@ def test_fit_gaussian_peak_fails_gracefully_on_flat_data():
 def test_fit_gaussian_peak_rejects_mismatched_shapes():
     with pytest.raises(ValueError):
         fit_gaussian_peak(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0]))
+
+
+def test_fit_gaussian_peak_fits_a_peak_on_a_negative_baseline():
+    x = np.linspace(-20.0, 20.0, 81)
+    y = 100.0 * np.exp(-((x - 2.0) ** 2) / (2.0 * 3.0**2)) - 5.0
+
+    result = fit_gaussian_peak(x, y)
+
+    assert result.success, result.message
+    assert result.center == pytest.approx(2.0, abs=1e-3)
+    assert result.offset == pytest.approx(-5.0, abs=1e-2)
