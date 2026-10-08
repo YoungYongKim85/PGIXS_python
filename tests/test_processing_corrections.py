@@ -246,3 +246,12 @@ def test_dilate_gap_mask_grows_the_exclusion_by_n_pad():
     assert dilate_gap_mask(zero_seeded, 1)[2, 2]
     assert dilate_gap_mask(zero_seeded, 1)[1, 2]
     assert not dilate_gap_mask(zero_seeded, 1)[0, 0]
+
+
+def test_attenuation_length_without_energy_uses_11p2_kev():
+    from pgixs_python.processing.corrections import _attenuation_length, load_attenuation_table
+
+    table = load_attenuation_table("kapton")
+
+    assert _attenuation_length(table, float("nan")) == _attenuation_length(table, 11.2)
+    assert _attenuation_length(table, float("nan")) != _attenuation_length(table, 8.0)

@@ -182,10 +182,17 @@ def _pixel_grid(data_size: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
     return y, z
 
 
+# Used when a calibration carries no energy -- a NaN lookup would otherwise
+# land on the table's first row (8 keV) without any sign of it.
+DEFAULT_ENERGY_KEV = 11.2
+
+
 def _attenuation_length(table: np.ndarray, energy_kev: float) -> float:
     arr = np.asarray(table, dtype=np.float64)
     if arr.ndim != 2 or arr.shape[1] < 2:
         raise ValueError("attenuation_table must have at least two columns: energy, attenuation_length.")
+    if not np.isfinite(energy_kev):
+        energy_kev = DEFAULT_ENERGY_KEV
     idx = int(np.argmin(np.abs(arr[:, 0] - round(float(energy_kev), 1))))
     value = float(arr[idx, 1])
     if not np.isfinite(value) or value <= 0:
