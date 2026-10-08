@@ -17,8 +17,42 @@ on:
 permissions:
   contents: write
 
+# A tagged build uploads straight to a draft release instead of passing the
+# bundles through workflow artifacts: artifact storage is an account-wide
+# quota, and other repos' artifacts filling it blocked the v0.3.0 release
+# even though every build had succeeded. The draft is published only once
+# all files are attached. Manual test builds still use (short-lived)
+# artifacts, since there is no release to attach them to.
 jobs:
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      # `gh release create --generate-notes` shells out to `git` itself
+      # (to work out the commit range for the auto-generated notes) --
+      # without a checkout, there's no .git here at all and it fails with
+      # "fatal: not a git repository".
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # packaging/release_notes.md carries the hand-written part of the body
+        # (notably the "results change in this version" warning); gh appends
+        # its auto-generated commit list underneath. Update that file before
+        # tagging a release.
+        run: >
+          gh release create "${{ github.ref_name }}" --draft
+          --title "${{ github.ref_name }}"
+          --notes-file packaging/release_notes.md
+          --generate-notes
+
   build:
+    needs: create-release
+    # Still runs for a manual dispatch, where create-release is skipped.
+    if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,19 +106,26 @@ jobs:
         if: runner.os == 'Linux'
         run: tar -C packaging/dist -czf ${{ matrix.asset_name }}.tar.gz PGIXS
 
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" ${{ matrix.asset_name }}.* --clobber
+
       - uses: actions/upload-artifact@v7
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
           name: ${{ matrix.asset_name }}
           path: |
             ${{ matrix.asset_name }}.zip
             ${{ matrix.asset_name }}.tar.gz
           if-no-files-found: ignore
-          # Only the release job below (same run) or a manual test build
-          # needs these; at the 90-day default, ~350 MB per run filled the
-          # artifact storage quota and v0.3.0's first build could not upload.
           retention-days: 5
 
   manual:
+    needs: create-release
+    if: ${{ !failure() && !cancelled() }}
     # The .docx manual is generated, not committed -- Word rewrites its
     # table-of-contents field the moment anyone opens the file, so a tracked
     # copy showed up as an uncommitted change over and over. Building it here
@@ -104,39 +145,25 @@ jobs:
           npm install --no-audit --no-fund
           npm run manual
 
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" docs/desktop_manual_ko.docx --clobber
+
       - uses: actions/upload-artifact@v7
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
           name: manual
           path: docs/desktop_manual_ko.docx
           retention-days: 5
 
-  release:
+  publish:
     needs: [build, manual]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      # `gh release create --generate-notes` shells out to `git` itself
-      # (to work out the commit range for the auto-generated notes) --
-      # without a checkout, there's no .git here at all and it fails with
-      # "fatal: not a git repository" before ever touching the artifacts.
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Publish release
+      - name: Publish the draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # packaging/release_notes.md carries the hand-written part of the body
-        # (notably the "results change in this version" warning); gh appends
-        # its auto-generated commit list underneath. Update that file before
-        # tagging a release.
-        run: >
-          gh release create "${{ github.ref_name }}" artifacts/*
-          --title "${{ github.ref_name }}"
-          --notes-file packaging/release_notes.md
-          --generate-notes
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
