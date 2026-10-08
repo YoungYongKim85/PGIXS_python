@@ -1120,3 +1120,20 @@ def test_gixs2_auto_refresh_grid_removes_new_frames_after_grid_remove(tmp_path):
     raw = np.ascontiguousarray(np.asarray(h5py.File(files[1], "r")["/entry/data/data"]))
     expected, _ = grid_remove_stack(raw[np.newaxis], "Eiger4M")
     np.testing.assert_allclose(session.stack[1], expected[0], equal_nan=True)
+
+
+def test_gixs2_incidence_helpers_need_a_loaded_calibration():
+    assert not gs.gixs2_ai_from_pixel({"pix": 100.0})["ok"]
+    assert not gs.gixs2_ai_from_degree({"ai_deg": 0.2})["ok"]
+
+
+def test_gixs2_failed_load_keeps_the_current_gap_buffer(tmp_path):
+    files = _write_synthetic_series(tmp_path, n_frames=1)
+    session = gs.get_session()
+    sentinel = np.zeros((2, 2), dtype=bool)
+    session.gap_buffer = sentinel
+
+    # The Eiger4M mask cannot fit a 200x200 frame, so this load fails.
+    assert not gs.gixs2_load({"directory": str(tmp_path), "filename": files[0].name, "detector": "Eiger4M"})["ok"]
+
+    assert session.gap_buffer is sentinel

@@ -90,7 +90,7 @@ def test_xtrans_save_writes_a_file(tmp_path):
     result = xs.xtrans_save({"directory": str(tmp_path)})
 
     assert result["ok"], result.get("message")
-    assert (tmp_path / "Transmittance_8_to_10.dat").exists()
+    assert (tmp_path / "Transmittance_Si_8_to_10.dat").exists()
 
 
 def test_set_session_isolates_two_independent_sessions():

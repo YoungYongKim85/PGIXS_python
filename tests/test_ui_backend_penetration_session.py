@@ -74,7 +74,7 @@ def test_penetration_save_writes_a_file(tmp_path):
     result = ps.penetration_save({"directory": str(tmp_path)})
 
     assert result["ok"], result.get("message")
-    assert (tmp_path / "PenetrationDepth_0_to_1.dat").exists()
+    assert (tmp_path / "PenetrationDepth_Si_11.3keV_0_to_1.dat").exists()
 
 
 def test_set_session_isolates_two_independent_sessions():

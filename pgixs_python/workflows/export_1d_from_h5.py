@@ -18,7 +18,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=False, help="Optional JSON export configuration file.")
     parser.add_argument("--input", required=False, help="Input Python-native *_2Dinfo.h5 file.")
     parser.add_argument("--out", required=False, help="Output file or directory for 1D export.")
-    parser.add_argument("--export-format", default="csv", choices=["csv", "dat"], help="1D export file format.")
+    parser.add_argument(
+        "--export-format", default=None, choices=["csv", "dat"],
+        help="1D export file format (default: the --out file's extension, else csv).",
+    )
     parser.add_argument("--q-bins", type=int, default=600, help="Number of q bins for 1D export.")
     parser.add_argument("--q-min", type=float, default=None, help="Optional minimum q for 1D export.")
     parser.add_argument("--q-max", type=float, default=None, help="Optional maximum q for 1D export.")
@@ -73,7 +76,7 @@ def export_1d_from_two_d_info(info: TwoDInfo, source_path: str | Path, args) -> 
         x_label="q",
         intensity_label="intensity",
     )
-    out_path = resolve_1d_output_path(getattr(args, "out", None), source_path, info.measurement_mode, getattr(args, "export_format", "csv"))
+    out_path = resolve_1d_output_path(getattr(args, "out", None), source_path, info.measurement_mode, getattr(args, "export_format", None))
     data_path = save_1d_data(out_path, export, include_diagnostics=bool(getattr(args, "export_diagnostics", False)))
 
     figure_path = None
@@ -101,7 +104,7 @@ def save_export_report(info: TwoDInfo, source_path: str | Path, args, data_path:
             "q_min": getattr(args, "q_min", None),
             "q_max": getattr(args, "q_max", None),
             "q_scale": getattr(args, "q_scale", None),
-            "export_format": getattr(args, "export_format", None),
+            "export_format": data_path.suffix.lstrip("."),
             "export_std": getattr(args, "export_std", None),
             "export_diagnostics": getattr(args, "export_diagnostics", None),
             "export_figure": getattr(args, "export_figure", None),
@@ -181,15 +184,24 @@ def build_q_bins_from_map(
     return centers, bin_index, in_range
 
 
-def resolve_1d_output_path(out_arg: str | Path | None, source_path: str | Path, measurement_mode: str, export_format: str) -> Path:
+def resolve_1d_output_path(
+    out_arg: str | Path | None, source_path: str | Path, measurement_mode: str, export_format: str | None
+) -> Path:
+    """The file's extension decides the delimiter (see save_1d_data), so an
+    --out file name and --export-format must agree; whichever one is given
+    decides, and csv is the default when neither is."""
+
     source = Path(source_path)
-    suffix = f".{str(export_format).lower()}"
+    fmt = str(export_format).lower() if export_format else None
     if out_arg:
         out = Path(out_arg)
-        if out.suffix.lower() in {".csv", ".dat"}:
+        named = out.suffix.lower().lstrip(".")
+        if named in {"csv", "dat"}:
+            if fmt is not None and fmt != named:
+                raise ValueError(f"--out {out.name} is a .{named} file but --export-format is {fmt}.")
             return out
-        return out / f"{source.stem}_{measurement_mode}_1D{suffix}"
-    return source.with_name(f"{source.stem}_{measurement_mode}_1D{suffix}")
+        return out / f"{source.stem}_{measurement_mode}_1D.{fmt or 'csv'}"
+    return source.with_name(f"{source.stem}_{measurement_mode}_1D.{fmt or 'csv'}")
 
 
 __all__ = [

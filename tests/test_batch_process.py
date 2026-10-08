@@ -148,3 +148,14 @@ def test_save_batch_summary_json(tmp_path):
     assert payload["job_count"] == 1
     assert payload["failed_count"] == 0
     assert payload["jobs"][0]["label"] == "ok"
+
+
+def test_build_job_argv_keeps_a_jobs_own_manifest(tmp_path):
+    config = tmp_path / "gixs.json"
+    config.write_text(json.dumps({"manifest": "own.jsonl"}), encoding="utf-8")
+
+    inline = build_job_argv(BatchJob(workflow="gixs", args=["--manifest=own.jsonl"]), shared_manifest="shared.jsonl")
+    in_config = build_job_argv(BatchJob(workflow="gixs", config=str(config)), shared_manifest="shared.jsonl")
+
+    assert "shared.jsonl" not in inline
+    assert "shared.jsonl" not in in_config

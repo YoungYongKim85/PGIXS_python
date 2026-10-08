@@ -68,3 +68,15 @@ def test_compute_radial_profile_handles_empty_geometry():
 
     assert profile.r_axis.size == 0
     assert profile.intensity.size == 0
+
+
+def test_pixel_radius_bin_map_keeps_a_pixel_at_an_integer_max_radius():
+    import numpy as np
+
+    from pgixs_python.averaging.pixel_radial import build_pixel_radius_bin_map
+
+    # 1x5 row, center on pixel 1: radii 0..4, the farthest exactly 4.0.
+    bin_index, n_bins, _r_axis, _geom = build_pixel_radius_bin_map((1, 5), (1.0, 1.0))
+
+    assert n_bins == 5
+    assert bin_index[0, 4] == 4

@@ -6,6 +6,7 @@ large arrays, metadata, diagnostics, and provenance in one extensible file.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -137,10 +138,19 @@ def _write_diagnostics(group: Any, diagnostics: dict[str, Any]) -> None:
     for key, value in diagnostics.items():
         if value is None:
             continue
-        if np.isscalar(value):
-            group.attrs[key] = value
+        try:
+            array = None if isinstance(value, dict) else np.asarray(value)
+        except ValueError:  # ragged list
+            array = None
+        if array is not None and array.ndim == 0 and array.dtype != object:
+            # Scalars, including 0-d arrays: a scalar dataset can't take gzip.
+            group.attrs[key] = array.item()
+        elif array is not None and array.dtype.kind in "biuf":
+            _write_dataset(group, key, array)
         else:
-            _write_dataset(group, key, value)
+            # Dicts, string lists and mixed lists have no plain HDF5 array
+            # type and used to abort the whole save; keep them as JSON text.
+            group.attrs[key] = json.dumps(value, default=str)
 
 
 def _read_optional_dataset(group: Any, name: str) -> np.ndarray | None:

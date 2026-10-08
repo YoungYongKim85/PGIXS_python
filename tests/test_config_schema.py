@@ -36,3 +36,16 @@ def test_build_batch_schema_accepts_object_or_array_shape():
     job_props = schema["$defs"]["job"]["properties"]
     assert job_props["workflow"]["enum"] == ["trxs", "gixs", "export-1d"]
     assert job_props["args"]["items"]["type"] == "string"
+
+
+def test_options_with_a_real_default_reject_null():
+    import pytest
+
+    from pgixs_python.workflows.common import validate_workflow_config_values
+
+    schema = build_workflow_schema("gixs")["properties"]
+    assert schema["dataset"]["type"] == "string"
+    assert schema["standard"]["type"] == ["string", "null"]
+    with pytest.raises(ValueError, match="dataset"):
+        validate_workflow_config_values({"dataset": None})
+    validate_workflow_config_values({"standard": None})

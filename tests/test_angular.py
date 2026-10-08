@@ -86,3 +86,15 @@ def test_angular_profile_angle_range_restricts_sweep_to_half_circle():
     finite = np.isfinite(result.intensity)
     assert np.any(finite)
     assert np.allclose(result.intensity[finite], 5.0)
+
+
+def test_angular_profile_rejects_a_reversed_or_empty_angle_range():
+    import numpy as np
+    import pytest
+
+    from pgixs_python.averaging.angular import angular_profile
+
+    image = np.ones((20, 20), dtype=np.float32)
+    for bad in ((350.0, 10.0), (90.0, 90.0)):
+        with pytest.raises(ValueError, match="angle_range"):
+            angular_profile(image, center=(10.0, 10.0), radius_range=(2.0, 5.0), angle_range=bad)

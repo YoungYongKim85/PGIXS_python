@@ -92,7 +92,11 @@ def process_normalization(
         else:
             out = image / count_value
     else:
-        out = image.copy()
+        # Reporting success here let a typo ("ic ", "I0") pass as a
+        # normalized result.
+        return image.copy(), NormalizationReport(
+            success=False, message=f"Unknown normalization method: {method!r}.", method=norm_method
+        )
 
     out = out.astype(np.float32, copy=False)
     if clamp_negative:

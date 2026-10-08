@@ -30,7 +30,7 @@ from pgixs_python.averaging.cake import pixel_angle_map
 from pgixs_python.calibration.calibration_io import load_standard_calibration
 from pgixs_python.calibration.sdd import wavelength_from_energy_kev
 from pgixs_python.export.data_export import save_series_data
-from pgixs_python.io.h5_series import load_h5_series
+from pgixs_python.io.h5_series import load_h5_series, natural_sort_key
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.processing.corrections import (
     DetectorCorrectionInputs,
@@ -212,7 +212,7 @@ def _list_series_files(directory: Path, filename: str, extension: str = ".h5") -
         for item in directory.iterdir()
         if item.is_file() and suffix == item.suffix.lower() and prefix in item.name
     ]
-    return sorted(matches, key=lambda item: item.name)
+    return sorted(matches, key=natural_sort_key)
 
 
 def _set_load_progress(completed: int, total: int, label: str) -> None:
@@ -293,7 +293,7 @@ def gixs2_load(payload: dict[str, Any]) -> dict[str, Any]:
         result = load_image_file(file_path)
         detector_mask = detector_mask_for_type(detector)
         # Transposed to match `stack`, stored in the mask's transpose.
-        _SESSION.gap_buffer = (
+        gap_buffer = (
             np.ascontiguousarray(dilate_gap_mask(detector_mask.mask, 3).T)
             if detector_mask.mask is not None
             else None
@@ -301,7 +301,11 @@ def gixs2_load(payload: dict[str, Any]) -> dict[str, Any]:
         masked = apply_detector_mask(result.data, detector_mask.mask)
         masked = np.ascontiguousarray(masked.T)
     except Exception as exc:  # noqa: BLE001
+        # Nothing replaced yet: a failed load (e.g. the wrong detector) must
+        # not leave the previous series with this detector's gap buffer.
         return {"ok": False, "message": str(exc)}
+
+    _SESSION.gap_buffer = gap_buffer
 
     _SESSION.detector = detector
     # Kept in `detector_mask.mask`'s own native orientation, *not*
@@ -508,7 +512,10 @@ def gixs2_z_plot(payload: dict[str, Any]) -> dict[str, Any]:
 def gixs2_ai_from_pixel(payload: dict[str, Any]) -> dict[str, Any]:
     """Port of `CalIncidence2_Callback`: `ai_deg = atand(pix*pixel/SDD)/2`."""
 
-    if "SDD" not in payload and _SESSION.calibration.get("sdd_mm") is None:
+    # `calibration` always holds a placeholder SDD, so only a loaded
+    # calibration means the angle is real (the check on a "SDD" payload key
+    # that nothing sends never fired).
+    if not _SESSION.calibration_loaded:
         return {"ok": False, "message": "Load Info first to get the SDD."}
     try:
         pix = abs(float(payload["pix"]))
@@ -525,6 +532,8 @@ def gixs2_ai_from_pixel(payload: dict[str, Any]) -> dict[str, Any]:
 def gixs2_ai_from_degree(payload: dict[str, Any]) -> dict[str, Any]:
     """Port of `CalIncidencePixel2_Callback`: `pix = round(abs(SDD*tand(2*ai)/pixel))`."""
 
+    if not _SESSION.calibration_loaded:
+        return {"ok": False, "message": "Load Info first to get the SDD."}
     try:
         ai_deg = float(payload["ai_deg"])
     except (KeyError, TypeError, ValueError) as exc:

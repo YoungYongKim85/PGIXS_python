@@ -527,3 +527,19 @@ def test_normalize_rows_by_counter_blanks_frames_without_a_counter():
     np.testing.assert_allclose(out[[0, 3]], [[5.0] * 3, [2.0] * 3])
     assert np.all(np.isnan(out[1:3]))
     assert np.all(np.isnan(normalize_rows_by_counter(matrix, None, "BC")))
+
+
+def test_time_axis_keeps_real_timestamps_around_a_missing_one():
+    ts = np.array([0.0, 10.0, np.nan, 50.0])
+
+    axis, label = compute_experiment_x_axis("Time", ts, np.empty((4, 0)), time_offset_seconds=0.0)
+
+    np.testing.assert_allclose(axis, [0.0, 10.0, 30.0, 50.0])
+    assert label.startswith("Time")
+
+
+def test_time_axis_without_any_timestamp_counts_frames():
+    axis, label = compute_experiment_x_axis("Time", np.full(3, np.nan), np.empty((3, 0)))
+
+    np.testing.assert_allclose(axis, [1.0, 2.0, 3.0])
+    assert label == "Frame"

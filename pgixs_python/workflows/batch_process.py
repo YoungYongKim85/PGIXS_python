@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from pgixs_python.workflows.common import capture_output
+from pgixs_python.workflows.common import capture_output, load_workflow_config
 
 
 WorkflowRunner = Callable[[list[str] | None], int]
@@ -154,9 +154,24 @@ def build_job_argv(job: BatchJob, shared_manifest: str | None = None) -> list[st
     if job.config:
         argv.extend(["--config", job.config])
     argv.extend(job.args or [])
-    if shared_manifest and job.workflow in {"trxs", "gixs"} and "--manifest" not in argv:
+    if shared_manifest and job.workflow in {"trxs", "gixs"} and not _job_sets_manifest(job, argv):
         argv.extend(["--manifest", shared_manifest])
     return argv
+
+
+def _job_sets_manifest(job: BatchJob, argv: list[str]) -> bool:
+    """A job's own manifest -- `--manifest=path` or a `manifest` key in its
+    config, not just a separate `--manifest` token -- must win over the
+    shared one; appended after it, the shared one used to override it."""
+
+    if any(arg == "--manifest" or arg.startswith("--manifest=") for arg in argv):
+        return True
+    if job.config:
+        try:
+            return load_workflow_config(job.config).get("manifest") is not None
+        except (OSError, ValueError):
+            return False  # the job's own run reports the unreadable config
+    return False
 
 
 def format_batch_summary(results: list[BatchJobResult]) -> str:

@@ -44,3 +44,32 @@ def test_two_d_info_h5_roundtrip(tmp_path):
     assert np.allclose(loaded.q_map, q)
     assert "coverage" in loaded.diagnostics
 
+
+
+def test_two_d_info_h5_saves_diagnostics_of_any_shape(tmp_path):
+    import json
+
+    import pytest
+
+    pytest.importorskip("h5py")
+    from pgixs_python.io.two_d_info import load_two_d_info_h5, save_two_d_info_h5
+
+    grid = np.zeros((2, 2), dtype=np.float32)
+    info = TwoDInfo(
+        measurement_mode="GIXS", data2d_pix=grid, data2d_q=grid, q_map=grid, qx_map=grid, qy_map=grid,
+        qz_map=grid, qy_axis=np.zeros(2), qz_axis=np.zeros(2), beam_position=np.zeros(2), wavelength=1.0,
+        sdd=1.0, pixel=0.075, detector="Eiger4M",
+        diagnostics={
+            "zero_d": np.array(4.5),
+            "labels": ["a", "b"],
+            "options": {"bins": 64, "mode": "linear"},
+            "rows": [{"i": 1}, {"i": 2}],
+        },
+    )
+    save_two_d_info_h5(tmp_path / "d.h5", info)
+
+    diagnostics = load_two_d_info_h5(tmp_path / "d.h5").diagnostics
+    assert diagnostics["zero_d"] == 4.5
+    assert json.loads(diagnostics["labels"]) == ["a", "b"]
+    assert json.loads(diagnostics["options"]) == {"bins": 64, "mode": "linear"}
+    assert json.loads(diagnostics["rows"]) == [{"i": 1}, {"i": 2}]

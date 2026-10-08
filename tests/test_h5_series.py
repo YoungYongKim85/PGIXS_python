@@ -185,3 +185,27 @@ def test_load_h5_series_parallel_single_file_does_not_use_pool(tmp_path):
     files = _write_series_files(tmp_path, n_files=1)
     result = load_h5_series(files, parallel=True)
     assert result.stack.shape[0] == 1
+
+
+def test_load_h5_series_raises_when_no_frame_can_be_read(tmp_path):
+    import pytest
+
+    h5py = pytest.importorskip("h5py")
+    from pgixs_python.io.h5_series import load_h5_series
+
+    paths = []
+    for idx in range(2):
+        paths.append(tmp_path / f"s_{idx}.h5")
+        with h5py.File(paths[-1], "w") as h5:
+            h5.create_dataset("/entry/data/data", data=np.ones((3, 4), dtype=np.float32))
+
+    with pytest.raises(RuntimeError, match="No H5 frame"):
+        load_h5_series(paths, dataset_path="/wrong/path", mask=np.ones((4, 3), dtype=np.float32), retry_count=0)
+
+
+def test_natural_sort_key_orders_frames_past_the_zero_padding():
+    from pgixs_python.io.h5_series import natural_sort_key
+
+    names = ["ABCD_10000.h5", "ABCD_9999.h5", "ABCD_0001.h5"]
+
+    assert sorted(names, key=natural_sort_key) == ["ABCD_0001.h5", "ABCD_9999.h5", "ABCD_10000.h5"]

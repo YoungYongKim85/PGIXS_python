@@ -561,15 +561,28 @@ def _time_axis(
     # manually-typed `GX2.hExptime` field, made automatic here since the
     # series' own timestamps already carry this information).
     offset = average_exposure_seconds(ts) if time_offset_seconds is None else time_offset_seconds
-    if ts.size and np.all(np.isfinite(ts)):
-        # `timestamps` is expected already baseline-relative (load_h5_series's
-        # own `reference_timestamp` param, seeded from the first frame) --
-        # matches MATLAB's `timestamps - timestamps(1)` done once at compute
-        # time; doing it at load time instead keeps this function simple.
-        axis = (ts + offset) / time_divisor
-    else:
-        n = ts.size
-        axis = (np.arange(n, dtype=np.float64) * offset + offset) / time_divisor
+    finite = np.isfinite(ts)
+    if not finite.any():
+        # No readable timestamp at all: the frame number is the only honest
+        # axis (a ramp built from a 0 s average interval was all zeros).
+        return np.arange(1, ts.size + 1, dtype=np.float64), "Frame"
+    if not finite.all():
+        # Fill only the frames whose timestamp is missing -- from their
+        # neighbours, or the average interval past either end -- instead of
+        # throwing away every real timestamp (and its gaps) for a ramp.
+        index = np.arange(ts.size, dtype=np.float64)
+        known_index, known = index[finite], ts[finite]
+        filled = np.interp(index, known_index, known)
+        before, after = index < known_index[0], index > known_index[-1]
+        filled[before] = known[0] - (known_index[0] - index[before]) * offset
+        filled[after] = known[-1] + (index[after] - known_index[-1]) * offset
+        ts = filled
+    # Normally already baseline-relative (the session subtracts the first
+    # frame's timestamp at load time, matching MATLAB's
+    # `timestamps - timestamps(1)`), so this is a no-op; it only matters when
+    # the first frame had none and the rest are still absolute epoch times.
+    ts = ts - ts[finite][0]
+    axis = (ts + offset) / time_divisor
     label = f"Time, {_TIME_UNIT_ABBREV.get(time_unit, time_unit)}"
     return axis, label
 

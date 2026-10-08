@@ -440,3 +440,19 @@ def test_sddcal_send_to_main_applies_the_offset_once_and_drops_the_old_sdd(tmp_p
     assert list(s.get_session().center) == first["center"]
     # The SDD was measured around the old center; Save must not pair them.
     assert not s.sddcal_save({})["ok"]
+
+
+def test_sddcal_radial_profile_leaves_detector_gaps_out_of_coverage(tmp_path):
+    s.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_ring_frame(frame_path)
+    _load(frame_path)
+    session = s.get_session()
+    gap = np.ones(session.data.shape, dtype=np.float32)
+    gap[:, 120:130] = np.nan  # a module gap, marked the way the real masks are
+    session.mask = gap
+    session.data = np.where(np.isfinite(gap), session.data, np.nan).astype(np.float32)
+
+    coverage = np.asarray(s.sddcal_radial_profile({})["preview"]["coverage"], dtype=float)
+
+    assert np.nanmin(coverage) == pytest.approx(1.0)

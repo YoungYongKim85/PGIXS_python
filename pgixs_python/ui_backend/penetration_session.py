@@ -8,6 +8,8 @@ and below the critical angle).
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -89,6 +91,7 @@ def penetration_calculate(payload: dict[str, Any]) -> dict[str, Any]:
         "angle_min": angle_min,
         "angle_max": angle_max,
         "chem_formula": chem_formula,
+        "energy_kev": energy_kev,
     }
 
     return {
@@ -111,7 +114,10 @@ def penetration_save(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a save directory."}
 
     r = _SESSION.last_result
-    filename = f"PenetrationDepth_{r['angle_min']:g}_to_{r['angle_max']:g}.dat"
+    # Material and energy are in the name so another calculation over the
+    # same angle range doesn't overwrite this one.
+    formula = re.sub(r"[^\w.-]+", "_", r["chem_formula"])
+    filename = f"PenetrationDepth_{formula}_{r['energy_kev']:g}keV_{r['angle_min']:g}_to_{r['angle_max']:g}.dat"
     path = Path(directory) / filename
 
     export = OneDExport(x=r["x"], intensity=r["y"], x_label=r["x_label"], intensity_label=r["y_label"])
