@@ -98,3 +98,15 @@ def test_export_1d_parser_rejects_invalid_config_choice(tmp_path):
         assert exc.code == 2
     else:
         raise AssertionError("invalid config choice should stop parsing")
+
+
+def test_resolve_1d_output_path_out_file_and_format_must_agree(tmp_path):
+    import pytest
+
+    from pgixs_python.workflows.export_1d_from_h5 import resolve_1d_output_path
+
+    assert resolve_1d_output_path(tmp_path / "x.dat", "s.h5", "GIXS", None).suffix == ".dat"
+    assert resolve_1d_output_path(tmp_path, "s.h5", "GIXS", None).suffix == ".csv"
+    assert resolve_1d_output_path(tmp_path, "s.h5", "GIXS", "dat").suffix == ".dat"
+    with pytest.raises(ValueError, match="export-format"):
+        resolve_1d_output_path(tmp_path / "x.csv", "s.h5", "GIXS", "dat")

@@ -27,13 +27,12 @@
       ]
     },
     "export_format": {
-      "description": "1D export file format.",
+      "description": "1D export file format (default: the --out file's extension, else csv).",
       "enum": [
         "csv",
         "dat"
       ],
-      "type": "string",
-      "default": "csv"
+      "type": "string"
     },
     "q_bins": {
       "description": "Number of q bins for 1D export.",

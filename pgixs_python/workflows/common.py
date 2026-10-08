@@ -18,7 +18,7 @@ from pgixs_python.averaging import qbin_average, summarize_coverage
 from pgixs_python.export import OneDExport, WorkflowReport, save_1d_data, save_1d_figure, save_workflow_report_json
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET
-from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series
+from pgixs_python.io.h5_series import H5SeriesLoadResult, load_h5_series, natural_sort_key
 from pgixs_python.io.two_d_info import TwoDInfo, save_two_d_info_h5
 from pgixs_python.processing import (
     DetectorCorrectionInputs,
@@ -282,6 +282,8 @@ def validate_workflow_config_values(config: dict[str, object]) -> None:
             raise ValueError(f"Config option '{key}' must be one of: {choices}.")
         if key in string_keys and value is not None and not isinstance(value, str):
             raise ValueError(f"Config option '{key}' must be a string or null.")
+        if key in {"dataset", "metadata_mode", "detector"} and value is None:
+            raise ValueError(f"Config option '{key}' must be a string, not null.")
 
     q_min = config.get("q_min")
     q_max = config.get("q_max")
@@ -304,7 +306,7 @@ def collect_h5_inputs(input_path: str | Path) -> list[Path]:
             raise ValueError(f"Only H5/HDF5 inputs are wired into the workflow scaffold: {path}")
         return [path]
     if path.is_dir():
-        files = sorted([*path.glob("*.h5"), *path.glob("*.hdf5")])
+        files = sorted([*path.glob("*.h5"), *path.glob("*.hdf5")], key=natural_sort_key)
         if not files:
             raise FileNotFoundError(f"No .h5/.hdf5 files found in input folder: {path}")
         return files

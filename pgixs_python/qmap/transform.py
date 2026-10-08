@@ -213,7 +213,11 @@ def polar_transform_q_grid(
     original view is just re-rendering it.
     """
 
-    angle_min, angle_max = sorted((float(angle_range[0]), float(angle_range[1])))
+    if not float(angle_range[0]) < float(angle_range[1]):
+        # Sorting a wrap-around range like (350, 10) swept the other 340 deg
+        # instead, and equal ends divided by a zero bin width.
+        raise ValueError(f"angle_range must be increasing and non-empty, got {tuple(angle_range)}.")
+    angle_min, angle_max = float(angle_range[0]), float(angle_range[1])
     angle_bin_width = (angle_max - angle_min) / n_angle_bins
     angle_axis = (angle_min + (np.arange(n_angle_bins, dtype=np.float64) + 0.5) * angle_bin_width).astype(np.float32)
 

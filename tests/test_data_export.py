@@ -73,3 +73,16 @@ def test_save_series_data_x_label_containing_delimiter_does_not_shift_columns(tm
     assert header == ["Time  s", "ROI1", "ROI2", "ROI3", "ROI4", "ROI5"]
     for line in lines[1:]:
         assert len(line.split(",")) == len(header)
+
+
+def test_save_1d_data_keeps_10_digits_and_a_comma_label_in_one_csv_field(tmp_path):
+    from pgixs_python.export.data_export import OneDExport, save_1d_data
+
+    path = save_1d_data(
+        tmp_path / "c.csv",
+        OneDExport(x=np.array([0.0123456789, 0.5]), intensity=np.array([1e8 + 1, 2.0]), x_label="q, 1/A"),
+    )
+
+    header, first = path.read_text(encoding="utf-8").splitlines()[:2]
+    assert header.split(",") == ["q  1/A", "intensity"]
+    assert first == "0.0123456789,100000001"

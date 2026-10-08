@@ -21,10 +21,7 @@
     },
     "dataset": {
       "description": "H5 detector dataset path.",
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
       "default": "/entry/data/data"
     },
     "frame_index": {
@@ -35,10 +32,7 @@
     },
     "metadata_mode": {
       "description": "Metadata scan mode: Temperature, LowTemp., Angle, or blank.",
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
       "default": ""
     },
     "reference_timestamp": {
@@ -63,10 +57,7 @@
     },
     "detector": {
       "description": "Expected detector name for calibration validation.",
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
       "default": ""
     },
     "normalization": {

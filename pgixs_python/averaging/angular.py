@@ -58,7 +58,11 @@ def angular_profile(
     radius = np.hypot(cols - float(center[0]), rows - float(center[1]))
 
     r_min, r_max = sorted((float(radius_range[0]), float(radius_range[1])))
-    angle_min, angle_max = sorted((float(angle_range[0]), float(angle_range[1])))
+    if not float(angle_range[0]) < float(angle_range[1]):
+        # Sorting a wrap-around range like (350, 10) swept the other 340 deg
+        # instead, and equal ends divided by a zero bin width.
+        raise ValueError(f"angle_range must be increasing and non-empty, got {tuple(angle_range)}.")
+    angle_min, angle_max = float(angle_range[0]), float(angle_range[1])
     ring_mask = (radius >= r_min) & (radius <= r_max) & (angle >= angle_min) & (angle <= angle_max)
 
     n_bins = max(1, int(n_angle_bins))

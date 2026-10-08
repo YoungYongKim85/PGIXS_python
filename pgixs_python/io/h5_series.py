@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,14 @@ import numpy as np
 
 from pgixs_python.io.h5_loader import DEFAULT_DETECTOR_DATASET, H5RetryReport, load_h5_frame_with_retry
 from pgixs_python.io.h5_metadata import H5Metadata, read_h5_metadata
+
+
+def natural_sort_key(path: str | Path) -> list[object]:
+    """File-name order with digit runs compared as numbers, so a series that
+    outgrows its zero padding keeps frame _10000 after _9999 (a plain name
+    sort put it first, and Auto Refresh slices that list by position)."""
+
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", Path(path).name)]
 
 
 @dataclass
@@ -199,6 +208,12 @@ def load_h5_series(
                 completed += 1
                 if progress_callback is not None:
                     progress_callback(completed, len(paths), paths[index0].name)
+
+    if paths and len(retry_failed) == len(paths):
+        # One unreadable file stays a NaN frame, but when none could be read
+        # (a wrong dataset path, a wrong detector mask) the "series" would be
+        # all NaN with only a diagnostic count to show for it.
+        raise RuntimeError(f"No H5 frame could be loaded: {records[0].retry_report.message}")  # type: ignore[union-attr]
 
     stack = np.stack(frames, axis=0).astype(np.float32, copy=False)  # type: ignore[arg-type]
     return H5SeriesLoadResult(

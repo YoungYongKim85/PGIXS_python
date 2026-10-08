@@ -8,6 +8,8 @@ the last computed curve (for Save Data), and functions that each return
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -132,7 +134,10 @@ def xtrans_save(payload: dict[str, Any]) -> dict[str, Any]:
 
     r = _SESSION.last_result
     mode_slug = r["mode"].replace(" ", "_").replace("(", "").replace(")", "")
-    filename = f"{mode_slug}_{r['energy_min']:g}_to_{r['energy_max']:g}.dat"
+    # The formula is in the name so saving a second material over the same
+    # energy range doesn't overwrite the first.
+    formula = re.sub(r"[^\w.-]+", "_", r["chem_formula"])
+    filename = f"{mode_slug}_{formula}_{r['energy_min']:g}_to_{r['energy_max']:g}.dat"
     path = Path(directory) / filename
 
     export = OneDExport(x=r["x"], intensity=r["y"], x_label=r["x_label"], intensity_label=r["y_label"])

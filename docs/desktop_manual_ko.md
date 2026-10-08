@@ -508,7 +508,7 @@ Im(SLD)        = β · 2π / λ²
 
 - **Directory** + **Set** 버튼.
 - **Data Table** 버튼 — 계산된 모든 포인트를 표로 보여주는 창.
-- **Save Data** 버튼 — `{Mode}_{EnergyMin}_to_{EnergyMax}.dat` 형식으로 저장(예: `Transmittance_5_to_15.dat`, `SLD_Real_5_to_15.dat` — 모드 이름의 공백/괄호는 제거된다). **탭으로 구분된** 2컬럼(`energy_keV`, 선택한 물리량 — 예: `Transmittance`, `Critical Angle, deg`, `Re(SLD), 1e-6 A^-2`) 텍스트 파일이며, 화면 표시(수식 기호 포함)와 달리 저장 파일의 헤더는 일반 ASCII 텍스트로 바뀐다. PNG는 저장되지 않는다.
+- **Save Data** 버튼 — `{Mode}_{화학식}_{EnergyMin}_to_{EnergyMax}.dat` 형식으로 저장(예: `Transmittance_SiO2_5_to_15.dat`, `SLD_Real_SiO2_5_to_15.dat` — 모드 이름의 공백/괄호는 제거되고, 화학식이 들어가 다른 물질을 저장해도 덮어쓰지 않는다). **탭으로 구분된** 2컬럼(`energy_keV`, 선택한 물리량 — 예: `Transmittance`, `Critical Angle, deg`, `Re(SLD), 1e-6 A^-2`) 텍스트 파일이며, 화면 표시(수식 기호 포함)와 달리 저장 파일의 헤더는 일반 ASCII 텍스트로 바뀐다. PNG는 저장되지 않는다.
 
 ### 6.4 플롯
 
@@ -553,7 +553,7 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 
 ### 7.3 저장
 
-- **Directory** + **Set**, **Data Table** 버튼(컬럼: `Incidence_Angle_deg` / `Penetration_Depth_nm`), **Save Data** 버튼 — `PenetrationDepth_{AngleMin}_to_{AngleMax}.dat`(탭으로 구분된 2컬럼 텍스트 파일, 헤더는 `incidence_angle_deg`/`penetration_depth_nm`). PNG는 저장되지 않는다.
+- **Directory** + **Set**, **Data Table** 버튼(컬럼: `Incidence_Angle_deg` / `Penetration_Depth_nm`), **Save Data** 버튼 — `PenetrationDepth_{화학식}_{Energy}keV_{AngleMin}_to_{AngleMax}.dat`(예: `PenetrationDepth_Si_11.3keV_0_to_1.dat`; 탭으로 구분된 2컬럼 텍스트 파일, 헤더는 `incidence_angle_deg`/`penetration_depth_nm`). PNG는 저장되지 않는다.
 
 ### 7.4 플롯
 

@@ -134,7 +134,10 @@ def _schema_for_action(action: argparse.Action) -> dict[str, Any]:
     elif action.type is float:
         schema["type"] = ["number", "null"] if action.default is None else "number"
     else:
-        schema["type"] = ["string", "null"] if action.required is False else "string"
+        # null only where the option's own default is None -- `dataset`,
+        # `detector` and `metadata_mode` have real defaults, and null passed
+        # validation only to fail inside the H5 read or turn into "None".
+        schema["type"] = ["string", "null"] if action.default is None and not action.required else "string"
 
     if action.default is not None and action.default is not argparse.SUPPRESS:
         schema["default"] = action.default

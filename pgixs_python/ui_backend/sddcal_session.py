@@ -206,6 +206,17 @@ def sddcal_line_cut(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _geometry_mask() -> np.ndarray | None:
+    """Detector pixels that exist. The mask marks gaps NaN (not 0), and
+    `astype(bool)` turns NaN into True -- that kept every gap in the
+    coverage denominator, so a ring crossing a gap read as poorly covered
+    and Smart Auto Run's 0.80 coverage cut could reject it."""
+
+    if _SESSION.mask is None:
+        return None
+    return np.isfinite(_SESSION.mask) & (_SESSION.mask != 0)
+
+
 def sddcal_radial_profile(payload: dict[str, Any]) -> dict[str, Any]:
     """Rad.Ave (Fit): a pixel-radius profile around the current center,
     matching `CircularAve_Callback`."""
@@ -214,9 +225,7 @@ def sddcal_radial_profile(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Load a detector image first."}
 
     use_median = bool(payload.get("use_median", False))
-    geom_mask = _SESSION.mask.astype(bool) if _SESSION.mask is not None else None
-
-    profile = compute_radial_profile(_SESSION.data, center=_SESSION.center, geom_mask=geom_mask, use_median=use_median)
+    profile = compute_radial_profile(_SESSION.data, center=_SESSION.center, geom_mask=_geometry_mask(), use_median=use_median)
     if profile.r_axis.size == 0:
         return {"ok": False, "message": "No valid pixels for a radial profile at this center."}
 
@@ -394,7 +403,7 @@ def sddcal_auto_run(payload: dict[str, Any]) -> dict[str, Any]:
     # good coverage -- AutoRun_Callback's own separate, simpler peak
     # search, not step 3's multi-candidate one.
     try:
-        profile = compute_radial_profile(_SESSION.data, center=(refined_y, refined_z))
+        profile = compute_radial_profile(_SESSION.data, center=(refined_y, refined_z), geom_mask=_geometry_mask())
         if profile.r_axis.size:
             valid = (profile.r_axis > 80.0) & (profile.coverage >= 0.80)
             finite_full = profile.intensity[np.isfinite(profile.intensity)]
@@ -414,7 +423,7 @@ def sddcal_auto_run(payload: dict[str, Any]) -> dict[str, Any]:
     _move_center(round(refined_y, 2), round(refined_z, 2))
 
     # Step 3: multi-ring candidate search + order assignment at the refined center.
-    profile = compute_radial_profile(_SESSION.data, center=_SESSION.center)
+    profile = compute_radial_profile(_SESSION.data, center=_SESSION.center, geom_mask=_geometry_mask())
     if profile.r_axis.size == 0:
         return {"ok": False, "message": "No valid pixels for a radial profile at the refined center.", "center": list(_SESSION.center)}
 

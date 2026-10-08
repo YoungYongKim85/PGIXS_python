@@ -147,11 +147,9 @@ def save_standard_calibration_std(file_path: str | Path, calibration: StandardCa
     """Save the plain-ASCII `.std` calibration format (MATLAB `stdsave.m`),
     extended with a photon energy field alongside wavelength in section 3
     -- this port always has both readily available, unlike the original
-    MATLAB tool. `calibration.beam_center` here is written as-is, so pass
-    a center already in whatever convention the caller wants on disk (see
-    `sddcal_session.sddcal_save`, which shifts it +1 for this file, same
-    as `.mat`, since both represent MATLAB's native 1-based pixel indexing
-    -- `.json` stays 0-based, this app's own internal convention)."""
+    MATLAB tool. `calibration.beam_center` is written as-is: the 1-based
+    center this app uses everywhere, the same value `sddcal_session.sddcal_save`
+    writes to `.json` and `.mat` (MATLAB is 1-based too)."""
 
     path = Path(file_path)
     peak = calibration.standard_peak

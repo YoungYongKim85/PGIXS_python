@@ -45,3 +45,14 @@ def test_normalize_counters_safe_fallbacks():
     out = normalize_counters([10, 20], [2, 0])
 
     np.testing.assert_allclose(out, [5, 20])
+
+
+def test_process_normalization_reports_an_unknown_method_as_a_failure():
+    import numpy as np
+
+    from pgixs_python.processing.normalization import process_normalization
+
+    out, report = process_normalization(np.ones((2, 2), dtype=np.float32), method="I0")
+
+    assert not report.success
+    assert "I0" in report.message

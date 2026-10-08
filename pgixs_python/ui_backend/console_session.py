@@ -49,6 +49,7 @@ from pgixs_python.averaging.qbin import summarize_coverage
 from pgixs_python.calibration.calibration_io import load_standard_calibration
 from pgixs_python.calibration.sdd import wavelength_from_energy_kev
 from pgixs_python.export.data_export import OneDExport, save_1d_data
+from pgixs_python.io.h5_series import natural_sort_key
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.two_d_info import TwoDInfo, save_two_d_info_h5
 from pgixs_python.processing.corrections import (
@@ -1371,7 +1372,7 @@ def _list_series_files(directory: Path, filename: str) -> list[Path]:
         for item in directory.iterdir()
         if item.is_file() and suffix == item.suffix.lower() and _normalize_series_prefix(item.name) == prefix
     ]
-    return sorted(matches, key=lambda item: item.name)
+    return sorted(matches, key=natural_sort_key)
 
 
 def _load_series_average(file_path: Path) -> tuple[np.ndarray, np.ndarray, list[Path]]:

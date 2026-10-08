@@ -67,7 +67,9 @@ def build_pixel_radius_bin_map(
     if not np.any(geom):
         return bin_index, 0, np.array([], dtype=np.float64), geom
 
-    n_bins = int(np.ceil(np.max(radius[geom])))
+    # floor + 1, not ceil: a pixel at an exactly integer max radius has
+    # floor(r) == ceil(r) and fell outside the last bin.
+    n_bins = int(np.floor(np.max(radius[geom]))) + 1
     if n_bins <= 0:
         return bin_index, 0, np.array([], dtype=np.float64), geom
 

@@ -39,7 +39,7 @@ def save_1d_data(file_path: str | Path, data: OneDExport, include_diagnostics: b
 
     table, columns = build_1d_table(data, include_diagnostics=include_diagnostics)
     delimiter = "," if path.suffix.lower() == ".csv" else "\t"
-    header = delimiter.join(columns)
+    header = _header(columns, delimiter)
     np.savetxt(path, table, delimiter=delimiter, header=header, comments="", fmt="%.10g")
     return path
 
@@ -83,7 +83,7 @@ def build_1d_table(data: OneDExport, include_diagnostics: bool = False) -> tuple
             columns.append("coverage")
             arrays.append(coverage)
 
-    return np.column_stack(arrays).astype(np.float32), columns
+    return np.column_stack(arrays), columns
 
 
 def save_series_data(
@@ -106,27 +106,33 @@ def save_series_data(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     x = _as_1d(x_axis, "x_axis")
-    mat = np.asarray(matrix, dtype=np.float32)
+    mat = np.asarray(matrix, dtype=np.float64)
     if mat.ndim != 2 or mat.shape[1] != x.size:
         raise ValueError(f"matrix must be (n_frames, {x.size}); got {mat.shape}.")
     if len(column_labels) != mat.shape[0]:
         raise ValueError(f"column_labels must have {mat.shape[0]} entries; got {len(column_labels)}.")
 
-    table = np.column_stack([x, mat.T]).astype(np.float32)
+    table = np.column_stack([x, mat.T])
     delimiter = "," if path.suffix.lower() == ".csv" else "\t"
-    # A label containing the delimiter itself (e.g. the X-axis label
-    # "Time, s") would silently split into an extra header field once
-    # written out -- np.savetxt's header is a plain joined string with no
-    # quoting, so every column after it reads one column short (reported:
-    # ROI1..ROI5 each shifted one column left of their actual data).
-    columns = [label.replace(delimiter, " ") if delimiter in label else label for label in (x_label, *column_labels)]
-    header = delimiter.join(columns)
+    header = _header([x_label, *column_labels], delimiter)
     np.savetxt(path, table, delimiter=delimiter, header=header, comments="", fmt="%.10g")
     return path
 
 
+def _header(labels: list[str], delimiter: str) -> str:
+    # A label containing the delimiter itself (e.g. the X-axis label
+    # "Time, s" or "q, 1/A") would silently split into an extra header field
+    # once written out -- np.savetxt's header is a plain joined string with
+    # no quoting, so every column after it reads one column short (reported:
+    # ROI1..ROI5 each shifted one column left of their actual data).
+    return delimiter.join(label.replace(delimiter, " ") for label in labels)
+
+
 def _as_1d(value: np.ndarray, name: str) -> np.ndarray:
-    arr = np.asarray(value, dtype=np.float32).reshape(-1)
+    # float64, not float32: the table is printed with 10 significant digits,
+    # and a float32 round trip changed values from the 8th digit on
+    # (q = 0.0123456789 was written as 0.0123456791, 1e8 + 1 as 100000000).
+    arr = np.asarray(value, dtype=np.float64).reshape(-1)
     if arr.size == 0:
         raise ValueError(f"{name} must not be empty.")
     return arr

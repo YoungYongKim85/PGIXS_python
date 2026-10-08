@@ -79,16 +79,22 @@ def _load_hdf5_mat_image(path: Path) -> tuple[np.ndarray, MatImageInfo]:
             candidates,
             key=lambda item: (1e12 if Path(item[0]).name.lower() in PRIORITY_IMAGE_NAMES else 0) + np.prod(item[1][:2]),
         )
-        data = np.asarray(dataset[()], dtype=np.float32)
+        variable_class = dataset.attrs.get("MATLAB_class", dataset.dtype.name)
+        if isinstance(variable_class, bytes):
+            variable_class = variable_class.decode("ascii")
+        # MATLAB writes v7.3 arrays column-major, so h5py sees every axis
+        # reversed; transposing back gives the same orientation scipy reads
+        # from a v7 file of the same image.
+        data = np.asarray(dataset[()], dtype=np.float32).T
 
-    info = MatImageInfo(variable_name=name, variable_shape=tuple(int(v) for v in shape), variable_class=str(data.dtype))
+    info = MatImageInfo(variable_name=name, variable_shape=shape, variable_class=str(variable_class))
     return _as_detector_matrix(data, path), info
 
 
 def _collect_hdf5_dataset(name: str, obj: Any, candidates: list[tuple[str, tuple[int, ...], Any]]) -> None:
     if not hasattr(obj, "shape") or not hasattr(obj, "dtype"):
         return
-    shape = tuple(int(v) for v in obj.shape)
+    shape = tuple(int(v) for v in reversed(obj.shape))  # MATLAB's axis order
     if len(shape) >= 2 and shape[0] > 1 and shape[1] > 1 and obj.dtype.kind in NUMERIC_KINDS:
         candidates.append((name, shape, obj))
 
