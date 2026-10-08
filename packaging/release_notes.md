@@ -4,6 +4,70 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.3.0 — 결과 수치가 달라집니다 / Numerical results change
+
+전체 로직을 검토하다가 **결과값을 틀리게 만드는 오류**를 여러 개 찾아 고쳤습니다. 아래
+기능을 쓰셨다면 **같은 원본 데이터에서 v0.2.4와 다른 값이 나옵니다.** 해당 결과는 다시
+처리하시길 권합니다.
+
+A full logic review found several bugs that produced wrong numbers. If you used
+any of the features below, the same raw data now gives different results than
+v0.2.4. Please reprocess those results.
+
+### 수치에 영향을 주는 수정 / Fixes that change values
+
+- **Grid Remove (Eiger4M)** — 보정할 grid line 위치가 **가로·세로가 뒤바뀐 채로**
+  적용되고 있었습니다. 그래서 "적용됨"이라고 표시하면서도 실제 칩 경계선은 그대로
+  두고, 엉뚱한 픽셀 행·열에 보정 계수를 곱했습니다. **Grid Remove를 켜고 처리한 모든
+  결과**(GIXS·TrXS·두 series 탭·배치 워크플로)가 해당됩니다.
+- **Accumulation 컷 / 오프셋 라인 컷** — 평균을 내는 픽셀 띠가 빔 중심에서 **1픽셀
+  어긋나** 있었습니다(빔 행 25, 기본 ±1이면 원래 24–26행이어야 하는데 25–27행을
+  사용). 이제 MATLAB `Accumpix_gi`와 같은 행을 씁니다.
+- **IC/BC 정규화 실패 프레임** — 카운터가 없거나 0인 프레임이 정규화되지 않은 raw 값
+  그대로 평균에 섞이고(예: 1.0이어야 할 값이 500.5), 워크플로는 성공으로 끝났습니다.
+  이제 해당 프레임은 **NaN**으로 처리되어 평균에서 빠지고, 모든 프레임이 실패하면
+  오류를 냅니다. GIXS-/TrXS-series에서도 카운터가 없는 프레임은 NaN이 됩니다.
+- **GIXS-series Save Integ.** — 1D/Azimuthal 모드에서 Normalize 설정을 무시하고 raw
+  합계를 저장했습니다. 이제 그래프와 같은 값이 저장됩니다.
+- **TrXS-series 배경**
+  - 시리즈를 다시 불러온 뒤 q-Cal을 하면 배경에 검출기 보정이 **두 번** 적용되었습니다.
+  - 새 배경을 불러와도 다음 Exec 전까지 **이전 배경**을 계속 빼고 있었습니다.
+  - IC/BC 정규화 중 한쪽에만 카운터가 있으면 정규화된 값에서 raw 값을 빼고 있었습니다.
+    이제 차감을 건너뛰고 상태줄에 이유를 표시합니다.
+- **에너지 정보가 없는 캘리브레이션** — 감쇠 길이를 아무 표시 없이 8 keV 기준으로
+  계산했습니다. 이제 11.2 keV 기준입니다.
+- **Change ai 시리즈** — 앞쪽에 픽셀을 하나도 못 고른 프레임이 있으면 행이 빠져, 이후
+  모든 커브가 각도/온도와 **한 칸씩 어긋났습니다.**
+
+### 동작이 바뀐 부분 / Behaviour changes
+
+- **Load Info를 q-Cal 이후에 다시 하면** 이전 q-map과 결과가 지워지고 q-Cal을 다시
+  하라는 안내가 나옵니다. 이전에는 새 빔 중심과 옛 q-map이 섞여 계산됐습니다.
+- **Auto Refresh**는 Set / Table로 시리즈를 불러온 뒤에만 동작합니다. 새 프레임에도
+  Grid Remove가 적용됩니다.
+- **SDD Calibration**: Send to Main은 오프셋을 한 번만 적용합니다(두 번 누르면 두 배로
+  이동하던 문제). 중심을 옮기면 예전 중심으로 구한 SDD 결과는 지워지므로, Save 전에
+  Calc SDD를 다시 실행하세요.
+- 가우시안 피팅이 **음수 baseline**(배경을 뺀 프로파일)에서도 동작합니다.
+- 프레임이 아주 많은 H5 스택(예: 한 파일에 수천 프레임)을 이제 올바르게 읽습니다.
+
+### 화면 / Desktop
+
+- 로딩 중에는 창 전체가 잠겨, 로딩 도중 다른 버튼을 눌러 **프로그램이 강제 종료되던
+  문제**가 없어졌습니다.
+- 탭을 바꾼 뒤 GIXS에서 Line·Draw·클릭 위치가 TrXS의 q-map으로 계산되던 문제 수정.
+- 새 이미지를 열면 항상 자동 콘트라스트로 시작합니다(이전 이미지 값 때문에 빈 화면처럼
+  보이던 문제).
+- 새 시리즈를 불러오면 Play 창이 닫힙니다.
+
+### PGIXS_web
+
+- 리포트·캘리브레이션 JSON이 `NaN` 대신 `null`을 씁니다(브라우저에서 읽을 수 있음).
+  다시 불러오면 이전과 같이 동작합니다.
+- 워크플로를 동시에 여러 개 실행해도 출력이 서로 섞이지 않습니다.
+
+---
+
 ## v0.2.4 — 아이콘, 문서, 예제 데이터 / Icons, documentation, example data
 
 **계산 결과는 v0.2.3과 완전히 동일합니다.** 축약 경로(q 매핑, 검출기 보정, 마스킹,

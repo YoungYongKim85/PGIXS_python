@@ -180,7 +180,7 @@ GIXS 탭과 TrXS 탭은 내부적으로 완전히 같은 위젯(`ConsoleWidget`)
 **캘리브레이션 입력값**
 
 - **Energy** (keV) / **SDD** (mm) 한 줄, **Center [y, z]** (px) — GIXS는 여기에 **FP**(Footprint, mm)도 같은 줄에 추가로 있다.
-- **Load Info** 버튼 — SDD Calibration 탭에서 저장한 JSON 파일을 불러와 위 필드들(+GIXS는 입사각까지)을 채운다. 이후 픽셀 축 표시가 "빔 중심 기준"으로 바뀐다.
+- **Load Info** 버튼 — SDD Calibration 탭에서 저장한 JSON 파일을 불러와 위 필드들(+GIXS는 입사각까지)을 채운다. 이후 픽셀 축 표시가 "빔 중심 기준"으로 바뀐다. q-Map Cal. 이후에 다시 Load Info를 하면 이전 캘리브레이션으로 만든 q-map이 지워지므로 q-Map Cal.을 다시 실행해야 한다.
 - **Grid Remove** 버튼 — 검출기별 그리드 라인 보정을 적용한다 (Eiger4M 기준 픽셀 인덱스로 보정). q-Map Cal.을 이미 실행한 뒤에 눌러도 되지만, 이 경우 보정된 데이터가 무효화되므로 **q-Map Cal.을 다시 실행**해야 한다(버튼의 완료 표시가 해제되어 알려준다).
 
 **입사각(Incidence Angle) 캘리브레이션 — GIXS만**
@@ -320,7 +320,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 ![FIGURE 17: GIXS-series Load -- Set / Table이 여는 File List (Series) 체크박스 다이얼로그](figures/fig17.png)
 
 - **# of Files: 0** 라벨, **Parallel loading** 체크박스 (여러 파일을 스레드로 동시에 불러오기).
-- **Load Info** 버튼 — 캘리브레이션 JSON을 불러오고, 2D 이미지 표시를 빔 중심 기준으로 재조정.
+- **Load Info** 버튼 — 캘리브레이션 JSON을 불러오고, 2D 이미지 표시를 빔 중심 기준으로 재조정. q-Cal 이후에 다시 불러오면 이전 q-Cal과 그 결과(1D/Azimuthal/ROI)가 지워지므로 q-Cal부터 다시 실행한다.
 - **Grid Rmv** 버튼 — 시리즈 전체에 그리드 보정 적용. **q-Cal보다 먼저** 실행해야 한다 — q-Cal 이후에는 거부된다(시리즈는 보정된 스택을 캐시해두기 때문. 다시 하려면 시리즈를 새로 불러온다).
 
 ### 4.2 Incidence Angle Calibration
@@ -362,7 +362,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 - **Sub-mode** 콤보(Insitu 선택에 따라 항목이 바뀜) + **Order** 체크박스(X축 값 기준 정렬).
 - **Set X-Axis** 버튼 — 시리즈의 실험 X축(시간/온도/각도/프레임 번호)을 계산해서 확정한다.
-- **Auto Refresh (Find New)** 버튼 — 로드 디렉토리를 다시 스캔해서 아직 안 불러온 새 파일을 찾아 불러오고(백그라운드, 진행률 다이얼로그 "Auto Refresh"), 마지막으로 실행했던 처리(1D 컷 / Azimuthal / ROI)에 이어붙인다.
+- **Auto Refresh (Find New)** 버튼 — 로드 디렉토리를 다시 스캔해서 아직 안 불러온 새 파일을 찾아 불러오고(백그라운드, 진행률 다이얼로그 "Auto Refresh"), 마지막으로 실행했던 처리(1D 컷 / Azimuthal / ROI)에 이어붙인다. Grid Rmv를 했다면 새 프레임에도 적용된다. **Set / Table로 시리즈를 불러온 뒤에만** 동작한다(LOAD DATA로 한 장만 불러온 상태에서는 거부).
 
 ### 4.7 Save
 
@@ -403,7 +403,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 - **Filename** + **Set / Table** 버튼 — 동일한 체크박스 파일 목록 다이얼로그.
 - **# of Files: 0**, **Parallel** 체크박스.
 - **Background** 버튼 — 배경 프레임 하나를 선택하면, 같은 시리즈 접두어를 가진 파일들을 전부 평균해서 배경 프레임으로 만들고, 본 스택과 같은 검출기 보정을 적용한다.
-- **Subtraction** 체크박스 — 켜면 매 프레임 커브에서 배경의 커브를 실시간으로 빼서 보여준다(다시 계산할 필요 없이 즉시 반영).
+- **Subtraction** 체크박스 — 켜면 매 프레임 커브에서 배경의 커브를 실시간으로 빼서 보여준다(다시 계산할 필요 없이 즉시 반영). IC/BC 정규화 중인데 배경이나 시리즈에 해당 카운터가 없으면, 정규화된 값과 raw 값을 섞어 빼지 않도록 차감을 건너뛰고 상태줄에 이유를 표시한다.
 
 ![FIGURE 24: TrXS-series Background -- Background를 불러오고 Subtraction 체크박스를 켠 상태](figures/fig24.png)
 
