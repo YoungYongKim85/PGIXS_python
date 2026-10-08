@@ -739,10 +739,9 @@ def _q_space_cut_inputs(mapping: str) -> tuple[np.ndarray, np.ndarray, np.ndarra
     The gap shoulder is blanked *before* regridding, as Pixel-mode cuts and
     GIXS-series' "Reflect missing wedge" do: once on the Q grid the
     detector-pixel mask no longer maps onto it, and bilinear interpolation
-    would otherwise spread the shoulder's edge bias into the cut. MATLAB's
-    `Anglecut1d_gi`/`CakeCut_gi` skip the buffer for Itrans, on the grounds
-    that the regrid already handles gap NaNs -- true of the gap itself, not
-    of the biased pixels beside it; this port deliberately differs."""
+    would otherwise spread the shoulder's edge bias into the cut. MATLAB
+    does the same since v2.2.0 (`buildPGIXSCutItrans` -> `ItransCut`);
+    before that it stamped the detector-pixel mask straight onto Itrans."""
 
     data_for_transform = _values_for_reduction(
         _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
