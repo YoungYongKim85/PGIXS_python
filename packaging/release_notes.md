@@ -4,6 +4,49 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.3.1 — 일부 결과가 달라집니다 / Some results change
+
+v0.3.0 이후 남아 있던 작은 오류들을 정리했습니다. 대부분은 저장·불러오기·설정 관련이지만,
+**아래 세 가지는 같은 원본 데이터에서 v0.3.0과 다른 값이 나올 수 있습니다.**
+
+Small fixes left over after v0.3.0. Most concern saving, loading and settings,
+but the three items below can change numbers produced from the same raw data.
+
+### 수치에 영향을 주는 수정 / Fixes that change values
+
+- **SDD Calibration의 coverage** — 검출기 갭 픽셀이 coverage 계산에서 빠지지 않아, 갭을
+  지나는 링이 실제보다 덜 덮인 것으로 계산됐습니다. 그래서 Smart Auto Run의 coverage
+  0.80 기준에 걸려 **좋은 링이 후보에서 탈락**할 수 있었습니다. 이제 갭은 계산에서
+  제외되므로 **Smart Auto Run이 고르는 링(과 SDD)이 달라질 수 있습니다.**
+- **시리즈 시간 축** — 타임스탬프가 하나라도 없으면 실제 시간값을 모두 버리고 일정한
+  간격으로 바꿔 그렸습니다. 이제 빠진 프레임만 앞뒤 값으로 채웁니다. 타임스탬프가 아예
+  없으면 0만 나오던 축 대신 **프레임 번호**를 씁니다.
+- **반지름 프로파일** — 가장 바깥 픽셀이 정확히 정수 반지름에 있을 때 그 픽셀이 빠지던
+  문제를 고쳤습니다(마지막 bin 하나에만 영향).
+
+### 저장·불러오기 / Saving and loading
+
+- **XTrans / Penetration Depth 저장 파일 이름에 화학식이 들어갑니다**(Penetration은
+  에너지도). 예: `Transmittance_SiO2_5_to_15.dat`, `PenetrationDepth_Si_11.3keV_0_to_1.dat`.
+  다른 물질을 저장해도 이전 파일을 덮어쓰지 않습니다.
+- CSV 헤더에 쉼표가 들어간 라벨이 열을 한 칸씩 밀던 문제, 저장 값이 8번째 자리부터
+  미세하게 바뀌던 문제(float32 정밀도)를 고쳤습니다.
+- 프레임 번호가 9999를 넘는 긴 시리즈에서 `_10000`이 `_9999`보다 앞에 정렬되던 문제를
+  고쳤습니다. Auto Refresh가 새 파일을 잘못 고를 수 있었습니다.
+- v7.3 형식 `.mat` 이미지가 이전 형식 `.mat`과 전치된 방향으로 읽히던 문제를 고쳤습니다.
+- H5 시리즈의 프레임을 하나도 읽지 못하면(데이터셋 경로가 틀린 경우 등) 빈 결과 대신
+  오류를 표시합니다.
+- 2D-info 저장이 일부 진단 데이터 형식 때문에 통째로 실패하던 문제를 고쳤습니다.
+
+### 그 밖에 / Also
+
+- GIXS-series의 입사각 변환(픽셀 ↔ 각도)은 Load Info를 먼저 해야 동작합니다.
+- 워크플로 설정에서 `dataset`·`detector`·`metadata_mode`에 `null`을 쓰면 오류가 납니다.
+- `export-1d`에서 `--out` 파일 확장자와 `--export-format`이 다르면 오류가 납니다.
+- 배치에서 job마다 지정한 manifest가 공용 manifest에 덮이지 않습니다.
+
+---
+
 ## ⚠️ v0.3.0 — 결과 수치가 달라집니다 / Numerical results change
 
 전체 로직을 검토하다가 **결과값을 틀리게 만드는 오류**를 여러 개 찾아 고쳤습니다. 아래
