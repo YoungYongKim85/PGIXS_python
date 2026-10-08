@@ -86,12 +86,22 @@ class MainWindow(QMainWindow):
         # tab switching for the duration of any in-flight load.
         self.gixs_console.busy_changed.connect(self._set_tabs_locked)
         self.trxs_console.busy_changed.connect(self._set_tabs_locked)
+        # For the same shared slot: whichever console is shown must be the
+        # installed one, or a handler that reads `cs` without calling
+        # _activate() first (overlays, clicks, Q labels) uses the other tab's
+        # q-map and calibration.
+        self.tabs.currentChanged.connect(self._activate_shown_console)
 
         status_bar = QStatusBar()
         status_bar.setAutoFillBackground(True)
         status_bar.setSizeGripEnabled(False)
         status_bar.showMessage("Ready")
         self.setStatusBar(status_bar)
+
+    def _activate_shown_console(self, index: int) -> None:
+        widget = self.tabs.widget(index)
+        if isinstance(widget, ConsoleWidget):
+            widget._activate()
 
     def _set_tabs_locked(self, locked: bool) -> None:
         self.tabs.tabBar().setEnabled(not locked)

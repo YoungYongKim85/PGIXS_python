@@ -363,9 +363,20 @@ class SDDcalWidget(QWidget):
         center_y, center_z = result["center"]
         self.center_y_spin.setValue(center_y)
         self.center_z_spin.setValue(center_z)
+        self._reset_contrast()
         self._render_image()
         self._update_pixel_dependent_buttons(loaded=True)
         self._set_status(f"Loaded {'x'.join(str(v) for v in result['shape'])} from {result['path']}.", True)
+
+    def _reset_contrast(self) -> None:
+        """Back to the 0/0 auto-contrast sentinel, so a newly loaded image
+        is not drawn with the previous image's min/max (which can leave it
+        looking blank or blown out)."""
+
+        for spin in (self.cmin_spin, self.cmax_spin):
+            spin.blockSignals(True)
+            spin.setValue(0.0)
+            spin.blockSignals(False)
 
     def _render_image(self) -> None:
         session = ss.get_session()

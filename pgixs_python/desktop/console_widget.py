@@ -963,7 +963,7 @@ class ConsoleWidget(QWidget):
         Only meaningful once a map exists; before that the button is already
         in its neutral state."""
 
-        if cs.get_session().qmap is not None:
+        if self._session.qmap is not None:
             self._mark_ok(self.qmap_button, False)
 
     def _incidence_from_pixel(self) -> None:
@@ -976,6 +976,8 @@ class ConsoleWidget(QWidget):
         self.ai_deg_spin.blockSignals(True)
         self.ai_deg_spin.setValue(ai)
         self.ai_deg_spin.blockSignals(False)
+        # Signals were blocked above, so the angle's own stale hook never ran.
+        self._mark_qmap_stale()
 
     def _incidence_from_degree(self) -> None:
         if self.ai_pix_spin is None or self.ai_deg_spin is None:
@@ -1037,6 +1039,16 @@ class ConsoleWidget(QWidget):
         self.zrange_max_spin.blockSignals(False)
         extent = self._current_extent(h_start, h_end, v_row1, v_row_last)
         self._render_image(data, extent, "Y, pixel", "Z, pixel", keep_limits=keep_limits)
+
+    def _reset_contrast(self) -> None:
+        """Back to the 0/0 auto-contrast sentinel, so a newly loaded image
+        is not drawn with the previous image's min/max (which can leave it
+        looking blank or blown out)."""
+
+        for spin in (self.cmin_spin, self.cmax_spin):
+            spin.blockSignals(True)
+            spin.setValue(0.0)
+            spin.blockSignals(False)
 
     def _render_image(
         self, data: np.ndarray, extent, xlabel: str, ylabel: str, keep_limits: bool = False, aspect: str = "equal"
@@ -1365,6 +1377,7 @@ class ConsoleWidget(QWidget):
         self._axis_mode = "pixel"
         self.image_canvas.clear_overlays()
         self._position_mode = None
+        self._reset_contrast()
         self._render_pixel_image()
         self.image_canvas.reset_view()
         series_note = f" (averaged {payload['series_file_count']} files)" if payload.get("series_file_count") else ""
@@ -1512,12 +1525,7 @@ class ConsoleWidget(QWidget):
             # Same reasoning as the commit branch below -- Contrast holding
             # onto the previous data's min/max would make this preview
             # look blank or blown out, defeating the point of showing it.
-            self.cmin_spin.blockSignals(True)
-            self.cmax_spin.blockSignals(True)
-            self.cmin_spin.setValue(0.0)
-            self.cmax_spin.setValue(0.0)
-            self.cmin_spin.blockSignals(False)
-            self.cmax_spin.blockSignals(False)
+            self._reset_contrast()
             self._render_pixel_image(data_override=preview_array)
         keep = QMessageBox.question(
             self,
@@ -1551,12 +1559,7 @@ class ConsoleWidget(QWidget):
         # blown out. 0/0 is this app's "auto-contrast" sentinel (see
         # _render_image), so resetting to it here re-derives min/max from
         # the new data, same as a fresh Load Data does.
-        self.cmin_spin.blockSignals(True)
-        self.cmax_spin.blockSignals(True)
-        self.cmin_spin.setValue(0.0)
-        self.cmax_spin.setValue(0.0)
-        self.cmin_spin.blockSignals(False)
-        self.cmax_spin.blockSignals(False)
+        self._reset_contrast()
         self._render_pixel_image()
         self._set_status(committed.get("message", "Normalization complete."), True)
 
