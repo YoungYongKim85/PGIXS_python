@@ -1360,7 +1360,16 @@ class ConsoleWidget(QWidget):
             return
         self.ic_label.setText(str(payload.get("ic") if payload.get("ic") is not None else "0"))
         self.bc_label.setText(str(payload.get("bc") if payload.get("bc") is not None else "0"))
-        self._apply_calibration(payload.get("calibration", {}))
+        # Only the detector's pixel size comes from the load. Energy, SDD,
+        # beam centre and incidence angle stay as typed: MATLAB's
+        # Openimage_Callback never touches those fields, and overwriting them
+        # with the session's last Load Info/q-Map values silently threw away
+        # edits made since.
+        pixel_mm = payload.get("calibration", {}).get("pixel_mm")
+        if pixel_mm:
+            self._pixel_mm = float(pixel_mm)
+            if self.ai_deg_spin is not None:
+                self._incidence_from_degree()  # the pixel readout depends on it
         self._mark_ok(self.qmap_button, False)
         self._mark_ok(self.grid_remove_button, False)
         self.q_range_label.setText("Q range: not computed yet.")

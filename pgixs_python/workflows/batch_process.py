@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -119,10 +120,14 @@ def run_batch(
     if runners is None:
         runners = _default_runners()
     results: list[BatchJobResult] = []
-    for job in jobs:
+    clashes = find_output_clashes(jobs, shared_manifest)
+    for index, job in enumerate(jobs):
         argv = build_job_argv(job, shared_manifest=shared_manifest)
         runner = runners[job.workflow]
-        result = _run_one_job(job, argv, runner, capture=bool(quiet or log_dir))
+        if index in clashes:
+            result = BatchJobResult(job=job, ok=False, exit_code=1, message=clashes[index])
+        else:
+            result = _run_one_job(job, argv, runner, capture=bool(quiet or log_dir))
         if log_dir:
             result.log_path = write_job_log(log_dir, len(results) + 1, result)
         results.append(result)
@@ -140,13 +145,68 @@ def validate_batch_jobs(
 
     validators = _default_validators()
     results: list[BatchJobResult] = []
-    for job in jobs:
+    clashes = find_output_clashes(jobs, shared_manifest)
+    for index, job in enumerate(jobs):
         argv = build_job_argv(job, shared_manifest=shared_manifest)
-        result = _validate_one_job(job, argv, validators[job.workflow])
+        if index in clashes:
+            result = BatchJobResult(job=job, ok=False, exit_code=1, message=clashes[index])
+        else:
+            result = _validate_one_job(job, argv, validators[job.workflow])
         results.append(result)
         if stop_on_error and not result.ok:
             break
     return results
+
+
+def find_output_clashes(jobs: list[BatchJob], shared_manifest: str | None = None) -> dict[int, str]:
+    """Jobs (by index) that would overwrite an earlier job's output files.
+
+    A GIXS/TrXS job names its files after the output folder, the mode and
+    its first input file -- so two jobs over the same data that differ
+    only in settings (say, two incidence angles) into one `--out` used to
+    overwrite each other silently. The later one is refused instead; it
+    needs its own `--out`. Jobs whose outputs can't be worked out here
+    (unparsable, missing input) are left for their own run to report.
+    """
+
+    seen: dict[tuple[str, ...], int] = {}
+    clashes: dict[int, str] = {}
+    for index, job in enumerate(jobs):
+        for target in _output_targets(job, build_job_argv(job, shared_manifest=shared_manifest)):
+            if target in seen:
+                first = jobs[seen[target]].label or f"job-{seen[target] + 1}"
+                clashes[index] = f"Would overwrite the outputs of {first}; give this job its own --out."
+                break
+            seen[target] = index
+    return clashes
+
+
+def _output_targets(job: BatchJob, argv: list[str]) -> list[tuple[str, ...]]:
+    if job.workflow not in {"gixs", "trxs"}:
+        return []
+    from pgixs_python.workflows.common import (
+        _resolve_export_output_dir,
+        collect_h5_inputs,
+        parse_workflow_args,
+    )
+    from pgixs_python.workflows.gixs_process import build_parser as build_gixs_parser
+    from pgixs_python.workflows.trxs_process import build_parser as build_trxs_parser
+
+    parser = (build_gixs_parser if job.workflow == "gixs" else build_trxs_parser)()
+    try:
+        with capture_output():
+            args = parse_workflow_args(parser, argv)
+        if not getattr(args, "out", None) or not getattr(args, "input", None):
+            return []
+        stem = collect_h5_inputs(args.input)[0].stem
+    except (SystemExit, Exception):  # noqa: BLE001 - the job's own run reports it
+        return []
+    out = Path(args.out)
+    folder = os.path.normcase(str(_resolve_export_output_dir(out).resolve()))
+    targets = [("files", job.workflow, folder, stem)]
+    if out.suffix.lower() in {".h5", ".hdf5"}:
+        targets.append(("2dinfo", os.path.normcase(str(out.resolve()))))
+    return targets
 
 
 def build_job_argv(job: BatchJob, shared_manifest: str | None = None) -> list[str]:
