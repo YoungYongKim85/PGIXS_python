@@ -4,6 +4,24 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.3 — 입력값 유지, 배치 덮어쓰기 방지 / Typed values kept, batch overwrites refused
+
+**계산 결과는 v0.3.2와 같습니다.** 축약 경로는 바뀌지 않았습니다.
+
+Numerically identical to v0.3.2 — the reduction path did not change.
+
+- **GIXS·TrXS 탭: LOAD DATA가 직접 입력한 값을 지우지 않습니다.** 이전에는 새 이미지를
+  불러올 때 에너지·SDD·빔 중심·입사각 칸이 마지막 Load Info/q-Map 값으로 되돌아가,
+  그 사이에 고친 값이 사라졌습니다. MATLAB 버전과 같이 이제 그대로 유지됩니다.
+- **배치: 앞 job의 결과를 덮어쓰게 되는 job은 실행하지 않습니다.** 같은 입력과 같은
+  `--out`으로 설정만 다른 GIXS/TrXS job(예: 입사각 두 가지)이 같은 파일 이름으로
+  저장되어 나중 결과가 앞 결과를 덮어썼습니다. 이제 나중 job은 실패로 표시되고
+  "별도의 `--out`을 지정하라"는 메시지가 나옵니다(`--dry-run`에서도 걸러집니다).
+- **매뉴얼:** 갭 경계 버퍼 설명을 MATLAB v2.2.0 이후 동작(MATLAB도 재보간 전에 제외)에
+  맞게 고쳤습니다.
+
+---
+
 ## ⚠️ v0.3.2 — Q-space 1D 컷 결과가 달라집니다 / Q-space 1D cuts change
 
 GIXS·TrXS 탭에서 **Map format을 Qxy/Qz 또는 Qy/Qz로 두고** 1D 컷(Line, Cakecut,
