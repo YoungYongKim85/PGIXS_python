@@ -11,7 +11,9 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest (Ubuntu 26 from 2026-10-19), so the Qt system
+    # library names installed below don't break without a code change.
+    runs-on: ubuntu-24.04
     env:
       # The desktop tests build real Qt widgets; there is no display on CI.
       QT_QPA_PLATFORM: offscreen

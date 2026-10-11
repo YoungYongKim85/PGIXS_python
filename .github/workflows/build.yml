@@ -26,7 +26,7 @@ permissions:
 jobs:
   create-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # `gh release create --generate-notes` shells out to `git` itself
       # (to work out the commit range for the auto-generated notes) --
@@ -61,7 +61,11 @@ jobs:
             asset_name: PGIXS-windows
           - os: macos-latest
             asset_name: PGIXS-macos
-          - os: ubuntu-latest
+          # Pinned, not ubuntu-latest (Ubuntu 26 from 2026-10-19): the
+          # frozen Linux app links the runner's glibc and Qt system libs, so
+          # a newer image would silently raise what end users need, and the
+          # apt package names below can change.
+          - os: ubuntu-24.04
             asset_name: PGIXS-linux
     runs-on: ${{ matrix.os }}
     steps:
@@ -131,7 +135,7 @@ jobs:
     # copy showed up as an uncommitted change over and over. Building it here
     # also guarantees the manual attached to a release matches that release's
     # Markdown source. docs/desktop_manual_ko.md is the source of truth.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -161,7 +165,7 @@ jobs:
   publish:
     needs: [build, manual]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Publish the draft release
         env:
