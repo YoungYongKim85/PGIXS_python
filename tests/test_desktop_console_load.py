@@ -121,3 +121,16 @@ def test_loading_a_new_series_closes_the_play_window(qapp, tmp_path):
     widget._on_series_loaded(load(names[:1]))
 
     assert widget._play_dialog is None
+
+
+def test_load_data_keeps_the_calibration_fields_the_user_typed(qapp, tmp_path):
+    console = ConsoleWidget(gixs_config())
+    console._activate()
+    console._on_load_finished(_console_with_frame(tmp_path, 10.0, "first.h5"))
+    console.energy_spin.setValue(12.34)
+    console.sdd_spin.setValue(456.0)
+
+    console._on_load_finished(_console_with_frame(tmp_path, 10.0, "second.h5"))
+
+    assert console.energy_spin.value() == pytest.approx(12.34)
+    assert console.sdd_spin.value() == pytest.approx(456.0)

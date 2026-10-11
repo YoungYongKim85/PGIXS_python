@@ -159,3 +159,25 @@ def test_build_job_argv_keeps_a_jobs_own_manifest(tmp_path):
 
     assert "shared.jsonl" not in inline
     assert "shared.jsonl" not in in_config
+
+
+def test_run_batch_refuses_a_job_that_would_overwrite_an_earlier_jobs_outputs(tmp_path):
+    (tmp_path / "S_0001.h5").write_bytes(b"")
+    out = str(tmp_path / "out")
+    same_out = [
+        BatchJob(workflow="gixs", args=["--input", str(tmp_path), "--out", out, "--incident-angle", "0.1"], label="a"),
+        BatchJob(workflow="gixs", args=["--input", str(tmp_path), "--out", out, "--incident-angle", "0.2"], label="b"),
+        BatchJob(workflow="gixs", args=["--input", str(tmp_path), "--out", out + "2"], label="c"),
+    ]
+    ran = []
+
+    def runner(argv):
+        ran.append(argv)
+        return 0
+
+    results = run_batch(same_out, runners={"gixs": runner, "trxs": runner, "export-1d": runner})
+
+    assert [r.ok for r in results] == [True, False, True]
+    assert "overwrite the outputs of a" in results[1].message
+    assert len(ran) == 2
+    assert not validate_batch_jobs(same_out)[1].ok
