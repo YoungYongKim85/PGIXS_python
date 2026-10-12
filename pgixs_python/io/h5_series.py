@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,28 @@ def natural_sort_key(path: str | Path) -> list[object]:
     sort put it first, and Auto Refresh slices that list by position)."""
 
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", Path(path).name)]
+
+
+def settled_files(paths: list[Path], settle_seconds: float) -> list[Path]:
+    """The leading run of `paths` untouched for at least `settle_seconds`.
+
+    During an in-situ run the detector is still writing the newest file when
+    a watcher sees it; loading it then gives a NaN frame that is never
+    retried. Stopping at the first file modified too recently keeps the
+    series in order and leaves that file (and anything after it) for the
+    next poll. `settle_seconds <= 0` returns `paths` unchanged.
+    """
+
+    if settle_seconds <= 0:
+        return list(paths)
+    cutoff = time.time() - settle_seconds
+    for index, path in enumerate(paths):
+        try:
+            if Path(path).stat().st_mtime > cutoff:
+                return list(paths[:index])
+        except OSError:  # vanished or locked mid-write: not ready either
+            return list(paths[:index])
+    return list(paths)
 
 
 @dataclass

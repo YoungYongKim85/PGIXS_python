@@ -42,7 +42,7 @@ from pgixs_python.averaging.radial import RadiusBinMap, radius_average
 from pgixs_python.calibration.calibration_io import load_standard_calibration
 from pgixs_python.calibration.sdd import wavelength_from_energy_kev
 from pgixs_python.export.data_export import save_series_data
-from pgixs_python.io.h5_series import load_h5_series, natural_sort_key
+from pgixs_python.io.h5_series import load_h5_series, natural_sort_key, settled_files
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.processing.corrections import (
     DetectorCorrectionInputs,
@@ -1175,12 +1175,12 @@ def trxs2_save_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
 # ----------------------------------------------------------------------
 # Auto Refresh (Find New)
 # ----------------------------------------------------------------------
-def trxs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
-    """Port of `Autoplot_Callback`: rescan the directory for the same
-    series prefix, load only the files beyond `auto_n_old`, append them to
-    the stack/counts/timestamps/temperatures, and extend only the
-    currently-active curve type (`auto_met`) -- then re-render so
-    Subtraction/Normalize apply to the newly-appended columns too."""
+def _new_series_files(payload: dict[str, Any]) -> dict[str, Any]:
+    """Series files beyond `auto_n_old`, shared by Auto Refresh and its
+    watch-mode poll. Returns {"files", "n_total"}, or an error payload
+    (which carries "ok") when there is no imported series to extend.
+    `settle_seconds` > 0 leaves out a file the detector may still be
+    writing (see `settled_files`)."""
 
     if _SESSION.stack is None or not _SESSION.file_paths:
         return {"ok": False, "message": "Load an initial series first."}
@@ -1190,17 +1190,41 @@ def trxs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Import the series via Set/Table first."}
 
     directory = str(payload.get("directory", str(_SESSION.file_paths[0].parent)))
+    # Prefer the prefix actually typed into the Filename field over
+    # re-deriving one from file_paths[0]'s own name -- see
+    # series_filename_prefix's own docstring.
     match_name = _SESSION.series_filename_prefix or _SESSION.file_paths[0].name
     try:
         all_files = _list_series_files(Path(directory), match_name, _SESSION.file_paths[0].suffix)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
+    new_files = settled_files(all_files[_SESSION.auto_n_old:], float(payload.get("settle_seconds", 0.0)))
+    return {"files": new_files, "n_total": _SESSION.auto_n_old + len(new_files)}
 
-    n_total = len(all_files)
-    if n_total <= _SESSION.auto_n_old:
+
+def trxs2_pending_new_files(payload: dict[str, Any]) -> dict[str, Any]:
+    """Cheap check for the Auto Refresh watcher: how many new, settled files
+    Auto Refresh would load right now, without loading anything."""
+
+    found = _new_series_files(payload)
+    if "ok" in found:
+        return found
+    return {"ok": True, "n_new": len(found["files"])}
+
+
+def trxs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
+    """Port of `Autoplot_Callback`: rescan the directory for the same
+    series prefix, load only the files beyond `auto_n_old`, append them to
+    the stack/counts/timestamps/temperatures, and extend only the
+    currently-active curve type (`auto_met`) -- then re-render so
+    Subtraction/Normalize apply to the newly-appended columns too."""
+
+    found = _new_series_files(payload)
+    if "ok" in found:
+        return found
+    new_files, n_total = found["files"], found["n_total"]
+    if not new_files:
         return {"ok": True, "n_new": 0, "message": "No new files."}
-
-    new_files = all_files[_SESSION.auto_n_old : n_total]
     _SESSION.load_progress = None
     try:
         result = load_h5_series(
@@ -1315,6 +1339,7 @@ __all__ = [
     "reset_session",
     "set_session",
     "trxs2_auto_refresh",
+    "trxs2_pending_new_files",
     "trxs2_azimuthal_exec",
     "trxs2_background_load",
     "trxs2_circular_exec",
