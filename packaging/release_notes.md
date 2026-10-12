@@ -4,6 +4,28 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.3.5 — 시리즈 검출기 마스크 수정 / Series detector mask fixed
+
+GIXS-series·TrXS-series 탭에서 **LOAD DATA 없이 바로 Set/Table → Load Series로**
+시리즈를 불러오면, 검출기 마스크가 적용되지 않았습니다. 핫픽셀이 그대로 남고 모듈 갭
+옆 3픽셀 버퍼도 빠져, 1D·Azi 결과가 같은 프레임을 콘솔에서 처리한 값과 달랐습니다
+(Cooling 데이터에서 중앙값 약 0.6%, 갭 부분 NaN 구간 누락). LOAD DATA 뒤에 Detector
+선택을 바꾼 경우에도 이전 검출기의 마스크가 쓰였습니다.
+
+In the GIXS-series and TrXS-series tabs, a series imported straight from
+Set/Table without LOAD DATA first was read with no detector mask: hot pixels
+were kept and the 3-pixel gap buffer skipped, so curves differed from the
+console's for the same frames (~0.6% median on the Cooling data, missing gap
+NaNs). Changing the Detector box after LOAD DATA kept the old detector's mask.
+
+- 이제 Load Series가 Detector 칸의 검출기로 마스크를 직접 만듭니다.
+- **영향 범위:** LOAD DATA를 먼저 하고 Detector를 바꾸지 않았다면 결과는 v0.3.4와
+  같습니다. 그렇지 않았다면 다시 처리하는 것을 권합니다.
+- 수정 후 TrXS-series Circular 결과는 같은 프레임의 콘솔 Circular Average와 정확히
+  일치합니다.
+
+---
+
 ## v0.3.4 — in-situ 자동 갱신(Watch) / Automatic Auto Refresh for in-situ runs
 
 **계산 결과는 v0.3.3과 같습니다.** 축약 경로는 바뀌지 않았습니다.
