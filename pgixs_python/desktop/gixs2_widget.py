@@ -815,6 +815,7 @@ class GIXS2Widget(QWidget):
             "directory": self._last_dir,
             "filenames": filenames,
             "insitu_mode": self.insitu_combo.currentText(),
+            "detector": self.detector_combo.currentText(),
             "parallel": self.parallel_check.isChecked(),
         }
         self._load_thread = run_in_background(gs.gixs2_load_series, payload, self._on_series_loaded)

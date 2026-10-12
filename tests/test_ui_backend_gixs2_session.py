@@ -105,6 +105,35 @@ def test_gixs2_load_and_load_series_survive_a_non_square_detector_mask(tmp_path)
     )
 
 
+@pytest.mark.parametrize("tab", ["gixs2", "trxs2"])
+def test_load_series_without_load_still_masks_the_detector(tmp_path, tab):
+    """Set/Table -> Import straight away (no Load first) used to import the
+    frames unmasked: hot pixels kept, no gap buffer. Given the detector, the
+    import now builds that detector's mask itself."""
+
+    from pgixs_python.processing.masking import detector_mask_for_type
+    from pgixs_python.ui_backend import trxs2_session as ts
+
+    module = gs if tab == "gixs2" else ts
+    detector_mask = detector_mask_for_type("Eiger4M")
+    raw = np.full(tuple(reversed(detector_mask.mask.shape)), 100.0, dtype=np.float32)
+    names = []
+    for idx in range(2):
+        name = f"straight_{idx + 1:04d}.h5"
+        with h5py.File(tmp_path / name, "w") as h5:
+            h5.create_dataset("/entry/data/data", data=raw)
+            h5.create_dataset("/entry/instrument/user/params/Counter1", data=np.array([10.0], dtype=np.float32))
+        names.append(name)
+
+    module.reset_session()
+    load_series = getattr(module, f"{tab}_load_series")
+    result = load_series({"directory": str(tmp_path), "filenames": names, "insitu_mode": "Time", "detector": "Eiger4M"})
+    assert result["ok"], result.get("message")
+    session = module.get_session()
+    assert np.isfinite(session.data).mean() == pytest.approx(float(np.isfinite(detector_mask.mask).mean()), abs=0.01)
+    assert session.mask is not None and session.gap_buffer is not None and session.gap_buffer.any()
+
+
 def test_gixs2_load_series_parallel_option_matches_serial(tmp_path):
     files = _write_synthetic_series(tmp_path, n_frames=6)
     gs.reset_session()

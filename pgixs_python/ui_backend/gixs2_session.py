@@ -374,10 +374,23 @@ def gixs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a directory and at least one series file."}
 
     paths = [Path(directory) / name for name in filenames]
+    # The detector mask normally comes from Load. A series imported straight
+    # from Set/Table (or after the Detector box changed) builds it here --
+    # otherwise bad pixels and the gap buffer are silently skipped. Adopted
+    # only once the import succeeds, so a failed one leaves the old series
+    # with its own mask.
+    detector = str(payload.get("detector", "")).strip()
+    detector_mask = None
+    if detector and (_SESSION.mask is None or detector != _SESSION.detector):
+        try:
+            detector_mask = detector_mask_for_type(detector)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": str(exc)}
+    mask = detector_mask.mask if detector_mask is not None else _SESSION.mask
     _SESSION.load_progress = None
     try:
         result = load_h5_series(
-            paths, mask=_SESSION.mask, metadata_mode=_metadata_mode_for_insitu(insitu_mode),
+            paths, mask=mask, metadata_mode=_metadata_mode_for_insitu(insitu_mode),
             progress_callback=_set_load_progress, parallel=parallel,
         )
     except Exception as exc:  # noqa: BLE001
@@ -396,6 +409,15 @@ def gixs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
 
     stack = np.ascontiguousarray(np.transpose(result.stack, (0, 2, 1)))
     _SESSION.stack = stack
+    if detector_mask is not None:
+        _SESSION.detector = detector
+        _SESSION.mask = detector_mask.mask
+        _SESSION.gap_buffer = (
+            np.ascontiguousarray(dilate_gap_mask(detector_mask.mask, 3).T)
+            if detector_mask.mask is not None
+            else None
+        )
+        _SESSION.calibration["pixel_mm"] = detector_mask.pixel_size_mm
     _SESSION.data = _mean_ignoring_all_nan(stack)
     _SESSION.counts = result.counts.astype(np.float32)
     _SESSION.timestamps = timestamps
