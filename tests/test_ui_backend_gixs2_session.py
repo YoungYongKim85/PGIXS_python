@@ -1186,3 +1186,29 @@ def test_gixs2_pending_new_files_counts_only_settled_new_frames(tmp_path):
     os.utime(files[2], (old, old))
     assert gs.gixs2_auto_refresh({"directory": str(tmp_path), "settle_seconds": 30.0})["n_new"] == 1
     assert gs.get_session().stack.shape[0] == 3
+
+
+@pytest.mark.parametrize("tab", ["gixs2", "trxs2"])
+def test_load_series_names_a_detector_that_does_not_fit_the_files(tmp_path, tab):
+    """Detector box changed to another detector after Load: the import fails
+    and says so in plain words, keeping the loaded series' own mask."""
+
+    from pgixs_python.processing.masking import detector_mask_for_type
+    from pgixs_python.ui_backend import trxs2_session as ts
+
+    module = gs if tab == "gixs2" else ts
+    eiger = detector_mask_for_type("Eiger4M").mask
+    name = "frame_0001.h5"
+    with h5py.File(tmp_path / name, "w") as h5:
+        h5.create_dataset("/entry/data/data", data=np.full(tuple(reversed(eiger.shape)), 100.0, dtype=np.float32))
+        h5.create_dataset("/entry/instrument/user/params/Counter1", data=np.array([10.0], dtype=np.float32))
+
+    module.reset_session()
+    assert getattr(module, f"{tab}_load")({"directory": str(tmp_path), "filename": name, "detector": "Eiger4M"})["ok"]
+    result = getattr(module, f"{tab}_load_series")(
+        {"directory": str(tmp_path), "filenames": [name], "insitu_mode": "Time", "detector": "MarCCD"}
+    )
+    assert not result["ok"]
+    assert result["message"].startswith("Detector MarCCD does not match these files")
+    assert "2167 x 2070" in result["message"]
+    assert module.get_session().mask.shape == eiger.shape
