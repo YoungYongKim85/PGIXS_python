@@ -1460,7 +1460,8 @@ def _coverage_summary(coverage: np.ndarray) -> dict[str, Any]:
     summary = summarize_coverage(np.asarray(coverage, dtype=np.float32), low_threshold=0.15)
     return {
         "coverage_min": _json_float(summary["coverage_min"]),
-        "coverage_median": _json_float(summary["coverage_median"]),
+        # Shown as-is in the status line; 0.935, not 0.9353212416172028.
+        "coverage_median": None if (median := _json_float(summary["coverage_median"])) is None else round(median, 3),
         "low_bin_count": int(np.asarray(summary["coverage_low_bins"]).size),
         "drop_bin_count": int(np.asarray(summary["coverage_drop_bins"]).size),
     }

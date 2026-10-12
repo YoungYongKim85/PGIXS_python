@@ -1620,3 +1620,12 @@ def test_q_space_cuts_blank_the_gap_shoulder_before_regridding(tmp_path):
     np.testing.assert_allclose(regridded, expected, equal_nan=True)
     # The 2D Qxy/Qz display is not a reduction and keeps those pixels.
     assert cs.console_qspace_image({"mapping": "Qxy/Qz"})["ok"]
+
+
+def test_coverage_median_is_rounded_for_the_status_line():
+    """The status line prints the median as it comes ("Coverage median
+    0.9353212416172028"); three decimals is all it needs."""
+
+    summary = cs._coverage_summary(np.array([0.9353212416172028] * 5 + [np.nan], dtype=np.float32))
+    assert summary["coverage_median"] == 0.935
+    assert cs._coverage_summary(np.array([np.nan, np.nan], dtype=np.float32))["coverage_median"] is None
