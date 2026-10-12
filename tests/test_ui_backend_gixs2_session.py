@@ -1137,3 +1137,23 @@ def test_gixs2_failed_load_keeps_the_current_gap_buffer(tmp_path):
     assert not gs.gixs2_load({"directory": str(tmp_path), "filename": files[0].name, "detector": "Eiger4M"})["ok"]
 
     assert session.gap_buffer is sentinel
+
+
+def test_gixs2_pending_new_files_counts_only_settled_new_frames(tmp_path):
+    import os
+    import time
+
+    files = _write_synthetic_series(tmp_path, n_frames=3)
+    assert gs.gixs2_load_series(
+        {"directory": str(tmp_path), "filenames": [f.name for f in files[:2]], "insitu_mode": "Temperature"}
+    )["ok"]
+
+    assert gs.gixs2_pending_new_files({"directory": str(tmp_path)}) == {"ok": True, "n_new": 1}
+    # Just written: a watcher must leave it for the next poll.
+    assert gs.gixs2_pending_new_files({"directory": str(tmp_path), "settle_seconds": 30.0})["n_new"] == 0
+    assert gs.gixs2_auto_refresh({"directory": str(tmp_path), "settle_seconds": 30.0})["n_new"] == 0
+
+    old = time.time() - 60
+    os.utime(files[2], (old, old))
+    assert gs.gixs2_auto_refresh({"directory": str(tmp_path), "settle_seconds": 30.0})["n_new"] == 1
+    assert gs.get_session().stack.shape[0] == 3

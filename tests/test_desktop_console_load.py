@@ -134,3 +134,47 @@ def test_load_data_keeps_the_calibration_fields_the_user_typed(qapp, tmp_path):
 
     assert console.energy_spin.value() == pytest.approx(12.34)
     assert console.sdd_spin.value() == pytest.approx(456.0)
+
+
+@pytest.mark.parametrize("tab", ["gixs2", "trxs2"])
+def test_watch_auto_refreshes_new_frames_by_itself(qapp, tmp_path, tab):
+    import os
+    import time
+
+    h5py = pytest.importorskip("h5py")
+    import numpy as np
+
+    if tab == "gixs2":
+        from pgixs_python.desktop.gixs2_widget import GIXS2Widget as Widget
+        from pgixs_python.ui_backend import gixs2_session as session_module
+    else:
+        from pgixs_python.desktop.trxs2_widget import TrXS2Widget as Widget
+        from pgixs_python.ui_backend import trxs2_session as session_module
+    session_module.reset_session()
+    names = []
+    for i in range(3):
+        names.append(f"S_{i + 1:04d}.h5")
+        with h5py.File(tmp_path / names[-1], "w") as handle:
+            handle.create_dataset("/entry/data/data", data=np.full((20, 24), float(i + 1), dtype=np.float32))
+    old = time.time() - 60
+    for name in names:
+        os.utime(tmp_path / name, (old, old))
+    load = getattr(session_module, f"{tab}_load_series")
+    widget = Widget()
+    widget._last_dir = str(tmp_path)
+
+    # No imported series yet: the watcher switches itself off.
+    widget.watch_check.setChecked(True)
+    widget._on_watch_tick()
+    assert not widget.watch_check.isChecked()
+
+    widget._on_series_loaded(load({"directory": str(tmp_path), "filenames": names[:2]}))
+    widget.watch_check.setChecked(True)
+    widget._on_watch_tick()
+
+    deadline = time.monotonic() + 10
+    while not widget.auto_refresh_button.isEnabled() and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert session_module.get_session().stack.shape[0] == 3
+    widget.watch_check.setChecked(False)
+    widget._auto_refresh_thread.wait(2000)

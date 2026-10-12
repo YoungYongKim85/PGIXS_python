@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -53,6 +54,12 @@ from pgixs_python.desktop.console_widget import (
 )
 from pgixs_python.desktop.plot_canvas import CurveCanvas, ImageCanvas
 from pgixs_python.ui_backend import gixs2_session as gs
+
+
+# Auto Refresh Watch: default poll interval, and how long a new file must sit
+# unmodified before it is loaded -- the detector may still be writing it.
+_WATCH_DEFAULT_S = 10.0
+_WATCH_SETTLE_S = 3.0
 
 _DETECTOR_LIST = ["Eiger4M", "MarCCD", "MX170HS", "PI-CCD"]
 _INSITU_LIST = ["Time", "Temperature", "Angle", "LowTemp."]
@@ -395,6 +402,18 @@ class GIXS2Widget(QWidget):
         self.auto_refresh_button = QPushButton("Auto Refresh (Find New)")
         self.auto_refresh_button.clicked.connect(self._on_auto_refresh_clicked)
         layout.addWidget(self.auto_refresh_button)
+        # Watch: poll the folder during an in-situ run and Auto Refresh by
+        # itself whenever new frames have landed.
+        self.watch_check = QCheckBox("Watch every")
+        self.watch_check.toggled.connect(self._on_watch_toggled)
+        self.watch_interval_spin = _double_spin(2.0, 600.0, 0, _WATCH_DEFAULT_S, 1.0)
+        self.watch_interval_spin.setSuffix(" s")
+        self.watch_interval_spin.valueChanged.connect(
+            lambda value: self._watch_timer.setInterval(int(value * 1000))
+        )
+        layout.addWidget(_row(self.watch_check, self.watch_interval_spin))
+        self._watch_timer = QTimer(self)
+        self._watch_timer.timeout.connect(self._on_watch_tick)
 
         layout.addWidget(_divider("Save"))
         self.save_1d_button = QPushButton("Save 1D")
@@ -1788,14 +1807,44 @@ class GIXS2Widget(QWidget):
             self._render_integration()
         self._set_status(f"X-Axis set to {result['label']} ({len(result['x_axis'])} points).", True)
 
+    def _on_watch_toggled(self, on: bool) -> None:
+        if on:
+            self._watch_timer.start(int(self.watch_interval_spin.value() * 1000))
+            self._set_status(f"Watching for new files every {self.watch_interval_spin.value():g} s.", True)
+        else:
+            self._watch_timer.stop()
+            self._set_status("Stopped watching for new files.", True)
+
+    def _on_watch_tick(self) -> None:
+        # Never start while anything else holds the session: a load, an
+        # Exec, an Auto Refresh already running (all behind a modal
+        # progress dialog) or a modal dialog such as ROI drawing.
+        if QApplication.activeModalWidget() is not None or not self.auto_refresh_button.isEnabled():
+            return
+        payload = {"directory": self._last_dir, "settle_seconds": _WATCH_SETTLE_S}
+        pending = gs.gixs2_pending_new_files(payload)
+        if not pending.get("ok"):
+            self.watch_check.setChecked(False)
+            self._set_status(f"Watch stopped: {pending.get('message', 'no series to extend.')}", False)
+            return
+        if pending["n_new"]:
+            self._start_auto_refresh(settle_seconds=_WATCH_SETTLE_S)
+
     def _on_auto_refresh_clicked(self) -> None:
+        self._start_auto_refresh()
+
+    def _start_auto_refresh(self, settle_seconds: float = 0.0) -> None:
         # Loading + correcting + reprocessing however many new files showed
         # up can take a while for a real series -- run it on a background
         # thread with the same progress dialog series loading/Exec Cut use,
         # instead of freezing the UI with no feedback while it works.
         self.auto_refresh_button.setEnabled(False)
         self._start_progress_dialog("Checking for new files...", window_title="Auto Refresh")
-        payload = {"directory": self._last_dir, "parallel": self.parallel_check.isChecked()}
+        payload = {
+            "directory": self._last_dir,
+            "parallel": self.parallel_check.isChecked(),
+            "settle_seconds": settle_seconds,
+        }
         self._auto_refresh_thread = run_in_background(gs.gixs2_auto_refresh, payload, self._on_auto_refresh_finished)
 
     def _on_auto_refresh_finished(self, result: dict[str, Any]) -> None:

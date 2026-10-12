@@ -209,3 +209,21 @@ def test_natural_sort_key_orders_frames_past_the_zero_padding():
     names = ["ABCD_10000.h5", "ABCD_9999.h5", "ABCD_0001.h5"]
 
     assert sorted(names, key=natural_sort_key) == ["ABCD_0001.h5", "ABCD_9999.h5", "ABCD_10000.h5"]
+
+
+def test_settled_files_stops_at_the_first_file_still_being_written(tmp_path):
+    import os
+    import time
+
+    from pgixs_python.io.h5_series import settled_files
+
+    paths = []
+    for idx in range(3):
+        paths.append(tmp_path / f"S_{idx + 1:04d}.h5")
+        paths[-1].write_bytes(b"x")
+    old = time.time() - 60
+    for path in paths[:2]:
+        os.utime(path, (old, old))  # the third keeps a just-written mtime
+
+    assert settled_files(paths, 5.0) == paths[:2]
+    assert settled_files(paths, 0.0) == paths

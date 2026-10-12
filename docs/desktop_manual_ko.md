@@ -363,6 +363,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 - **Sub-mode** 콤보(Insitu 선택에 따라 항목이 바뀜) + **Order** 체크박스(X축 값 기준 정렬).
 - **Set X-Axis** 버튼 — 시리즈의 실험 X축(시간/온도/각도/프레임 번호)을 계산해서 확정한다.
 - **Auto Refresh (Find New)** 버튼 — 로드 디렉토리를 다시 스캔해서 아직 안 불러온 새 파일을 찾아 불러오고(백그라운드, 진행률 다이얼로그 "Auto Refresh"), 마지막으로 실행했던 처리(1D 컷 / Azimuthal / ROI)에 이어붙인다. Grid Rmv를 했다면 새 프레임에도 적용된다. **Set / Table로 시리즈를 불러온 뒤에만** 동작한다(LOAD DATA로 한 장만 불러온 상태에서는 거부).
+- **Watch every _N_ s** 체크박스 — in-situ 측정 중 켜 두면 _N_초(기본 10초)마다 폴더를 확인해, 새 파일이 생겼을 때만 Auto Refresh를 자동으로 실행한다. 검출기가 아직 쓰고 있을 수 있으므로 **마지막으로 수정된 지 3초가 지나지 않은 파일은 다음 확인 때로 미룬다.** 다른 작업(로딩, Exec, ROI 그리기 등)이 진행 중이면 그 회차는 건너뛰고, 확장할 시리즈가 없으면 스스로 꺼진다.
 
 ### 4.7 Save
 
@@ -445,6 +446,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 - **Temp.Sort** 체크박스.
 - 별도의 "Set X-Axis" 버튼은 없다 — Tmode나 Temp.Sort를 바꾸면 이미 데이터가 있는 1D/Azimuthal 플롯이 즉시 다시 그려진다(그때그때 X축을 계산).
 - **Auto Refresh (Find New)** 버튼 — GIXS-series와 동일한 개념(새 파일 탐색 → 불러오기/처리 → 마지막 처리에 이어붙임).
+- **Watch every _N_ s** 체크박스 — GIXS-series와 동일(주기적으로 새 파일을 확인해 자동으로 Auto Refresh).
 
 ### 5.8 Save
 
