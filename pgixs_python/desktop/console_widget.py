@@ -921,6 +921,12 @@ class ConsoleWidget(QWidget):
         self.status_label.style().unpolish(self.status_label)
         self.status_label.style().polish(self.status_label)
 
+    def _clear_curve_error(self) -> None:
+        """A step that just worked makes an earlier curve error stale
+        ("Run q-Map Cal. first." after q-Map Cal. ran); other notes stay."""
+        if self.curve_status_label.property("role") == "status-error":
+            self._set_curve_status("", True)
+
     def _set_curve_status(self, message: str, ok: bool) -> None:
         self.curve_status_label.setText(_wrap_long_tokens(message))
         self.curve_status_label.setProperty("role", "status-ok" if ok else "status-error")
@@ -1392,6 +1398,7 @@ class ConsoleWidget(QWidget):
         series_note = f" (averaged {payload['series_file_count']} files)" if payload.get("series_file_count") else ""
         shape = payload.get("shape", [])
         self._set_status(f"Loaded {'x'.join(str(s) for s in shape)} from {payload.get('path')}.{series_note}", True)
+        self._clear_curve_error()
 
     # ------------------------------------------------------------------
     # Load Info
@@ -1607,6 +1614,7 @@ class ConsoleWidget(QWidget):
         self._render_pixel_image()
         self._update_azi_q_label()
         self._set_status("q-Map Cal. complete.", True)
+        self._clear_curve_error()
 
     # ------------------------------------------------------------------
     # Map format (Pixel / Qxy/Qz / Qy/Qz)
