@@ -337,6 +337,28 @@ def trxs2_list_series_files(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "files": [f.name for f in files]}
 
 
+def _detector_mismatch(detector: str, detector_mask: Any, first_path: Path) -> str | None:
+    """Plain words for a Load Series that failed because the Detector box
+    names another detector than the files came from (the core's own error is
+    a numpy broadcast message)."""
+
+    if detector_mask is None or detector_mask.mask is None:
+        return None
+    try:
+        image_shape = load_image_file(first_path).data.shape
+    except Exception:  # noqa: BLE001 - the original error says more then.
+        return None
+    if tuple(image_shape) == tuple(detector_mask.mask.shape):
+        return None
+    # Rows x columns as the tab shows them ("Loaded 2167 x 2070"): the transpose.
+    mask_w, mask_h = detector_mask.mask.shape
+    image_w, image_h = image_shape
+    return (
+        f"Detector {detector} does not match these files: its mask is {mask_h} x {mask_w} pixels, "
+        f"the images are {image_h} x {image_w}. Check the Detector box."
+    )
+
+
 def trxs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
     """Set/Table -> Import: load the checked series files into an
     in-memory stack, matching `Loadingdata()`. `parallel=True` loads files
@@ -372,7 +394,7 @@ def trxs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
             progress_callback=_set_load_progress, parallel=parallel,
         )
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _detector_mismatch(detector, detector_mask, paths[0]) or str(exc)}
     finally:
         _SESSION.load_progress = None
 
