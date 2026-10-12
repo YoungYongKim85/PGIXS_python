@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pgixs-python"
-version = "0.3.3"
+version = "0.3.4"
 description = "Grazing-incidence and transmission X-ray scattering data reduction for the PAL 3C beamline"
 readme = "README.md"
 license = { file = "LICENSE" }

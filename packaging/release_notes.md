@@ -4,6 +4,31 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.4 — in-situ 자동 갱신(Watch) / Automatic Auto Refresh for in-situ runs
+
+**계산 결과는 v0.3.3과 같습니다.** 축약 경로는 바뀌지 않았습니다.
+
+Numerically identical to v0.3.3 — the reduction path did not change.
+
+### 새 기능: Watch / New: Watch
+
+GIXS-series·TrXS-series 탭의 Auto Refresh 아래에 **"Watch every _N_ s"** 체크박스가
+생겼습니다. 켜 두면 _N_초(기본 10초)마다 폴더를 확인해, **새 파일이 생겼을 때만**
+Auto Refresh를 자동으로 실행합니다. in-situ 측정 중에 버튼을 반복해서 누를 필요가
+없습니다.
+
+A "Watch every N s" toggle under Auto Refresh polls the folder (default 10 s)
+and runs Auto Refresh by itself whenever new frames have landed.
+
+- **쓰는 중인 파일은 건너뜁니다.** 마지막 수정 후 3초가 지나지 않은 파일은 다음 확인
+  때로 미룹니다. 검출기가 아직 쓰고 있는 파일을 읽어 빈(NaN) 프레임이 되는 것을 막습니다.
+- 로딩·Exec·ROI 그리기 같은 다른 작업 중에는 그 회차를 건너뜁니다.
+- 확장할 시리즈가 없으면 스스로 꺼지고 이유를 상태줄에 표시합니다.
+- 수동 Auto Refresh 버튼은 이전과 같이 동작합니다.
+- 웹 버전(PGIXS_web)에는 아직 없습니다.
+
+---
+
 ## v0.3.3 — 입력값 유지, 배치 덮어쓰기 방지 / Typed values kept, batch overwrites refused
 
 **계산 결과는 v0.3.2와 같습니다.** 축약 경로는 바뀌지 않았습니다.
