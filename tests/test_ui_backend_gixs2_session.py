@@ -783,11 +783,11 @@ def test_gixs2_set_x_axis_angle_mode_without_change_ai_falls_back_to_logged_meta
     result = gs.gixs2_set_x_axis({})
 
     assert result["ok"], result.get("message")
-    assert result["label"] == "Incidence Angle, deg"
-    # These synthetic files never write an "IncAngle" dataset -- the
-    # logged-metadata fallback path reads NaN, distinct from the (absent)
-    # aivar ramp's own real values, confirming the ramp wasn't used here.
-    assert all(np.isnan(v) for v in result["x_axis"])
+    # These synthetic files never write an "IncAngle" dataset, so the
+    # logged-metadata path has nothing and the frames are numbered (MATLAB's
+    # 1:nFrames) -- not the aivar ramp, which wasn't used here.
+    assert result["label"] == "Frame"
+    assert result["x_axis"] == [1.0, 2.0]
 
 
 def test_gixs2_save_1d_writes_a_file(tmp_path):

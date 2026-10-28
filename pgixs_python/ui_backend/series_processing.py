@@ -664,7 +664,13 @@ def compute_experiment_x_axis(
 
     if temps.ndim != 2 or temps.shape[1] <= column or n_frames == 0:
         raise ValueError(f"Temperature data has no column for x-axis mode '{exp_mode}'/'{sub_mode}'.")
-    return temps[:, column], label
+    values = temps[:, column]
+    if not np.isfinite(values).any():
+        # The files never logged this value (e.g. no Angle field): number the
+        # frames, as MATLAB's computePGIXSExperimentXAxis falls back to
+        # 1:nFrames, instead of an all-NaN axis that plots nothing.
+        return np.arange(1, n_frames + 1, dtype=np.float64), "Frame"
+    return values, label
 
 
 def integrate_frames(matrix: np.ndarray, axis_values: np.ndarray, axis_range=None) -> np.ndarray:

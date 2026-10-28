@@ -552,3 +552,10 @@ def test_time_axis_without_any_timestamp_counts_frames():
 
     np.testing.assert_allclose(axis, [1.0, 2.0, 3.0])
     assert label == "Frame"
+
+
+def test_compute_experiment_x_axis_falls_back_to_frame_numbers_when_never_logged():
+    # Angle-mode files without an Angle field: MATLAB numbers the frames.
+    values, label = compute_experiment_x_axis("Angle", np.array([0.0, 1.0, 2.0]), np.full((3, 3), np.nan))
+    np.testing.assert_allclose(values, [1.0, 2.0, 3.0])
+    assert label == "Frame"
