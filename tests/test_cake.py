@@ -116,9 +116,9 @@ def test_accumulation_average_matches_manual_band_mean():
 
     assert result.is_valid
     manual_band_mean = np.nanmean(data[23:26, :], axis=0)  # 1-based rows 24-26 around beam_z=25
-    # Nearest output point to the beam is the last one kept (angle 0 keeps
-    # the left half, sorted ascending by distance from the beam).
-    assert result.intensity[0] == pytest.approx(manual_band_mean[19])
+    # The beam pixel itself has q = 0 and is dropped, so the first output
+    # point is the column just left of the beam (angle 0 keeps the left half).
+    assert result.intensity[0] == pytest.approx(manual_band_mean[18])
 
 
 def test_accumulation_average_90_band_is_centred_on_beam_column():
@@ -127,9 +127,10 @@ def test_accumulation_average_90_band_is_centred_on_beam_column():
 
     result = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=90.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0)
 
-    # 1-based columns 19-21 around beam_y=20; first point is the beam row.
+    # 1-based columns 19-21 around beam_y=20; first point is the row just
+    # above the beam (the beam row has q = 0).
     manual_band_mean = np.nanmean(data[:, 18:21], axis=1)
-    assert result.intensity[0] == pytest.approx(manual_band_mean[24])
+    assert result.intensity[0] == pytest.approx(manual_band_mean[23])
 
 
 def test_accumulation_average_perp_offset_shifts_the_band():
@@ -139,7 +140,24 @@ def test_accumulation_average_perp_offset_shifts_the_band():
     result = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=0.0, perp_offset=5.0, band_minus=-1.0, band_plus=1.0)
 
     manual_band_mean = np.nanmean(data[23 - 5 : 26 - 5, :], axis=0)
-    assert result.intensity[0] == pytest.approx(manual_band_mean[19])
+    assert result.intensity[0] == pytest.approx(manual_band_mean[18])
+
+
+def test_accumulation_average_q_is_read_on_the_beam_line_not_the_shifted_band():
+    """MATLAB `Accumpix_gi` labels the band with Q on the beam row/column.
+    Averaging Q over a band moved off the beam would add the offset's own
+    perpendicular component and push every peak to higher q."""
+
+    rng = np.random.default_rng(0)
+    data, q_map, (beam_y, beam_z) = _synthetic_frame(rng)
+
+    shifted = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=0.0, perp_offset=5.0, band_minus=-1.0, band_plus=1.0)
+    centred = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=0.0, perp_offset=0.0, band_minus=-1.0, band_plus=1.0)
+    np.testing.assert_allclose(shifted.q_axis, centred.q_axis)
+    np.testing.assert_allclose(shifted.q_axis, q_map[24, 18::-1])
+
+    vertical = accumulation_average(data, q_map, (beam_y, beam_z), angle_deg=90.0, perp_offset=7.0, band_minus=-1.0, band_plus=1.0)
+    np.testing.assert_allclose(vertical.q_axis, q_map[23::-1, 19])
 
 
 def test_accumulation_average_rejects_non_axis_aligned_angle():

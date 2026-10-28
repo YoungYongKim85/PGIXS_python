@@ -877,8 +877,8 @@ def console_line_1d(payload: dict[str, Any]) -> dict[str, Any]:
     # (`Anglecut1d_gi.m`'s `calcQ_Horizontal`/`calcQ_Vertical`: `Qdata = Qr`
     # when `zposmv ~= 0`, `Qdata = Qz` when `yposmv ~= 0`); use its magnitude,
     # since the component is signed and every downstream binning step here
-    # requires q > 0. Accumulation is deliberately excluded -- MATLAB's
-    # `Accumpix_gi.m` labels its band with |Q| regardless of the offset.
+    # requires q > 0. Accumulation is excluded: `accumulation_average` reads
+    # its q label on the line through the beam, as `Accumpix_gi.m` does.
     offset_component = horizontal_component if angle_deg in (0.0, 180.0) else vertical_component
     offset_cut_q_map = q_for_1d if offset_component is None else np.abs(offset_component)
     # Whether the cut that actually runs below is the offset one, i.e. whether

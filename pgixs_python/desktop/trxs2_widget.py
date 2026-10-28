@@ -337,6 +337,14 @@ class TrXS2Widget(QWidget):
         layout.addWidget(_row(self.tmode_combo, self.temp_sort_check))
         self.tmode_combo.currentTextChanged.connect(lambda _t: self._on_x_axis_option_changed())
         self.temp_sort_check.toggled.connect(lambda _c: self._on_x_axis_option_changed())
+        # MATLAB's time offset field (default 1, in the chosen unit) and
+        # time unit: the Time axis is (t - t1) / unit + offset.
+        self.time_offset_spin = _double_spin(-1.0e6, 1.0e6, 2, 1.0, 1.0)
+        self.time_unit_combo = QComboBox()
+        self.time_unit_combo.addItems(["second", "min", "hour"])
+        layout.addWidget(_field("Time offset", self.time_offset_spin, self.time_unit_combo))
+        self.time_offset_spin.editingFinished.connect(self._on_x_axis_option_changed)
+        self.time_unit_combo.currentTextChanged.connect(lambda _t: self._on_x_axis_option_changed())
         self.auto_refresh_button = QPushButton("Auto Refresh (Find New)")
         self.auto_refresh_button.clicked.connect(self._on_auto_refresh_clicked)
         layout.addWidget(self.auto_refresh_button)
@@ -365,7 +373,11 @@ class TrXS2Widget(QWidget):
         self.save_azi_button.clicked.connect(lambda: self._save(ts.trxs2_save_azimuthal, self.azi_canvas))
         layout.addWidget(self.save_azi_button)
         self.save_integ_button = QPushButton("Save Integ.")
-        self.save_integ_button.clicked.connect(lambda: self._save(ts.trxs2_save_integration, self.integ_canvas))
+        self.save_integ_button.clicked.connect(
+            lambda: self._save(
+                lambda payload: ts.trxs2_save_integration({**payload, "range": self._integ_range()}), self.integ_canvas
+            )
+        )
         self.save_xaxis_button = QPushButton("Save X-Axis")
         self.save_xaxis_button.clicked.connect(lambda: self._save(ts.trxs2_save_x_axis))
         layout.addWidget(_row(self.save_integ_button, self.save_xaxis_button))
@@ -466,8 +478,8 @@ class TrXS2Widget(QWidget):
         # "0.0000" (reported: "Q Min-Max의 텍스트 박스에 0.0000만 써 있어").
         self.oned_qmin_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
         self.oned_qmax_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
-        self.oned_qmin_spin.valueChanged.connect(lambda _v: self._apply_oned_range())
-        self.oned_qmax_spin.valueChanged.connect(lambda _v: self._apply_oned_range())
+        self.oned_qmin_spin.valueChanged.connect(lambda _v: self._on_range_changed())
+        self.oned_qmax_spin.valueChanged.connect(lambda _v: self._on_range_changed())
         self.oned_heatmap_button = QPushButton("Heatmap")
         self.oned_heatmap_button.setToolTip("Open a Q vs. X-axis heatmap of every frame's 1D cut.")
         self.oned_heatmap_button.clicked.connect(self._on_1d_heatmap_clicked)
@@ -509,8 +521,8 @@ class TrXS2Widget(QWidget):
         # data range; still guarded (max > min) before being applied.
         self.azi_degmin_spin = _double_spin(-360.0, 720.0, 1, 0.0, 1.0)
         self.azi_degmax_spin = _double_spin(-360.0, 720.0, 1, 360.0, 1.0)
-        self.azi_degmin_spin.valueChanged.connect(lambda _v: self._apply_azi_range())
-        self.azi_degmax_spin.valueChanged.connect(lambda _v: self._apply_azi_range())
+        self.azi_degmin_spin.valueChanged.connect(lambda _v: self._on_range_changed())
+        self.azi_degmax_spin.valueChanged.connect(lambda _v: self._on_range_changed())
         self.azi_heatmap_button = QPushButton("Heatmap")
         self.azi_heatmap_button.setToolTip("Open an Angle vs. X-axis heatmap of every frame's azimuthal profile.")
         self.azi_heatmap_button.clicked.connect(self._on_azi_heatmap_clicked)
@@ -1243,6 +1255,7 @@ class TrXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Circular Exec failed."), False)
             return
+        self._reset_range(self.oned_qmin_spin, self.oned_qmax_spin, 0.0, 0.0)
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         self._set_status(f"Circular series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1262,6 +1275,7 @@ class TrXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Line Exec failed."), False)
             return
+        self._reset_range(self.oned_qmin_spin, self.oned_qmax_spin, 0.0, 0.0)
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         self._set_status(f"1D Line series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1284,6 +1298,7 @@ class TrXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Azimuthal Exec failed."), False)
             return
+        self._reset_range(self.azi_degmin_spin, self.azi_degmax_spin, 0.0, 360.0)
         self._refresh_azimuthal({"normalize": self.normalize_azi_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         self._set_status(f"Azimuthal series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1323,11 +1338,19 @@ class TrXS2Widget(QWidget):
     def _series_color_values(self, n_frames: int) -> tuple[np.ndarray, str]:
         session = ts.get_session()
         if session.timestamps is not None:
-            payload = {"sub_mode": self.tmode_combo.currentText(), "order": self.temp_sort_check.isChecked()}
+            payload = self._x_axis_payload()
             result = ts.trxs2_set_x_axis(payload)
             if result.get("ok") and session.x_axis_values is not None and session.x_axis_values.shape[0] == n_frames:
                 return session.x_axis_values, (session.x_axis_label or "Frame")
         return np.arange(1, n_frames + 1, dtype=np.float64), "Frame, #"
+
+    def _x_axis_payload(self) -> dict[str, Any]:
+        return {
+            "sub_mode": self.tmode_combo.currentText(),
+            "order": self.temp_sort_check.isChecked(),
+            "time_offset_seconds": self.time_offset_spin.value(),
+            "time_unit": self.time_unit_combo.currentText(),
+        }
 
     def _on_x_axis_option_changed(self) -> None:
         """Tmode/Temp.Sort changing live-refreshes whichever plot(s)
@@ -1361,6 +1384,25 @@ class TrXS2Widget(QWidget):
             cmap=self.oned_colormap_combo.currentText(), xlog=xlog, ylog=ylog,
         )
         self._apply_oned_range()
+        self._render_integration()
+
+    @staticmethod
+    def _reset_range(lo_spin, hi_spin, lo: float, hi: float) -> None:
+        for spin, value in ((lo_spin, lo), (hi_spin, hi)):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+
+    def _integ_range(self) -> tuple[float, float]:
+        # The Q or angle window of whichever cut the Integration plot sums
+        # (MATLAB's qMin/qMax, aziMin/aziMax).
+        if ts.get_session().auto_met == "azimuthal":
+            return self.azi_degmin_spin.value(), self.azi_degmax_spin.value()
+        return self.oned_qmin_spin.value(), self.oned_qmax_spin.value()
+
+    def _on_range_changed(self) -> None:
+        self._apply_oned_range()
+        self._apply_azi_range()
         self._render_integration()
 
     def _apply_oned_range(self) -> None:
@@ -1418,7 +1460,7 @@ class TrXS2Widget(QWidget):
         if session.last_1d is None or session.last_1d.get("rendered") is None:
             self._set_status("Run Circular/Line Exec first.", False)
             return
-        matrix = np.asarray(session.last_1d["rendered"], dtype=np.float64)
+        matrix = ts.order_frames(np.asarray(session.last_1d["rendered"], dtype=np.float64))
         self._open_heatmap_dialog("1D Heatmap", session.last_1d["x_axis"], "Q, 1/A", matrix, "1D")
 
     def _on_azi_heatmap_clicked(self) -> None:
@@ -1426,7 +1468,7 @@ class TrXS2Widget(QWidget):
         if session.last_azimuthal is None or session.last_azimuthal.get("rendered") is None:
             self._set_status("Run Azimuthal Exec first.", False)
             return
-        matrix = np.asarray(session.last_azimuthal["rendered"], dtype=np.float64)
+        matrix = ts.order_frames(np.asarray(session.last_azimuthal["rendered"], dtype=np.float64))
         self._open_heatmap_dialog("Azimuthal Heatmap", session.last_azimuthal["x_axis"], "Angle, deg", matrix, "Azimuthal")
 
     def _open_heatmap_dialog(self, title: str, y_axis: np.ndarray, y_label: str, matrix: np.ndarray, kind: str) -> None:
@@ -1708,7 +1750,7 @@ class TrXS2Widget(QWidget):
         # step in gixs2_widget): Save 1D/Azi/Integ. read `x_axis_values`
         # straight from the session, so a pre-refresh length makes them fail.
         if ts.get_session().timestamps is not None:
-            ts.trxs2_set_x_axis({"sub_mode": self.tmode_combo.currentText(), "order": self.temp_sort_check.isChecked()})
+            ts.trxs2_set_x_axis(self._x_axis_payload())
         self._current_image_data = None
         self._render_image()
         if result.get("curve_extended"):
@@ -1727,7 +1769,7 @@ class TrXS2Widget(QWidget):
     def _render_integration(self) -> None:
         session = ts.get_session()
         if session.timestamps is not None:
-            ts.trxs2_set_x_axis({"sub_mode": self.tmode_combo.currentText(), "order": self.temp_sort_check.isChecked()})
+            ts.trxs2_set_x_axis(self._x_axis_payload())
         if session.x_axis_values is None:
             return
         scale = self.integ_scale_combo.currentText()
@@ -1748,11 +1790,13 @@ class TrXS2Widget(QWidget):
             return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None and session.last_azimuthal.get("rendered") is not None:
             with np.errstate(invalid="ignore"):
-                y = np.nansum(ts.order_frames(session.last_azimuthal["rendered"]), axis=1)
+                y = ts.integrate_frames(
+                    ts.order_frames(session.last_azimuthal["rendered"]), session.last_azimuthal["x_axis"], self._integ_range()
+                )
             ylabel = "Integrated Azimuthal, arb. units"
         elif session.last_1d is not None and session.last_1d.get("rendered") is not None:
             with np.errstate(invalid="ignore"):
-                y = np.nansum(ts.order_frames(session.last_1d["rendered"]), axis=1)
+                y = ts.integrate_frames(ts.order_frames(session.last_1d["rendered"]), session.last_1d["x_axis"], self._integ_range())
             ylabel = "Integrated 1D, arb. units"
         else:
             return

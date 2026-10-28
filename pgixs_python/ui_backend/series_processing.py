@@ -103,8 +103,22 @@ def grid_remove_stack(stack: np.ndarray, detector: str) -> tuple[np.ndarray | No
     return np.stack(frames, axis=0), message
 
 
+def counter_reference(counts: np.ndarray | None, method: str) -> float:
+    """The first frame's IC/BC counter, which MATLAB divides every counter
+    by (`normalizePGIXSCounters` with `RefIC`/`RefBC` read from files{1}),
+    so a normalized curve stays on the scale of the first frame's raw one.
+    1 when the first frame has no usable counter (MATLAB keeps the raw
+    counter then)."""
+
+    if counts is None or np.shape(counts)[0] == 0:
+        return 1.0
+    value = float(counts[0, 0 if method == "IC" else 1])
+    return value if np.isfinite(value) and value != 0 else 1.0
+
+
 def normalize_rows_by_counter(matrix: np.ndarray, counts: np.ndarray | None, method: str) -> np.ndarray:
-    """Divide each frame's row by its IC ("IC") or BC (otherwise) counter.
+    """Divide each frame's row by its IC ("IC") or BC (otherwise) counter,
+    taken relative to the first frame's (`counter_reference`).
     A frame without a usable counter (missing, NaN or 0) comes out all-NaN
     rather than raw: a raw row next to normalized ones is off by the
     counter value."""
@@ -113,10 +127,11 @@ def normalize_rows_by_counter(matrix: np.ndarray, counts: np.ndarray | None, met
     if counts is None:
         return out
     column = 0 if method == "IC" else 1
+    reference = counter_reference(counts, method)
     for i, row in enumerate(np.asarray(matrix, dtype=np.float32)):
         count = float(counts[i, column]) if i < counts.shape[0] else float("nan")
         if np.isfinite(count) and count != 0:
-            out[i] = row / np.float32(count)
+            out[i] = row / np.float32(count / reference)
     return out
 
 
@@ -552,15 +567,26 @@ def average_exposure_seconds(timestamps: np.ndarray) -> float:
     return float(np.mean(diffs))
 
 
+# MATLAB's Exp. time / time-offset field (`GX2.hExptime`, `TX2.hExptime`)
+# starts at 1.
+DEFAULT_TIME_OFFSET = 1.0
+
+
 def _time_axis(
-    timestamps: np.ndarray, time_offset_seconds: float | None, time_divisor: float, time_unit: str
+    timestamps: np.ndarray,
+    time_offset: float | None,
+    time_divisor: float,
+    time_unit: str,
+    offset_after_unit: bool = False,
 ) -> tuple[np.ndarray, str]:
+    """`computePGIXSExperimentXAxis.m`'s time axis. GIXS adds the offset in
+    seconds before the unit change, `(dt + ExpTime) / unit`; TrXS
+    (`offset_after_unit`) adds it in the display unit, `dt / unit + offset`."""
+
     ts = np.asarray(timestamps, dtype=np.float64)
-    # `None` means "not explicitly set" -- auto-derive it from this
-    # series' own average frame-to-frame interval (port of GIXS2_gui.m's
-    # manually-typed `GX2.hExptime` field, made automatic here since the
-    # series' own timestamps already carry this information).
-    offset = average_exposure_seconds(ts) if time_offset_seconds is None else time_offset_seconds
+    offset = DEFAULT_TIME_OFFSET if time_offset is None else float(time_offset)
+    # Missing timestamps are filled with the series' own frame interval.
+    interval = average_exposure_seconds(ts)
     finite = np.isfinite(ts)
     if not finite.any():
         # No readable timestamp at all: the frame number is the only honest
@@ -574,15 +600,15 @@ def _time_axis(
         known_index, known = index[finite], ts[finite]
         filled = np.interp(index, known_index, known)
         before, after = index < known_index[0], index > known_index[-1]
-        filled[before] = known[0] - (known_index[0] - index[before]) * offset
-        filled[after] = known[-1] + (index[after] - known_index[-1]) * offset
+        filled[before] = known[0] - (known_index[0] - index[before]) * interval
+        filled[after] = known[-1] + (index[after] - known_index[-1]) * interval
         ts = filled
     # Normally already baseline-relative (the session subtracts the first
     # frame's timestamp at load time, matching MATLAB's
     # `timestamps - timestamps(1)`), so this is a no-op; it only matters when
     # the first frame had none and the rest are still absolute epoch times.
     ts = ts - ts[finite][0]
-    axis = (ts + offset) / time_divisor
+    axis = ts / time_divisor + offset if offset_after_unit else (ts + offset) / time_divisor
     label = f"Time, {_TIME_UNIT_ABBREV.get(time_unit, time_unit)}"
     return axis, label
 
@@ -595,6 +621,7 @@ def compute_experiment_x_axis(
     sub_mode: str = "",
     time_offset_seconds: float | None = None,
     time_unit: str = "second",
+    offset_after_unit: bool = False,
 ) -> tuple[np.ndarray, str]:
     """Port of `computePGIXSExperimentXAxis.m`'s GIXS branch: build the
     series X-axis for whichever insitu mode (`exp_mode`: "Time" /
@@ -611,17 +638,15 @@ def compute_experiment_x_axis(
     using the per-file logged angle here is the natural Phase-1-available
     equivalent for an angle-series experiment).
 
-    `time_offset_seconds=None` (the default) auto-derives the per-frame
-    exposure-time offset from the series' own average frame-to-frame
-    timestamp interval (see `average_exposure_seconds`) rather than
-    requiring it as a manually-typed value (MATLAB's `GX2.hExptime` field) --
-    pass an explicit float to override that.
+    `time_offset_seconds` is MATLAB's Exp. time field (default 1). It is
+    seconds for GIXS; with `offset_after_unit` (TrXS) it is in `time_unit`
+    and added after the unit change -- see `_time_axis`.
     """
 
     time_divisor = _TIME_UNIT_DIVISORS.get(time_unit, 1.0)
 
     if exp_mode == "Time" or sub_mode == "Time":
-        return _time_axis(timestamps, time_offset_seconds, time_divisor, time_unit)
+        return _time_axis(timestamps, time_offset_seconds, time_divisor, time_unit, offset_after_unit)
 
     temps = np.asarray(temperatures, dtype=np.float64)
     n_frames = temps.shape[0] if temps.ndim == 2 else 0
@@ -640,6 +665,20 @@ def compute_experiment_x_axis(
     if temps.ndim != 2 or temps.shape[1] <= column or n_frames == 0:
         raise ValueError(f"Temperature data has no column for x-axis mode '{exp_mode}'/'{sub_mode}'.")
     return temps[:, column], label
+
+
+def integrate_frames(matrix: np.ndarray, axis_values: np.ndarray, axis_range=None) -> np.ndarray:
+    """Per-frame sum over the bins whose Q/angle lies in `axis_range`
+    (lo, hi), as MATLAB's Integration plot and Save Integ. sum only between
+    qMin-qMax / aziMin-aziMax. No range, or hi <= lo, sums every bin."""
+
+    values = np.asarray(matrix, dtype=np.float64)
+    if axis_range is not None:
+        lo, hi = (float(v) for v in axis_range)
+        if hi > lo:
+            axis = np.asarray(axis_values, dtype=np.float64)
+            values = values[:, (axis >= lo) & (axis <= hi)]
+    return np.nansum(values, axis=1)
 
 
 def sort_x_axis(values: np.ndarray, should_sort: bool) -> np.ndarray:

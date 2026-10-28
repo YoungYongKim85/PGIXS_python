@@ -184,6 +184,13 @@ def accumulation_average(
     n_rows, n_cols = image.shape
     beam_y, beam_z = float(center[0]), float(center[1])
     reducer = np.nanmedian if use_median else np.nanmean
+    # The q label is read on the line through the beam, not averaged over
+    # the (possibly shifted) band, as MATLAB `Accumpix_gi` does
+    # (`Qval(beampos_y,:)` / `Qval(:,beampos_x)`): a band moved off the beam
+    # by y/z-pos would otherwise carry the offset's own perpendicular Q
+    # component and plot every peak too high in q.
+    beam_row = max(0, min(n_rows - 1, int(round(beam_z)) - 1))
+    beam_col = max(0, min(n_cols - 1, int(round(beam_y)) - 1))
 
     if angle in (0.0, 180.0):
         # beam_z is 1-based; the slice below is 0-based.
@@ -191,13 +198,12 @@ def accumulation_average(
         row_start = max(0, min(n_rows - 1, int(np.floor(row_center + band_minus))))
         row_end = max(row_start, min(n_rows - 1, int(np.ceil(row_center + band_plus))))
         band = image[row_start : row_end + 1, :]
-        band_q = q[row_start : row_end + 1, :]
         with np.errstate(all="ignore"):
             # A detector column whose entire band is gap/masked pixels is
             # an expected, harmless case near detector edges -- kept as NaN
             # downstream via the `keep` mask below.
             intensity = _reduce_ignoring_empty_slices(band, axis=0, reducer=reducer)
-            mean_q = _reduce_ignoring_empty_slices(band_q, axis=0, reducer=np.nanmean)
+        mean_q = q[beam_row, :]
         finite_counts = np.count_nonzero(np.isfinite(band), axis=0)
         band_width = band.shape[0]
         col_offset = np.arange(1, n_cols + 1, dtype=np.float64) - beam_y
@@ -208,10 +214,9 @@ def accumulation_average(
         col_start = max(0, min(n_cols - 1, int(np.floor(col_center + band_minus))))
         col_end = max(col_start, min(n_cols - 1, int(np.ceil(col_center + band_plus))))
         band = image[:, col_start : col_end + 1]
-        band_q = q[:, col_start : col_end + 1]
         with np.errstate(all="ignore"):
             intensity = _reduce_ignoring_empty_slices(band, axis=1, reducer=reducer)
-            mean_q = _reduce_ignoring_empty_slices(band_q, axis=1, reducer=np.nanmean)
+        mean_q = q[:, beam_col]
         finite_counts = np.count_nonzero(np.isfinite(band), axis=1)
         band_width = band.shape[1]
         row_offset = -(np.arange(1, n_rows + 1, dtype=np.float64) - beam_z)

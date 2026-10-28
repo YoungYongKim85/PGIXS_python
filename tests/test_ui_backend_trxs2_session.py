@@ -884,7 +884,8 @@ def test_trxs2_normalized_matrix_matches_what_save_integ_writes(tmp_path):
 
     normalized = ts.trxs2_normalized_matrix(matrix, "IC")
     for index in range(matrix.shape[0]):
-        np.testing.assert_allclose(normalized[index], matrix[index] / session.counts[index, 0], rtol=1e-6)
+        relative = session.counts[index, 0] / session.counts[0, 0]
+        np.testing.assert_allclose(normalized[index], matrix[index] / relative, rtol=1e-6)
 
 
 def test_trxs2_normalized_matrix_leaves_the_input_alone(tmp_path):

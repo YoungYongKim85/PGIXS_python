@@ -1492,9 +1492,11 @@ def test_gixs2_widget_normalize_combo_applies_live_to_1d_and_azimuthal_curves(qa
     widget.azi_plus_spin.setValue(5.0)
     _exec_azi_sync(widget)
 
+    # The last frame: IC/BC are relative to the first frame's counter (as
+    # in MATLAB), so frame 1 itself is unchanged by normalizing.
     def first_curve_y(canvas):
         lines = [ln for ln in canvas.ax.get_lines() if ln is not canvas._hover_marker]
-        return lines[0].get_ydata().copy()
+        return lines[-1].get_ydata().copy()
 
     none_1d = first_curve_y(widget.oned_canvas)
     none_azi = first_curve_y(widget.azi_canvas)

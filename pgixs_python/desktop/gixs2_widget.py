@@ -107,6 +107,26 @@ def _finite_range(values: np.ndarray) -> tuple[float, float]:
     return lo, hi
 
 
+def _set_range(lo_spin, hi_spin, lo: float, hi: float) -> None:
+    for spin, value in ((lo_spin, lo), (hi_spin, hi)):
+        spin.blockSignals(True)
+        spin.setValue(value)
+        spin.blockSignals(False)
+
+
+def _apply_range(canvas: CurveCanvas, lo_spin, hi_spin, axis_values) -> None:
+    """Zoom `canvas` to the Min-Max fields; 0/0 (or max <= min) fills them
+    with the data's own range instead, as MATLAB sets qMin/qMax (aziMin/
+    aziMax) after every Exec."""
+
+    lo, hi = lo_spin.value(), hi_spin.value()
+    if hi > lo:
+        canvas.ax.set_xlim(lo, hi)
+        canvas.canvas.draw_idle()
+        return
+    _set_range(lo_spin, hi_spin, *_finite_range(np.asarray(axis_values, dtype=np.float64)))
+
+
 def _control_row(layout: QHBoxLayout | QVBoxLayout) -> QWidget:
     """Wrap a viewer's control-row layout (a single QHBoxLayout for most
     viewers, or a QVBoxLayout of stacked QHBoxLayout rows for one that
@@ -396,6 +416,14 @@ class GIXS2Widget(QWidget):
         self.sub_mode_combo = QComboBox()
         self.order_check = QCheckBox("Order")
         layout.addWidget(_row(self.sub_mode_combo, self.order_check))
+        # MATLAB's Exp. time field (seconds, default 1) and time unit: the
+        # Time axis is (t - t1 + Exp. time) / unit.
+        self.time_offset_spin = _double_spin(-1.0e6, 1.0e6, 2, 1.0, 1.0)
+        self.time_unit_combo = QComboBox()
+        self.time_unit_combo.addItems(["second", "min", "hour"])
+        layout.addWidget(_field("Exp. time", self.time_offset_spin, self.time_unit_combo))
+        self.time_offset_spin.editingFinished.connect(self._on_time_option_changed)
+        self.time_unit_combo.currentTextChanged.connect(lambda _t: self._on_time_option_changed())
         self.set_x_axis_button = QPushButton("Set X-Axis")
         self.set_x_axis_button.clicked.connect(self._on_set_x_axis_clicked)
         layout.addWidget(self.set_x_axis_button)
@@ -427,7 +455,10 @@ class GIXS2Widget(QWidget):
         layout.addWidget(_row(self.save_1d_button, self.save_azi_button))
         self.save_integ_button = QPushButton("Save Integ.")
         self.save_integ_button.clicked.connect(
-            lambda: self._save(gs.gixs2_save_integration, self._integ_normalize(), self.integ_canvas)
+            lambda: self._save(
+                lambda payload: gs.gixs2_save_integration({**payload, "range": self._integ_range()}),
+                self._integ_normalize(), self.integ_canvas,
+            )
         )
         self.save_xaxis_button = QPushButton("Save X-Axis")
         self.save_xaxis_button.clicked.connect(lambda: self._save(gs.gixs2_save_x_axis))
@@ -581,7 +612,15 @@ class GIXS2Widget(QWidget):
         oned_ctrl_row1 = QHBoxLayout()
         oned_ctrl_row1.addWidget(_field("Scale", self.oned_scale_combo, label_width=40))
         oned_ctrl_row1.addWidget(_field("Colormap", self.oned_colormap_combo, label_width=60))
+        # Q Min-Max: the Integration plot and Save Integ. sum only this Q
+        # window, as MATLAB's qMin/qMax do. Reset to the data range on
+        # every Exec Cut (0/0 = fill from the data).
+        self.oned_qmin_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
+        self.oned_qmax_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
+        self.oned_qmin_spin.valueChanged.connect(lambda _v: self._on_range_changed())
+        self.oned_qmax_spin.valueChanged.connect(lambda _v: self._on_range_changed())
         oned_ctrl_row2 = QHBoxLayout()
+        oned_ctrl_row2.addWidget(_field("Q Min-Max", self.oned_qmin_spin, self.oned_qmax_spin, label_width=64))
         oned_ctrl_row2.addWidget(self.oned_heatmap_button)
         oned_ctrl.addLayout(oned_ctrl_row1)
         oned_ctrl.addLayout(oned_ctrl_row2)
@@ -606,9 +645,21 @@ class GIXS2Widget(QWidget):
         if azi_cmap_default >= 0:
             self.azi_colormap_combo.setCurrentIndex(azi_cmap_default)
         self.azi_colormap_combo.currentTextChanged.connect(lambda _t: self._render_azimuthal())
-        azi_ctrl = QHBoxLayout()
-        azi_ctrl.addWidget(_field("Colormap", self.azi_colormap_combo, label_width=60))
-        azi_ctrl.addWidget(self.azi_heatmap_button)
+        # Deg Min-Max: same role as Q Min-Max, for the azimuthal profiles.
+        self.azi_degmin_spin = _double_spin(-360.0, 720.0, 1, 0.0, 1.0)
+        self.azi_degmax_spin = _double_spin(-360.0, 720.0, 1, 0.0, 1.0)
+        self.azi_degmin_spin.valueChanged.connect(lambda _v: self._on_range_changed())
+        self.azi_degmax_spin.valueChanged.connect(lambda _v: self._on_range_changed())
+        azi_ctrl = QVBoxLayout()
+        azi_ctrl.setContentsMargins(0, 0, 0, 0)
+        azi_ctrl.setSpacing(2)
+        azi_ctrl_row1 = QHBoxLayout()
+        azi_ctrl_row1.addWidget(_field("Colormap", self.azi_colormap_combo, label_width=60))
+        azi_ctrl_row2 = QHBoxLayout()
+        azi_ctrl_row2.addWidget(_field("Deg Min-Max", self.azi_degmin_spin, self.azi_degmax_spin, label_width=68))
+        azi_ctrl_row2.addWidget(self.azi_heatmap_button)
+        azi_ctrl.addLayout(azi_ctrl_row1)
+        azi_ctrl.addLayout(azi_ctrl_row2)
         azi_ctrl_row = _control_row(azi_ctrl)
         azi_layout.addWidget(azi_ctrl_row)
         bottom.addWidget(azi_group)
@@ -1375,6 +1426,7 @@ class GIXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Exec Cut failed."), False)
             return
+        _set_range(self.oned_qmin_spin, self.oned_qmax_spin, 0.0, 0.0)
         self._render_1d()
         self._set_status(f"1D series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1406,6 +1458,7 @@ class GIXS2Widget(QWidget):
             xlabel="Q, 1/A", ylabel="Intensity, arb. units", colorbar_label=colorbar_label,
             cmap=self.oned_colormap_combo.currentText(), xlog=xlog, ylog=ylog,
         )
+        _apply_range(self.oned_canvas, self.oned_qmin_spin, self.oned_qmax_spin, session.last_1d["x_axis"])
         self._render_integration()
 
     def _series_color_values(self, n_frames: int) -> tuple[np.ndarray, str]:
@@ -1426,7 +1479,7 @@ class GIXS2Widget(QWidget):
 
         session = gs.get_session()
         if session.timestamps is not None:
-            payload = {"sub_mode": self.sub_mode_combo.currentText(), "order": self.order_check.isChecked()}
+            payload = self._x_axis_payload()
             result = gs.gixs2_set_x_axis(payload)
             if result.get("ok") and session.x_axis_values is not None and session.x_axis_values.shape[0] == n_frames:
                 return session.x_axis_values, (session.x_axis_label or "Frame")
@@ -1456,6 +1509,7 @@ class GIXS2Widget(QWidget):
         if not result.get("ok"):
             self._set_status(result.get("message", "Exec Azi failed."), False)
             return
+        _set_range(self.azi_degmin_spin, self.azi_degmax_spin, 0.0, 0.0)
         self._render_azimuthal()
         self._set_status(f"Azimuthal series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1476,6 +1530,7 @@ class GIXS2Widget(QWidget):
             xlabel="Angle, deg", ylabel="Intensity, arb. units", colorbar_label=colorbar_label,
             cmap=self.azi_colormap_combo.currentText(),
         )
+        _apply_range(self.azi_canvas, self.azi_degmin_spin, self.azi_degmax_spin, session.last_azimuthal["x_axis"])
         self._render_integration()
 
     # ------------------------------------------------------------------
@@ -1491,7 +1546,7 @@ class GIXS2Widget(QWidget):
         if session.last_1d is None:
             self._set_status("Run Exec Cut first.", False)
             return
-        matrix = gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+        matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText()))
         self._open_heatmap_dialog(
             "1D Heatmap", session.last_1d["x_axis"], "Q, 1/A", matrix, "1D",
         )
@@ -1501,7 +1556,7 @@ class GIXS2Widget(QWidget):
         if session.last_azimuthal is None:
             self._set_status("Run Exec Azi first.", False)
             return
-        matrix = gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText())
+        matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText()))
         self._open_heatmap_dialog(
             "Azimuthal Heatmap", session.last_azimuthal["x_axis"], "Angle, deg", matrix, "Azimuthal",
         )
@@ -1787,8 +1842,20 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # X-Axis / Auto Refresh
     # ------------------------------------------------------------------
+    def _x_axis_payload(self) -> dict[str, Any]:
+        return {
+            "sub_mode": self.sub_mode_combo.currentText(),
+            "order": self.order_check.isChecked(),
+            "time_offset_seconds": self.time_offset_spin.value(),
+            "time_unit": self.time_unit_combo.currentText(),
+        }
+
+    def _on_time_option_changed(self) -> None:
+        if gs.get_session().timestamps is not None:
+            self._on_set_x_axis_clicked()
+
     def _on_set_x_axis_clicked(self) -> None:
-        payload = {"sub_mode": self.sub_mode_combo.currentText(), "order": self.order_check.isChecked()}
+        payload = self._x_axis_payload()
         result = gs.gixs2_set_x_axis(payload)
         if not result.get("ok"):
             self._set_status(result.get("message", "Set X-Axis failed."), False)
@@ -1867,7 +1934,7 @@ class GIXS2Widget(QWidget):
         # length, `save_series_data` rejects the mismatch and the save fails.
         # MATLAB avoids this by recomputing the axis inline at every save.
         if gs.get_session().timestamps is not None:
-            gs.gixs2_set_x_axis({"sub_mode": self.sub_mode_combo.currentText(), "order": self.order_check.isChecked()})
+            gs.gixs2_set_x_axis(self._x_axis_payload())
         self._current_image_data = None
         self._render_image()
         if result.get("curve_extended"):
@@ -1900,7 +1967,7 @@ class GIXS2Widget(QWidget):
         # Refresh just extended, and the shape guards below silently drop
         # the redraw instead of showing the newly-appended frames.
         if session.timestamps is not None:
-            gs.gixs2_set_x_axis({"sub_mode": self.sub_mode_combo.currentText(), "order": self.order_check.isChecked()})
+            gs.gixs2_set_x_axis(self._x_axis_payload())
         if session.x_axis_values is None:
             return
         scale = self.integ_scale_combo.currentText()
@@ -1925,11 +1992,11 @@ class GIXS2Widget(QWidget):
             return
         elif auto_met == "azimuthal" and session.last_azimuthal is not None:
             matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_azimuthal["intensity"], self.normalize_azi_combo.currentText()))
-            y = np.nansum(matrix, axis=1)
+            y = gs.integrate_frames(matrix, session.last_azimuthal["x_axis"], self._integ_range())
             ylabel = "Integrated Azimuthal, arb. units"
         elif session.last_1d is not None:
             matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText()))
-            y = np.nansum(matrix, axis=1)
+            y = gs.integrate_frames(matrix, session.last_1d["x_axis"], self._integ_range())
             ylabel = "Integrated 1D, arb. units"
         else:
             return
@@ -1942,6 +2009,20 @@ class GIXS2Widget(QWidget):
     # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
+    def _integ_range(self) -> tuple[float, float]:
+        # The Q or angle window of whichever cut the Integration plot sums.
+        if gs.get_session().auto_met == "azimuthal":
+            return self.azi_degmin_spin.value(), self.azi_degmax_spin.value()
+        return self.oned_qmin_spin.value(), self.oned_qmax_spin.value()
+
+    def _on_range_changed(self) -> None:
+        session = gs.get_session()
+        if session.last_1d is not None:
+            _apply_range(self.oned_canvas, self.oned_qmin_spin, self.oned_qmax_spin, session.last_1d["x_axis"])
+        if session.last_azimuthal is not None:
+            _apply_range(self.azi_canvas, self.azi_degmin_spin, self.azi_degmax_spin, session.last_azimuthal["x_axis"])
+        self._render_integration()
+
     def _integ_normalize(self) -> str:
         # The same combo the Integration plot uses for the current mode.
         auto_met = gs.get_session().auto_met
