@@ -4,6 +4,20 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.7 — SDD Send to Main을 MATLAB과 같게 / SDD Send to Main matches MATLAB
+
+**계산 결과는 v0.3.6과 같습니다.** 축약 경로는 바뀌지 않았습니다.
+
+- **SDD Calibration Send to Main:** Y_Plot/Z_Plot을 자를 때의 빔 중심을 기억해, Send to
+  Main이 "그 중심 + 피팅 결과"를 보냅니다(MATLAB `OneDplotpixel_gui`와 같음). 피팅 뒤에
+  중심을 옮겨도 올바른 피크 위치가 나옵니다. v0.3.6에서는 이 경우 "Fit a peak first."로
+  거부했습니다.
+
+SDD Send to Main now adds the fitted offset to the centre the Y/Z_Plot was cut at,
+as MATLAB does, so moving the centre after the fit no longer matters.
+
+---
+
 ## ⚠️ v0.3.6 — Auto Refresh 파일 선택·저장 이름·SDD 중심 수정 / Auto Refresh, save names, SDD centre
 
 전체 로직 점검에서 찾은, **결과를 조용히 틀리게 만들던 문제**들을 고쳤습니다.
