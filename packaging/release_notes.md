@@ -4,6 +4,47 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.3.6 — Auto Refresh 파일 선택·저장 이름·SDD 중심 수정 / Auto Refresh, save names, SDD centre
+
+전체 로직 점검에서 찾은, **결과를 조용히 틀리게 만들던 문제**들을 고쳤습니다.
+
+Fixes from a full logic review — mostly things that silently produced wrong results.
+
+### GIXS-series·TrXS-series
+- **Auto Refresh·Watch가 엉뚱한 파일을 붙이던 문제.** 새 파일을 "불러온 개수 다음
+  순서"로만 골라서, 다음 경우에 틀렸습니다.
+  - Set/Table에서 중간 파일 체크를 빼고 불러오면 같은 파일을 한 번 더 읽어, 이후 모든
+    프레임이 X축과 한 칸씩 어긋났습니다.
+  - 다른 이름으로 Set/Table 목록만 열어 보고 닫아도 그 시리즈 파일이 붙었습니다.
+  - Directory 칸을 다른 폴더로 바꾸면 그 폴더의 같은 이름 파일이 붙었습니다.
+
+  이제 불러온 시리즈의 폴더와 이름 기준으로, 마지막으로 불러온 파일 **다음** 파일만
+  새 파일로 봅니다.
+- **저장 파일 이름.** LOAD DATA로 연 파일 이름으로 저장되어, 다른 시리즈를 불러온 뒤에도
+  예전 시리즈 폴더에 저장(덮어쓰기)되던 문제를 고쳤습니다.
+- 시리즈를 불러올 때 Detector를 바꾸면, 이전 검출기의 Load Info는 다시 하도록 합니다.
+- TrXS-series: 크기가 다른 background는 새 시리즈를 불러올 때 버립니다(Exec 오류 방지).
+- 시간 오프셋 등에 잘못된 값을 넣으면 오류 대신 안내 메시지를 보여줍니다.
+
+### SDD Calibration
+- **Send to Main.** 피팅 후 중심을 옮기고 Send to Main을 누르면, 예전 중심 기준 피팅
+  결과가 새 중심에 더해져 빔 중심이 크게 어긋났습니다. 이제 중심을 옮기면 예전 피팅을
+  버립니다.
+- Smart Auto Run의 링 분산을 MATLAB과 같이 표본 표준편차(N−1)로 계산합니다.
+- `.json` 표준 파일에 빈 값(null)이 있으면 오류 대신 안내 메시지를 보여줍니다.
+
+### 화면
+- z-plot에서 피크를 고르지 않고 다른 곡선을 그린 뒤 클릭하면 입사각이 바뀌던 문제를
+  고쳤습니다(콘솔·GIXS-series).
+- 콘솔 상태줄의 coverage 값을 소수 셋째 자리로 표시하고, 성공한 뒤에도 남던 오류 문구를
+  지웁니다.
+- Detector가 파일과 맞지 않으면 알아보기 쉬운 메시지를 보여줍니다.
+
+**영향 범위:** v0.3.5에서 중간 파일을 빼고 시리즈를 불러온 뒤 Auto Refresh/Watch를
+썼거나, 여러 시리즈를 바꿔 가며 저장했다면 그 결과를 다시 확인하는 것을 권합니다.
+
+---
+
 ## ⚠️ v0.3.5 — 시리즈 검출기 마스크 수정 / Series detector mask fixed
 
 GIXS-series·TrXS-series 탭에서 **LOAD DATA 없이 바로 Set/Table → Load Series로**
