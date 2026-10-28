@@ -103,7 +103,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "PGIXS",
             "CFBundleDisplayName": "PGIXS",
-            "CFBundleShortVersionString": "0.3.11",
+            "CFBundleShortVersionString": "0.3.12",
             "NSHumanReadableCopyright": "Copyright (c) 2026 Pohang Accelerator Laboratory. MIT License.",
             "NSHighResolutionCapable": True,
         },

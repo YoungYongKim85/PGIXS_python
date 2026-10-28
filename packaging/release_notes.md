@@ -4,6 +4,21 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.12 — Smart Auto Run 링 차수 인식 개선 / Smart Auto Run ring orders
+
+- **SDD Calibration의 Smart Auto Run**이 링 차수를 더 정확히 붙입니다.
+  - 전에는 링 후보를 순서대로 1, 2, 3차로 붙여서, 빔스톱 가장자리나 검출기 이음매 같은
+    엉뚱한 피크가 하나 끼면 그 뒤 링이 모두 한 차수씩 밀려 SDD가 1.5~2.5배 틀렸습니다.
+  - 이제 각 차수의 링이 있어야 할 반지름을 예측해 실제로 맞는 후보에만 차수를 붙이고,
+    나머지 피크는 계산에서 뺍니다(후보 표에 "Not in the ring series"로 표시).
+  - 테스트 데이터 표준시료 40개 중 39개가 저장된 SDD와 1% 이내로 맞습니다(전에는 28개).
+- MATLAB 버전(v2.5.1)도 같은 방식으로 바뀌었습니다.
+
+Smart Auto Run now matches ring candidates to the radii each order should
+have, so a stray peak no longer shifts every later ring by one order.
+
+---
+
 ## v0.3.11 — tif 방향·Angle X축 수정 / TIF orientation and Angle X axis fixes
 
 - **tif 이미지 방향**: tif·mat·텍스트 이미지에 H5 전용 축 뒤집기가 잘못 적용되던 문제를 고쳤습니다.
