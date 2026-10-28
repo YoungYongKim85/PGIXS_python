@@ -4,6 +4,21 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.10 — 1D 플롯 Norm(Pt) / Norm(Pt) on the 1D plot
+
+- **GIXS-series·TrXS-series 1D 뷰어에 Norm(Pt) 버튼**을 추가했습니다(MATLAB과 같은 기능).
+  버튼을 누르고 1D 그래프에서 기준 Q를 클릭하면, 각 프레임을 그 Q에서의 값으로 나눠
+  모든 곡선이 그 점에서 1이 됩니다. 버튼을 다시 누르면 원래대로 돌아갑니다.
+  - Save 1D·Save Integ.·Integration·Heatmap에도 같은 값이 쓰입니다.
+  - TrXS-series는 배경도 그 Q에서 1로 맞춘 뒤 뺍니다(MATLAB과 같음).
+  - 고른 Q에 값이 없는 프레임(검출기 갭·마스크)은 그대로 두고, 상태줄에 몇 개인지 표시합니다.
+  - 새로 Exec를 하면 꺼지고, Auto Refresh에서는 유지됩니다.
+
+New Norm(Pt) button on the series 1D viewers: pick a Q and every frame is
+scaled to 1 there (as in MATLAB). Press again to undo.
+
+---
+
 ## v0.3.9 — GIXS-series X축 옵션 즉시 반영 / X-axis options apply at once
 
 - **GIXS-series**의 X-Axis / Auto 패널에서 Sub-mode(LowTemp1/LowTemp2,
