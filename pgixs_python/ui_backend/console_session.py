@@ -58,7 +58,7 @@ from pgixs_python.processing.corrections import (
     detector_correction_factor,
 )
 from pgixs_python.processing.grid_remove import grid_remove
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
+from pgixs_python.processing.masking import detector_mask_for_type, dilate_gap_mask, masked_display_frame
 from pgixs_python.processing.normalization import process_normalization
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.transform import (
@@ -244,14 +244,14 @@ def console_load(payload: dict[str, Any]) -> dict[str, Any]:
             result = load_image_file(file_path)
             data, counts, series_files = result.data, result.counts, [file_path]
         detector_mask = detector_mask_for_type(detector)
-        masked = apply_detector_mask(data, detector_mask.mask)
         # Display/detector-axis convention fix: the raw H5 frame (after
         # `load_h5_frame`'s own transpose) still comes out rotated 90deg
         # relative to the real y/z detector axes for this beamline's data.
         # Transposing once here, before qmap/averaging ever see the array,
         # keeps every downstream consumer (q-map, click-to-pixel, canvas
         # render) consistent -- confirmed against a real Eiger4M frame.
-        masked = np.ascontiguousarray(masked.T)
+        # Other formats are already in that orientation (masked_display_frame).
+        masked = masked_display_frame(data, detector_mask.mask, file_path)
     except Exception as exc:  # noqa: BLE001 - console endpoint must return a visible failure.
         return {"ok": False, "message": str(exc)}
     finally:
@@ -370,8 +370,7 @@ def console_background_load(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             result = load_image_file(file_path)
             data, counts = result.data, result.counts
-        masked = apply_detector_mask(data, _SESSION.mask)
-        masked = np.ascontiguousarray(masked.T)
+        masked = masked_display_frame(data, _SESSION.mask, file_path)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc)}
     finally:
