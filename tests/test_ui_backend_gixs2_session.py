@@ -859,7 +859,8 @@ def test_gixs2_save_integration_uses_active_auto_met(tmp_path):
     result_ic = gs.gixs2_save_integration({"directory": str(out_dir), "normalize": "IC"})
     assert result_ic["ok"], result_ic.get("message")
     ic = np.genfromtxt(result_ic["path"], delimiter=",", skip_header=1)
-    np.testing.assert_allclose(ic[:, -1], raw[:, -1] / np.array([2.0, 4.0]), rtol=1e-5)
+    # Counters relative to the first frame's (2), like MATLAB's RefIC.
+    np.testing.assert_allclose(ic[:, -1], raw[:, -1] / np.array([1.0, 2.0]), rtol=1e-5)
 
 
 def test_gixs2_save_x_axis_writes_a_file(tmp_path):

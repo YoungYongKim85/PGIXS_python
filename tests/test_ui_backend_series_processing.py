@@ -260,15 +260,23 @@ def test_average_exposure_seconds_ignores_non_finite_and_needs_two_points():
     assert average_exposure_seconds(np.array([0.0, np.nan, 10.0])) == pytest.approx(10.0)
 
 
-def test_compute_experiment_x_axis_time_mode_auto_computes_exposure_offset():
-    # No time_offset_seconds given -- auto-derived from the series' own
-    # average frame interval (10s here), not left at 0, since the first
-    # frame's own exposure duration isn't directly known from a single
-    # timestamp. Also confirms the unit now shows up in the label.
+def test_compute_experiment_x_axis_time_mode_default_offset_is_matlabs_one_second():
+    # No time_offset_seconds given -- MATLAB's Exp. time field default, 1 s.
     timestamps = np.array([0.0, 10.0, 20.0])
     values, label = compute_experiment_x_axis("Time", timestamps, np.zeros((3, 3)))
-    np.testing.assert_allclose(values, [10.0, 20.0, 30.0])
+    np.testing.assert_allclose(values, [1.0, 11.0, 21.0])
     assert label == "Time, s"
+
+
+def test_compute_experiment_x_axis_trxs_adds_the_offset_after_the_unit_change():
+    # computeTrXSTimeAxis: dt / unit + offset; GIXS: (dt + offset) / unit.
+    timestamps = np.array([0.0, 60.0, 120.0])
+    trxs, _ = compute_experiment_x_axis(
+        "Time", timestamps, np.zeros((3, 3)), time_offset_seconds=1.0, time_unit="min", offset_after_unit=True
+    )
+    gixs, _ = compute_experiment_x_axis("Time", timestamps, np.zeros((3, 3)), time_offset_seconds=1.0, time_unit="min")
+    np.testing.assert_allclose(trxs, [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(gixs, [1.0 / 60.0, 61.0 / 60.0, 121.0 / 60.0])
 
 
 def test_compute_experiment_x_axis_time_mode_unit_conversion_and_offset():
@@ -299,7 +307,7 @@ def test_compute_experiment_x_axis_temperature_submodes():
 def test_compute_experiment_x_axis_temperature_submode_time_falls_back_to_time_axis():
     timestamps = np.array([0.0, 5.0])
     values, label = compute_experiment_x_axis("Temperature", timestamps, np.zeros((2, 3)), sub_mode="Time")
-    np.testing.assert_allclose(values, [5.0, 10.0])
+    np.testing.assert_allclose(values, [1.0, 6.0])
     assert label == "Time, s"
 
 
@@ -524,7 +532,8 @@ def test_normalize_rows_by_counter_blanks_frames_without_a_counter():
 
     out = normalize_rows_by_counter(matrix, counts, "IC")
 
-    np.testing.assert_allclose(out[[0, 3]], [[5.0] * 3, [2.0] * 3])
+    # Counters are taken relative to the first frame's (2), like MATLAB.
+    np.testing.assert_allclose(out[[0, 3]], [[10.0] * 3, [4.0] * 3])
     assert np.all(np.isnan(out[1:3]))
     assert np.all(np.isnan(normalize_rows_by_counter(matrix, None, "BC")))
 

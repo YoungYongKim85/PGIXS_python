@@ -57,7 +57,9 @@ from pgixs_python.ui_backend.series_processing import (
     apply_correction_to,
     build_circular_radius_map,
     compute_experiment_x_axis,
+    counter_reference,
     grid_remove_stack,
+    integrate_frames,
     normalize_rows_by_counter,
     process_azimuthal_stack,
     process_circular_stack,
@@ -995,7 +997,9 @@ def _background_count_value(method: str) -> float | None:
     if counts.size <= idx:
         return None
     value = float(counts[idx])
-    return value if np.isfinite(value) else None
+    # Relative to the series' first frame, like the frames themselves
+    # (MATLAB normalizes `Countbkg` by the same RefIC/RefBC).
+    return value / counter_reference(_SESSION.counts, method) if np.isfinite(value) else None
 
 
 def _subtract_background(rendered: np.ndarray, bkg: np.ndarray | None, method: str) -> tuple[np.ndarray, str]:
@@ -1074,13 +1078,14 @@ def trxs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         time_offset_seconds = None if raw_offset in (None, "") else float(raw_offset)
     except (TypeError, ValueError):
-        return {"ok": False, "message": "Time offset must be a number of seconds."}
+        return {"ok": False, "message": "Time offset must be a number."}
     time_unit = str(payload.get("time_unit", "second"))
 
     try:
         values, label = compute_experiment_x_axis(
             _SESSION.insitu_mode, _SESSION.timestamps, _SESSION.temperatures,
             sub_mode=sub_mode, time_offset_seconds=time_offset_seconds, time_unit=time_unit,
+            offset_after_unit=True,
         )
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
@@ -1190,7 +1195,8 @@ def trxs2_save_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
 
 def trxs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
     """Save Integ.: whichever of Circular/Line/Azimuthal/ROI is currently
-    active (`auto_met`), summed over its X-axis (rendered matrix for
+    active (`auto_met`), summed over its X-axis within `range` (lo, hi) when
+    given (rendered matrix for
     1D/Azimuthal, freshly-normalized-at-save-time for ROI, matching
     `gixs2_save_integration`'s own ROI branch)."""
 
@@ -1211,14 +1217,18 @@ def trxs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "message": "Run Azimuthal Exec first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = order_frames(np.nansum(_SESSION.last_azimuthal["rendered"], axis=1, keepdims=True)).T
+            matrix = order_frames(integrate_frames(
+                _SESSION.last_azimuthal["rendered"], _SESSION.last_azimuthal["x_axis"], payload.get("range"),
+            ))[None, :]
         columns = ["Integrated_Azimuthal"]
     else:
         if _SESSION.last_1d is None or _SESSION.last_1d.get("rendered") is None:
             return {"ok": False, "message": "Run Circular/Line Exec first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = order_frames(np.nansum(_SESSION.last_1d["rendered"], axis=1, keepdims=True)).T
+            matrix = order_frames(integrate_frames(
+                _SESSION.last_1d["rendered"], _SESSION.last_1d["x_axis"], payload.get("range"),
+            ))[None, :]
         columns = ["Integrated_1D"]
 
     path = _save_path(directory, "_Integ.csv")

@@ -978,7 +978,9 @@ class ConsoleWidget(QWidget):
         sdd = self.sdd_spin.value()
         if sdd == 0:
             return
-        ai = math.degrees(math.atan((self.ai_pix_spin.value() * self._pixel_mm) / sdd)) / 2.0
+        # abs() like MATLAB's CalIncidence callbacks: a z-plot peak picked
+        # below the beam is the same specular distance, not a negative angle.
+        ai = math.degrees(math.atan((abs(self.ai_pix_spin.value()) * self._pixel_mm) / sdd)) / 2.0
         self.ai_deg_spin.blockSignals(True)
         self.ai_deg_spin.setValue(ai)
         self.ai_deg_spin.blockSignals(False)
@@ -991,7 +993,7 @@ class ConsoleWidget(QWidget):
         if self._pixel_mm == 0:
             return
         sdd = self.sdd_spin.value()
-        pix = sdd * math.tan(math.radians(self.ai_deg_spin.value() * 2.0)) / self._pixel_mm
+        pix = abs(sdd * math.tan(math.radians(self.ai_deg_spin.value() * 2.0)) / self._pixel_mm)
         self.ai_pix_spin.blockSignals(True)
         self.ai_pix_spin.setValue(pix)
         self.ai_pix_spin.blockSignals(False)

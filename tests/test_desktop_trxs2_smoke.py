@@ -313,17 +313,19 @@ def test_trxs2_widget_normalize_1d_combo_applies_live(qapp, tmp_path, monkeypatc
     _qcal_sync(widget, monkeypatch)
     _circular_exec_sync(widget, monkeypatch)
 
-    none_y = widget.oned_canvas.ax.get_lines()[0].get_ydata().copy()
+    # The last frame: IC is relative to the first frame's counter (as in
+    # MATLAB), so frame 1 itself is unchanged by normalizing.
+    none_y = widget.oned_canvas.ax.get_lines()[2].get_ydata().copy()
     widget.normalize_1d_combo.setCurrentText("IC")
-    ic_y = widget.oned_canvas.ax.get_lines()[0].get_ydata().copy()
+    ic_y = widget.oned_canvas.ax.get_lines()[2].get_ydata().copy()
     assert not np.allclose(ic_y, none_y)
 
     widget.normalize_1d_combo.setCurrentText("BC")
-    bc_y = widget.oned_canvas.ax.get_lines()[0].get_ydata().copy()
+    bc_y = widget.oned_canvas.ax.get_lines()[2].get_ydata().copy()
     assert not np.allclose(bc_y, ic_y)
 
     widget.normalize_1d_combo.setCurrentText("None")
-    np.testing.assert_allclose(widget.oned_canvas.ax.get_lines()[0].get_ydata(), none_y)
+    np.testing.assert_allclose(widget.oned_canvas.ax.get_lines()[2].get_ydata(), none_y)
 
 
 def test_trxs2_widget_line_exec_clears_std_data(qapp, tmp_path, monkeypatch):

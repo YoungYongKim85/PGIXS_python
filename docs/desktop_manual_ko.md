@@ -361,6 +361,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 ### 4.6 X-Axis / Auto
 
 - **Sub-mode** 콤보(Insitu 선택에 따라 항목이 바뀜) + **Order** 체크박스(X축 값 기준 정렬).
+- **Exp. time** 칸(초, 기본 1) + 단위 콤보(`second`/`min`/`hour`) — 시간 X축은 MATLAB과 같이 `(t − t₁ + Exp. time) / 단위`로 계산한다(10초 간격이면 기본값에서 1, 11, 21 …).
 - **Set X-Axis** 버튼 — 시리즈의 실험 X축(시간/온도/각도/프레임 번호)을 계산해서 확정한다.
 - **Auto Refresh (Find New)** 버튼 — 로드 디렉토리를 다시 스캔해서 아직 안 불러온 새 파일을 찾아 불러오고(백그라운드, 진행률 다이얼로그 "Auto Refresh"), 마지막으로 실행했던 처리(1D 컷 / Azimuthal / ROI)에 이어붙인다. Grid Rmv를 했다면 새 프레임에도 적용된다. **Set / Table로 시리즈를 불러온 뒤에만** 동작한다(LOAD DATA로 한 장만 불러온 상태에서는 거부).
 - **Watch every _N_ s** 체크박스 — in-situ 측정 중 켜 두면 _N_초(기본 10초)마다 폴더를 확인해, 새 파일이 생겼을 때만 Auto Refresh를 자동으로 실행한다. 검출기가 아직 쓰고 있을 수 있으므로 **마지막으로 수정된 지 3초가 지나지 않은 파일은 다음 확인 때로 미룬다.** 다른 작업(로딩, Exec, ROI 그리기 등)이 진행 중이면 그 회차는 건너뛰고, 확장할 시리즈가 없으면 스스로 꺼진다.
@@ -371,7 +372,7 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 - **Save 1D** — 접미사 `_1D.csv`. 첫 컬럼은 `Q_1/A`, 이후 컬럼은 프레임마다 하나씩(시리즈 X축이 설정돼 있으면 그 값, 아니면 `frame1`/`frame2`/… 형식) — Normalize 콤보 설정이 반영된 값. 같은 이름의 `.png`도 함께 저장(현재 1D Plot Viewer 스냅샷).
 - **Save Azi** — 접미사 `_Azi.csv`, 첫 컬럼 `Angle_deg`, 이후는 Save 1D와 같은 프레임별 컬럼 구성. PNG도 함께 저장.
-- **Save Integ.** — 접미사 `_Integ.csv`. 마지막으로 실행한 처리가 무엇이었는지에 따라 컬럼이 달라진다: **ROI**를 마지막에 실행했으면 `ROI1`…`ROIn`(ROI별 프레임당 합계), **Azimuthal**이 마지막이면 `Integrated_Azimuthal`(프레임별 azimuthal 커브의 합), 그 외(1D)면 `Integrated_1D`. PNG도 함께 저장.
+- **Save Integ.** — 접미사 `_Integ.csv`. 마지막으로 실행한 처리가 무엇이었는지에 따라 컬럼이 달라진다: **ROI**를 마지막에 실행했으면 `ROI1`…`ROIn`(ROI별 프레임당 합계), **Azimuthal**이 마지막이면 `Integrated_Azimuthal`(프레임별 azimuthal 커브를 **Deg Min-Max** 범위 안에서 합한 값), 그 외(1D)면 `Integrated_1D`(**Q Min-Max** 범위 안의 합). PNG도 함께 저장.
 - **Save X-Axis** — 접미사 `_XAxis.csv`, 계산된 시리즈 X축 값 자체를 `value` 한 컬럼으로 저장. **PNG는 저장되지 않는다**(다른 Save 버튼과 다른 점).
 
 ### 4.8 오른쪽 패널 — 4분할 뷰어
@@ -380,9 +381,11 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 ![FIGURE 21: GIXS-series -- Frame Viewer (Play) 다이얼로그, 슬라이더로 프레임을 훑어보는 중](figures/fig21.png)
 
-- **1D Plot Viewer** (우상단) — 프레임마다의 1D 컷 커브를 전부 겹쳐서, 시리즈 X축 값 기준 색상(colorbar)으로 표시. Scale(`Linear`/`Logy`/`Logxy`), Colormap, **Heatmap** 버튼(Q vs. X축 히트맵 창).
-- **Azimuthal Plot Viewer** (좌하단) — 프레임별 azimuthal 프로파일을 같은 방식으로 표시. Colormap, **Heatmap** 버튼(Angle vs. X축 히트맵 창).
-- **Series Integration Viewer** (우하단) — 프레임마다 적분값 하나를 X축에 대해 표시. ROI를 마지막으로 실행했으면 ROI별 곡선(색 매칭), 아니면 1D/Azimuthal 커브의 적분값. Scale, **Re-Plot Series** 버튼.
+- **1D Plot Viewer** (우상단) — 프레임마다의 1D 컷 커브를 전부 겹쳐서, 시리즈 X축 값 기준 색상(colorbar)으로 표시. Scale(`Linear`/`Logy`/`Logxy`), Colormap, **Q Min-Max**(Exec Cut마다 데이터 범위로 다시 채워짐), **Heatmap** 버튼(Q vs. X축 히트맵 창).
+- **Azimuthal Plot Viewer** (좌하단) — 프레임별 azimuthal 프로파일을 같은 방식으로 표시. Colormap, **Deg Min-Max**(Exec Azi마다 데이터 범위로 다시 채워짐), **Heatmap** 버튼(Angle vs. X축 히트맵 창).
+- **Series Integration Viewer** (우하단) — 프레임마다 적분값 하나를 X축에 대해 표시. ROI를 마지막으로 실행했으면 ROI별 곡선(색 매칭), 아니면 1D/Azimuthal 커브를 **Q Min-Max / Deg Min-Max 범위 안에서만** 합한 값(MATLAB과 같음 — 피크 하나만 적분하려면 범위를 좁힌다). Scale, **Re-Plot Series** 버튼.
+
+IC/BC 정규화는 MATLAB과 같이 **첫 프레임의 카운터를 기준(1)으로 한 상대값**으로 나눈다. 그래서 정규화한 곡선도 첫 프레임 raw 값과 같은 크기로 나온다.
 
 **Heatmap 다이얼로그** (1D/Azimuthal 공통 구조): Plot Type(`Heatmap`/`Surf`/`Waterfall`), Colormap, X/Y/Z Scale, Curtain Color(`Intensity`/`Frame Index`, Waterfall 전용), X Range/Y Range/Contrast, **Save Image** 버튼. 열었을 때 데이터를 스냅샷하며, 이후 Exec Cut/Exec Azi를 다시 돌려도 실시간으로 갱신되지 않는다.
 
@@ -444,6 +447,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 
 - **Tmode** 콤보 — `Temperature1` / `Temperature2` / `Time` (고정 목록).
 - **Temp.Sort** 체크박스.
+- **Time offset** 칸(기본 1) + 단위 콤보(`second`/`min`/`hour`) — 시간 X축은 MATLAB과 같이 `(t − t₁) / 단위 + offset`으로 계산한다(offset은 선택한 단위로 더해짐).
 - 별도의 "Set X-Axis" 버튼은 없다 — Tmode나 Temp.Sort를 바꾸면 이미 데이터가 있는 1D/Azimuthal 플롯이 즉시 다시 그려진다(그때그때 X축을 계산).
 - **Auto Refresh (Find New)** 버튼 — GIXS-series와 동일한 개념(새 파일 탐색 → 불러오기/처리 → 마지막 처리에 이어붙임).
 - **Watch every _N_ s** 체크박스 — GIXS-series와 동일(주기적으로 새 파일을 확인해 자동으로 Auto Refresh).
@@ -462,7 +466,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 - **2D Image Plot** (좌상단) — GIXS-series와 같은 Scale/Colormap/Contrast/Play 구성. 오버레이는 Circular 섹터 / Line Ang 라인 / Azimuthal 링 중 마지막 것 + ROI 박스.
 - **1D Wave Vector Plot** (우상단) — Circular/Line 중 마지막 실행 결과, Subtraction이 켜져 있으면 실시간 반영. Scale, Colormap, **Q Min-Max** 범위, **Heatmap** 버튼.
 - **Azimuthal Stack Plot** (좌하단) — Scale, Colormap, **Deg Min-Max**(기본 0~360°, GIXS-series의 반원 기본값과 다름), **Heatmap** 버튼.
-- **Integration & ROI Plot** (우하단) — Scale, **Re-Plot Series** 버튼.
+- **Integration & ROI Plot** (우하단) — 1D/Azimuthal 적분은 **Q Min-Max / Deg Min-Max** 범위 안에서만 합한다(Save Integ.도 같음, 두 범위는 Exec마다 데이터 범위로 다시 채워짐). Scale, **Re-Plot Series** 버튼.
 
 Play/Heatmap 다이얼로그의 컨트롤 구성은 GIXS-series와 동일하다.
 

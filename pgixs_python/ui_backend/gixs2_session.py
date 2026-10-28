@@ -50,6 +50,7 @@ from pgixs_python.ui_backend.series_processing import (
     apply_correction_to,
     compute_experiment_x_axis,
     grid_remove_stack,
+    integrate_frames,
     normalize_rows_by_counter,
     process_azimuthal_stack,
     process_linecut_stack,
@@ -1115,7 +1116,8 @@ def gixs2_save_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
 
 def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
     """Save Integ.: whichever of 1D/Azimuthal/ROI is currently active
-    (`Auto.Met`), summed over its X-axis, or the ROI sums directly."""
+    (`Auto.Met`), summed over its X-axis within `range` (lo, hi) when given,
+    or the ROI sums directly."""
 
     directory = str(payload.get("directory", "")).strip()
     if not directory:
@@ -1134,14 +1136,20 @@ def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "message": "Run Exec Azi first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = order_frames(np.nansum(gixs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method), axis=1, keepdims=True)).T
+            matrix = order_frames(integrate_frames(
+                gixs2_normalized_matrix(_SESSION.last_azimuthal["intensity"], method),
+                _SESSION.last_azimuthal["x_axis"], payload.get("range"),
+            ))[None, :]
         columns = ["Integrated_Azimuthal"]
     else:
         if _SESSION.last_1d is None:
             return {"ok": False, "message": "Run Exec Cut first."}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
-            matrix = order_frames(np.nansum(gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method), axis=1, keepdims=True)).T
+            matrix = order_frames(integrate_frames(
+                gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method),
+                _SESSION.last_1d["x_axis"], payload.get("range"),
+            ))[None, :]
         columns = ["Integrated_1D"]
 
     path = _save_path(directory, "_Integ.csv")
