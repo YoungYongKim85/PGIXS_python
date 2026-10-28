@@ -4,6 +4,19 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.9 — GIXS-series X축 옵션 즉시 반영 / X-axis options apply at once
+
+- **GIXS-series**의 X-Axis / Auto 패널에서 Sub-mode(LowTemp1/LowTemp2,
+  Temperature1/2/3 등)를 바꾸거나 **Order**를 켜고 끄면, 1D·Azimuthal·Integration
+  플롯이 바로 새 X축 순서와 색으로 다시 그려집니다. 전에는 **Set X-Axis**를 눌러야
+  반영됐습니다. TrXS-series와 MATLAB은 원래 이렇게 동작했습니다.
+- 계산 결과는 v0.3.8과 같습니다.
+
+In GIXS-series, changing the Sub-mode or toggling Order now redraws the plots
+immediately instead of waiting for Set X-Axis. Results are unchanged from v0.3.8.
+
+---
+
 ## ⚠️ v0.3.8 — MATLAB과 결과 맞추기 / Results aligned with MATLAB
 
 MATLAB 원본과 결과를 하나하나 비교해서, 숫자가 달라지던 곳을 고쳤습니다.
