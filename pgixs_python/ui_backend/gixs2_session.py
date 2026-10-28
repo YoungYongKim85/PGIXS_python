@@ -42,7 +42,7 @@ from pgixs_python.processing.corrections import (
     silicon_efficiency,
     solid_angle,
 )
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
+from pgixs_python.processing.masking import detector_mask_for_type, dilate_gap_mask, masked_display_frame
 from pgixs_python.qmap.gixs import qmap_gixs
 from pgixs_python.qmap.transform import image_transform_q_gi
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
@@ -307,8 +307,7 @@ def gixs2_load(payload: dict[str, Any]) -> dict[str, Any]:
             if detector_mask.mask is not None
             else None
         )
-        masked = apply_detector_mask(result.data, detector_mask.mask)
-        masked = np.ascontiguousarray(masked.T)
+        masked = masked_display_frame(result.data, detector_mask.mask, file_path)
     except Exception as exc:  # noqa: BLE001
         # Nothing replaced yet: a failed load (e.g. the wrong detector) must
         # not leave the previous series with this detector's gap buffer.

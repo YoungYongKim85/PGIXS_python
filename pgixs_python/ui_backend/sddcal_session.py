@@ -38,7 +38,7 @@ from pgixs_python.calibration.ring_candidates import SDDCandidateReport, analyze
 from pgixs_python.calibration.sdd import compute_sdd_from_ring
 from pgixs_python.calibration.standards import standard_q_value
 from pgixs_python.io.image_loader import load_image_file
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type
+from pgixs_python.processing.masking import detector_mask_for_type, masked_display_frame
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
 
 _DETECTOR_INDEX = {
@@ -100,12 +100,12 @@ def sddcal_load(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = load_image_file(file_path)
         detector_mask = detector_mask_for_type(detector)
-        masked = apply_detector_mask(result.data, detector_mask.mask)
         # Same raw-frame axis-transpose fix console_load applies (this
         # beamline's H5 frames come out rotated 90deg relative to the real
         # y/z detector axes) -- keeps SDDcal's pixel convention consistent
-        # with GIXS/TrXS, since they share calibration files.
-        masked = np.ascontiguousarray(masked.T)
+        # with GIXS/TrXS, since they share calibration files. Other formats
+        # are already in that orientation (masked_display_frame).
+        masked = masked_display_frame(result.data, detector_mask.mask, file_path)
     except Exception as exc:  # noqa: BLE001 - surface as a visible failure.
         return {"ok": False, "message": str(exc)}
 

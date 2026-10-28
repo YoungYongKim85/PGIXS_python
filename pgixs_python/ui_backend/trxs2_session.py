@@ -49,7 +49,7 @@ from pgixs_python.processing.corrections import (
     apply_detector_correction,
     detector_correction_factor,
 )
-from pgixs_python.processing.masking import apply_detector_mask, detector_mask_for_type, dilate_gap_mask
+from pgixs_python.processing.masking import detector_mask_for_type, dilate_gap_mask, masked_display_frame
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.trxs import qmap_trxs
 from pgixs_python.ui_backend.preview import downsample_1d_for_json, downsample_2d_for_json
@@ -305,8 +305,7 @@ def trxs2_load(payload: dict[str, Any]) -> dict[str, Any]:
             if detector_mask.mask is not None
             else None
         )
-        masked = apply_detector_mask(result.data, detector_mask.mask)
-        masked = np.ascontiguousarray(masked.T)
+        masked = masked_display_frame(result.data, detector_mask.mask, file_path)
     except Exception as exc:  # noqa: BLE001
         # Nothing replaced yet: a failed load (e.g. the wrong detector) must
         # not leave the previous series with this detector's gap buffer.
@@ -571,8 +570,7 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
             _set_load_progress(idx, total, series_path.name)
             try:
                 result = load_image_file(series_path)
-                masked = apply_detector_mask(result.data, _SESSION.mask)
-                masked = np.ascontiguousarray(masked.T)
+                masked = masked_display_frame(result.data, _SESSION.mask, series_path)
             except Exception:  # noqa: BLE001
                 skipped.append(series_path.name)
                 continue

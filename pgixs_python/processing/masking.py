@@ -41,6 +41,21 @@ def apply_detector_mask(data: np.ndarray, mask: np.ndarray | None) -> np.ndarray
     return out
 
 
+def masked_display_frame(data: np.ndarray, mask: np.ndarray | None, file_path: str | Path) -> np.ndarray:
+    """Mask one loaded image and put it in display orientation.
+
+    H5 frames come out of `load_h5_frame` in the mask's orientation and are
+    transposed for display. TIF/MAT/text images are already in display
+    orientation -- MATLAB uses them as read, and its saved beam centres fit
+    them only untransposed -- so the mask is transposed to them instead.
+    Transposing those too swapped y and z and put the centre hundreds of
+    pixels off, and an Eiger4M TIF did not load at all (shape mismatch)."""
+
+    if Path(file_path).suffix.lower() in {".h5", ".hdf5"}:
+        return np.ascontiguousarray(apply_detector_mask(data, mask).T)
+    return np.ascontiguousarray(apply_detector_mask(data, None if mask is None else np.asarray(mask).T))
+
+
 def mask_zero_to_nan(mask: np.ndarray) -> np.ndarray:
     """Return a float32 mask where non-positive pixels become NaN."""
 
