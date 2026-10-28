@@ -115,15 +115,19 @@ def test_console_normalize_refuses_a_bad_plus_data():
     assert cs.console_normalize({"method": "None", "plus_data": "abc"})["ok"] is False
 
 
-def test_moving_the_sdd_center_drops_the_fit_it_was_measured_from():
+def test_send_to_main_adds_the_offset_to_the_center_the_curve_was_cut_at():
+    """As MATLAB's OneDplotpixel_gui: moving the center after the fit must
+    not move the result (it put the beam 200 px off before)."""
+
     sd.reset_session()
     session = sd.get_session()
-    session.data = np.ones((10, 10), dtype=np.float32)
-    session.center = (1000.0, 1000.0)
-    session.last_curve = {"kind": "yplot", "x": np.arange(3.0), "y": np.arange(3.0)}
-    session.fit_result = {"mode": "single", "center": -599.0, "radius": None}
-    assert sd.sddcal_set_center({"y": 1200, "z": 1000})["ok"]
-    assert sd.sddcal_apply_fit_to_center({})["ok"] is False
+    session.data = np.ones((20, 20), dtype=np.float32)
+    session.center = (10.0, 10.0)
+    assert sd.sddcal_line_cut({"direction": "y"})["ok"]
+    session.fit_result = {"mode": "single", "center": -3.0, "radius": None}
+    assert sd.sddcal_set_center({"y": 15, "z": 10})["ok"]
+    result = sd.sddcal_apply_fit_to_center({})
+    assert result["ok"] and result["center"] == [7.0, 10.0]
 
 
 def test_a_null_in_a_calibration_json_is_a_report_not_a_crash(tmp_path):

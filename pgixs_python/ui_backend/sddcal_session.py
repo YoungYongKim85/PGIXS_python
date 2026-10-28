@@ -149,14 +149,11 @@ def sddcal_load(payload: dict[str, Any]) -> dict[str, Any]:
 def _move_center(y: float, z: float) -> None:
     """Every SDD is measured around the center it was fitted at, so moving
     the center drops it -- Save would otherwise write the new center with
-    an SDD from the old one. The same holds for the curve and its fit: a
-    Y/Z_Plot offset measured from the old center, sent to the new one,
-    put the beam off by however far the center had moved."""
+    an SDD from the old one. (A Y/Z_Plot fit stays usable: its curve keeps
+    the center it was cut at, see sddcal_line_cut.)"""
 
     if (y, z) != tuple(_SESSION.center):
         _SESSION.sdd_result = None
-        _SESSION.last_curve = None
-        _SESSION.fit_result = None
     _SESSION.center = (y, z)
 
 
@@ -197,7 +194,12 @@ def sddcal_line_cut(payload: dict[str, Any]) -> dict[str, Any]:
         values = _SESSION.data[:, target_col - 1]
         x_axis = np.arange(1, rows + 1, dtype=np.float64) - beam_z
 
-    _SESSION.last_curve = {"kind": f"{direction}plot", "x": x_axis, "y": np.asarray(values, dtype=np.float64)}
+    # The x axis is measured from this center: Send to Main adds the fitted
+    # offset to it, not to wherever the center has moved since (MATLAB's
+    # OneDplotpixel_gui keeps the `param` it was opened with the same way).
+    _SESSION.last_curve = {
+        "kind": f"{direction}plot", "x": x_axis, "y": np.asarray(values, dtype=np.float64), "center": (beam_y, beam_z),
+    }
     _SESSION.fit_result = None
 
     return {
@@ -329,7 +331,9 @@ def sddcal_apply_fit_to_center(payload: dict[str, Any]) -> dict[str, Any]:
 
     kind = _SESSION.last_curve["kind"]
     offset = _SESSION.fit_result["center"]
-    beam_y, beam_z = _SESSION.center
+    # The center the curve was cut at (MATLAB: `param.position` of the plot
+    # window), so a center moved since then does not shift the result.
+    beam_y, beam_z = _SESSION.last_curve.get("center", _SESSION.center)
     if kind == "yplot":
         beam_y = beam_y + offset
     elif kind == "zplot":
