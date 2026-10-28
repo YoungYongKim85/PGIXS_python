@@ -395,7 +395,10 @@ def console_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "This data is already background-subtracted/normalized."}
 
     method = str(payload.get("method", "None"))
-    plus_data = float(payload.get("plus_data", 1.0))
+    try:
+        plus_data = float(payload.get("plus_data", 1.0))
+    except (TypeError, ValueError):
+        return {"ok": False, "message": "Plus data must be a number."}
     confirm = bool(payload.get("confirm", False))
 
     preview, report = process_normalization(

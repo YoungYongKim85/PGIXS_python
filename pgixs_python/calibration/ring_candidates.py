@@ -162,7 +162,8 @@ def analyze_sdd_candidates(
         return SDDCandidateReport(candidates=candidates, message="No accepted SDD ring candidates.")
 
     final_sdd = float(np.median(accepted_sdd))
-    spread = float(np.std(accepted_sdd)) if len(accepted_sdd) > 1 else 0.0
+    # Sample std (N-1), as MATLAB analyzePGIXSSDDCandidates.m's `std`.
+    spread = float(np.std(accepted_sdd, ddof=1)) if len(accepted_sdd) > 1 else 0.0
     return SDDCandidateReport(candidates=candidates, final_sdd=final_sdd, sdd_std=spread, accepted_count=len(accepted_sdd))
 
 
@@ -260,7 +261,7 @@ def _score_order_assignment(
     center = float(np.median(accepted_sdd))
     if not np.isfinite(center) or center <= 0:
         return float("inf")
-    rel_spread = 0.25 if n_accepted == 1 else float(np.std(accepted_sdd)) / center
+    rel_spread = 0.25 if n_accepted == 1 else float(np.std(accepted_sdd, ddof=1)) / center  # N-1, as MATLAB
     score = rel_spread - 0.05 * n_accepted + 0.02 * (cand_start - 1)
 
     # Every ring of one standard must report the same SDD, and ring centres

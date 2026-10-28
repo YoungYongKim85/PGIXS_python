@@ -91,6 +91,10 @@ class GIXS2Session:
     # "pvk_om_05_002_30_0001.h5", an angle-scan series where each file's
     # own middle segment varies) can't be recovered that way at all.
     series_filename_prefix: str = ""
+    # The last Set/Table listing's prefix. Load Series adopts it as
+    # `series_filename_prefix`; a listing that is never imported must not
+    # retarget Auto Refresh of the series already loaded.
+    listed_prefix: str = ""
     insitu_mode: str = "Time"
     # Raw (pre-baseline) timestamp of the series' own first frame -- kept
     # separately from `timestamps` (which is stored already baselined to
@@ -355,7 +359,7 @@ def gixs2_list_series_files(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "No files matched this series prefix."}
     # Remembered for Auto Refresh -- see series_filename_prefix's own
     # docstring on why file_paths[0]'s name alone can't always recover it.
-    _SESSION.series_filename_prefix = filename
+    _SESSION.listed_prefix = filename
     return {"ok": True, "files": [f.name for f in files]}
 
 
@@ -432,6 +436,10 @@ def gixs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
     stack = np.ascontiguousarray(np.transpose(result.stack, (0, 2, 1)))
     _SESSION.stack = stack
     if detector_mask is not None:
+        if detector != _SESSION.detector:
+            # Load Info was checked against the previous detector: its beam
+            # centre and SDD do not belong to this one.
+            _SESSION.calibration_loaded = False
         _SESSION.detector = detector
         _SESSION.mask = detector_mask.mask
         _SESSION.gap_buffer = (
@@ -448,6 +456,12 @@ def gixs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.insitu_mode = insitu_mode
     _reset_for_new_series()
     _SESSION.auto_n_old = len(paths)
+    # The Set/Table listing that found these files names the series for
+    # Auto Refresh; a listing of something else does not.
+    listed = _normalize_series_prefix(_SESSION.listed_prefix) if _SESSION.listed_prefix else ""
+    _SESSION.series_filename_prefix = (
+        _SESSION.listed_prefix if listed and all(listed in p.name for p in paths) else ""
+    )
 
     n_load_failed = int(result.retry_failed_frames.size)
     n_meta_failed = int(result.metadata_failed_frames.size)
@@ -973,7 +987,10 @@ def gixs2_set_x_axis(payload: dict[str, Any]) -> dict[str, Any]:
     # from this series' own average frame-to-frame timestamp interval;
     # only an explicit payload value overrides that.
     raw_offset = payload.get("time_offset_seconds")
-    time_offset_seconds = None if raw_offset is None else float(raw_offset)
+    try:
+        time_offset_seconds = None if raw_offset in (None, "") else float(raw_offset)
+    except (TypeError, ValueError):
+        return {"ok": False, "message": "Time offset must be a number of seconds."}
     time_unit = str(payload.get("time_unit", "second"))
 
     # "Change ai" q-Cal computes the *real* per-frame incident angle each
@@ -1054,7 +1071,10 @@ def _save_path(directory: str, suffix: str) -> Path:
     is the fallback for a session that went straight to Import with a
     hand-typed Filename and never ran LOAD DATA."""
 
-    name_source = _SESSION.source_path or (str(_SESSION.file_paths[0]) if _SESSION.file_paths else "")
+    # `file_paths` is what the session holds now (LOAD DATA and Import both
+    # set it); `source_path` stays at the last LOAD DATA even after another
+    # series is imported, and saving under its name overwrote that one's results.
+    name_source = str(_SESSION.file_paths[0]) if _SESSION.file_paths else _SESSION.source_path
     prefix = _normalize_series_prefix(Path(name_source).name) if name_source else "series"
     return Path(directory) / prefix / f"{prefix}{suffix}"
 
@@ -1164,17 +1184,26 @@ def _new_series_files(payload: dict[str, Any]) -> dict[str, Any]:
         # appending the series to it would load that frame twice.
         return {"ok": False, "message": "Import the series via Set/Table first."}
 
-    directory = str(payload.get("directory", str(_SESSION.file_paths[0].parent)))
-    # Prefer the prefix actually typed into the Filename field over
-    # re-deriving one from file_paths[0]'s own name -- see
-    # series_filename_prefix's own docstring.
+    try:
+        settle_seconds = float(payload.get("settle_seconds", 0.0))
+    except (TypeError, ValueError):
+        return {"ok": False, "message": "Settle time must be a number of seconds."}
+    # The series' own folder (never the Directory box, which may point
+    # elsewhere by now) and the prefix it was imported with -- see
+    # series_filename_prefix's own docstring. Only files that sort after the
+    # last one loaded are new: a file left unchecked at Import, or the frames
+    # before an imported block, are not.
+    last = _SESSION.file_paths[-1]
     match_name = _SESSION.series_filename_prefix or _SESSION.file_paths[0].name
     try:
-        all_files = _list_series_files(Path(directory), match_name, _SESSION.file_paths[0].suffix)
+        all_files = _list_series_files(last.parent, match_name, last.suffix)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
-    new_files = settled_files(all_files[_SESSION.auto_n_old:], float(payload.get("settle_seconds", 0.0)))
-    return {"files": new_files, "n_total": _SESSION.auto_n_old + len(new_files)}
+    loaded = set(_SESSION.file_paths)
+    ordered = sorted(set(all_files) | {last}, key=natural_sort_key)
+    after = [f for f in ordered[ordered.index(last) + 1:] if f not in loaded]
+    new_files = settled_files(after, settle_seconds)
+    return {"files": new_files, "n_total": len(_SESSION.file_paths) + len(new_files)}
 
 
 def gixs2_pending_new_files(payload: dict[str, Any]) -> dict[str, Any]:
