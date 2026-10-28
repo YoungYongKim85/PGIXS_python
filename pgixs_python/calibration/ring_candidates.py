@@ -1,12 +1,11 @@
 """Multi-ring SDD candidate search for SDD calibration's "Smart Auto Run".
 
-Ports MATLAB `analyzePGIXSSDDCandidates.m` in full: rough-peak search over
-a radial profile, a Gaussian fit per candidate ring, then `assignRingOrders`'s
-brute-force search over (candidate-start x order-start) combinations,
-scored by `scoreOrderAssignment`, to find the most self-consistent ring
-order assignment (only meaningful for Silver behenate, which has multiple
-observable orders; every other standard sample only ever tries order 1
-starting at the first candidate).
+Same algorithm as MATLAB `analyzePGIXSSDDCandidates.m`: rough-peak search
+over a radial profile, a Gaussian fit per candidate ring, then a search over
+"candidate i is order k" hypotheses. Each hypothesis's SDD predicts every
+order's radius; candidates that land on one join the series, the rest are
+left out, and `_score_order_assignment` picks the hypothesis the most rings
+agree on without unexplained gaps.
 """
 
 from __future__ import annotations
@@ -108,7 +107,6 @@ def analyze_sdd_candidates(
     prominence_fraction: float = 0.03,
     fit_half_width: float = 30.0,
     max_order_start: int = 4,
-    max_skip_candidates: int = 3,
 ) -> SDDCandidateReport:
     """Full port of `analyzePGIXSSDDCandidates.m`."""
 
@@ -143,7 +141,6 @@ def analyze_sdd_candidates(
             )
         )
 
-    max_radius = float(np.nanmax(r_axis)) if r_axis.size else min_radius
     _assign_ring_orders(
         candidates,
         sample_name,
@@ -152,9 +149,9 @@ def analyze_sdd_candidates(
         min_r_square,
         min_coverage,
         max_order_start,
-        max_skip_candidates,
+        r_axis,
+        coverage,
         min_radius,
-        max_radius,
     )
 
     accepted_sdd = [c.sdd for c in candidates if c.accepted and c.sdd is not None]
@@ -181,6 +178,18 @@ def _clone_candidates(candidates: list[RingCandidate]) -> list[RingCandidate]:
     ]
 
 
+# A candidate belongs to an order when its fitted radius lies within this
+# distance of the radius the hypothesis predicts for that order. Real AgBH
+# and SEBS rings fit to well under 1% of the predicted radius; the pixel
+# floor covers small rings whose centre is biased by the beam stop edge.
+RING_MATCH_REL = 0.02
+RING_MATCH_PX = 3.0
+# Standards whose rings are a harmonic series (q, 2q, 3q, ...). Sucrose's
+# other reflections are not multiples of its reference peak, which is its
+# lowest-q ring: it is only ever the first candidate, as order 1.
+HARMONIC_STANDARDS = {"silver behenate", "sebs", "mesoporous silica"}
+
+
 def _assign_ring_orders(
     candidates: list[RingCandidate],
     sample_name: str,
@@ -189,47 +198,106 @@ def _assign_ring_orders(
     min_r_square: float,
     min_coverage: float,
     max_order_start: int,
-    max_skip_candidates: int,
+    r_axis: np.ndarray,
+    coverage: np.ndarray,
     min_radius: float,
-    max_radius: float,
 ) -> None:
-    n = len(candidates)
-    if n == 0:
+    """Pick the ring-order assignment the whole candidate set agrees on.
+
+    Each hypothesis is "candidate i is order k". Its SDD predicts where every
+    order falls; candidates within RING_MATCH_* of a predicted ring take that
+    order. Only the longest run of consecutive orders is kept -- an order may
+    be skipped only where it could not have been seen -- so a beam-stop edge,
+    a detector seam or a far stray peak stays out of the series instead of
+    shifting or stretching it. k > 1 (1st order hidden behind the beam stop)
+    is tried for Silver behenate only, as it is the one standard measured at
+    SDDs that short."""
+
+    if not candidates:
         return
 
-    if str(sample_name).strip().lower() == "silver behenate":
-        order_starts = range(1, max_order_start + 1)
-        candidate_starts = range(1, min(max_skip_candidates, n) + 1)
-    else:
-        order_starts = [1]
-        candidate_starts = [1]
+    sample_key = " ".join(str(sample_name).lower().split())
+    max_order = None if sample_key in HARMONIC_STANDARDS else 1
+    anchor_orders = range(1, (max_order_start if sample_key == "silver behenate" else 1) + 1)
+    max_radius = float(np.nanmax(r_axis)) if r_axis.size else min_radius
 
+    def q_of(order: int) -> float:
+        return standard_q_value(sample_name, order)
+
+    def radius_of(sdd: float, order: int) -> float:
+        try:
+            return predicted_ring_radius(sdd, pixel_size_mm, energy_kev, q_of(order))
+        except (ValueError, ZeroDivisionError):
+            return float("nan")
+
+    def observable(radius: float) -> bool:
+        # A ring here would have been a candidate: inside the analysed range
+        # and on enough of the detector (same coverage rule as the peak search).
+        if not (np.isfinite(radius) and min_radius <= radius <= max_radius):
+            return False
+        return bool(coverage[int(np.argmin(np.abs(r_axis - radius)))] >= min_coverage)
+
+    radii = np.array([c.fitted_radius for c in candidates], dtype=np.float64)
     best_score = float("inf")
     best_trial: list[RingCandidate] | None = None
 
-    for cand_start in candidate_starts:
-        for order_start in order_starts:
+    anchors = radii[np.isfinite(radii)]
+    for anchor_radius in anchors if max_order is None else anchors[:1]:
+        for anchor_order in anchor_orders:
+            try:
+                sdd = compute_sdd_from_ring(anchor_radius, pixel_size_mm, energy_kev, q_of(anchor_order)).sdd
+            except (ValueError, ZeroDivisionError):
+                continue
+            if not np.isfinite(sdd) or sdd <= 0:
+                continue
+            predicted = {}
+            order = 1
+            while max_order is None or order <= max_order:
+                radius = radius_of(sdd, order)
+                if not np.isfinite(radius) or radius > 1.05 * max_radius:
+                    break
+                predicted[order] = radius
+                order += 1
+            if not predicted:
+                continue
+
+            matched: dict[int, int] = {}
+            for row, radius in enumerate(radii):
+                if not np.isfinite(radius):
+                    continue
+                order, expected = min(predicted.items(), key=lambda kv: abs(kv[1] - radius))
+                if abs(radius - expected) <= max(RING_MATCH_REL * expected, RING_MATCH_PX):
+                    matched[row] = order
+
+            runs: list[list[int]] = []
+            for order in sorted(set(matched.values())):
+                if runs and not any(observable(predicted[o]) for o in range(runs[-1][-1] + 1, order)):
+                    runs[-1].append(order)
+                else:
+                    runs.append([order])
+            if not runs:
+                continue
+
             trial = _clone_candidates(candidates)
-            for row in range(cand_start - 1, n):
-                order = order_start + (row - (cand_start - 1))
+            for row, order in matched.items():
                 trial[row].order = order
+                trial[row].q_value = q_of(order)
                 try:
-                    q_value = standard_q_value(sample_name, order)
-                    trial[row].q_value = q_value
-                    trial[row].sdd = compute_sdd_from_ring(trial[row].fitted_radius, pixel_size_mm, energy_kev, q_value).sdd
+                    trial[row].sdd = compute_sdd_from_ring(radii[row], pixel_size_mm, energy_kev, trial[row].q_value).sdd
                 except (ValueError, ZeroDivisionError) as exc:
                     trial[row].message = str(exc)
-                sdd = trial[row].sdd
                 trial[row].accepted = (
-                    sdd is not None
-                    and np.isfinite(sdd)
+                    trial[row].sdd is not None
+                    and np.isfinite(trial[row].sdd)
                     and trial[row].r_square >= min_r_square
                     and trial[row].coverage >= min_coverage
                 )
+            series = max(runs, key=lambda run: (len(run), sum(c.accepted for c in trial if c.order in run)))
+            for c in trial:
+                if c.order is not None and c.order not in series:
+                    c.order, c.q_value, c.sdd, c.accepted = None, None, None, False
 
-            score = _score_order_assignment(
-                trial, cand_start, order_start, sample_name, energy_kev, pixel_size_mm, min_radius, max_radius
-            )
+            score = _score_order_assignment(trial, series, radius_of, observable)
             if score < best_score:
                 best_score = score
                 best_trial = trial
@@ -241,91 +309,48 @@ def _assign_ring_orders(
         candidates[i].q_value = c.q_value
         candidates[i].sdd = c.sdd
         candidates[i].accepted = c.accepted
-        candidates[i].message = "Skipped before selected ring series" if c.order is None else c.message
+        candidates[i].message = "Not in the ring series" if c.order is None else c.message
 
 
-def _score_order_assignment(
-    trial: list[RingCandidate],
-    cand_start: int,
-    order_start: int,
-    sample_name: str,
-    energy_kev: float,
-    pixel_size_mm: float,
-    min_radius: float,
-    max_radius: float,
-) -> float:
+def _score_order_assignment(trial: list[RingCandidate], series: list[int], radius_of, observable) -> float:
+    """Lower is better. Each order in the series counts -1; an order the
+    hypothesis needs below the series but nobody saw counts against it."""
+
     accepted_sdd = [c.sdd for c in trial if c.accepted and c.sdd is not None]
-    n_accepted = len(accepted_sdd)
-    if n_accepted == 0:
+    if not accepted_sdd:
         return float("inf")
     center = float(np.median(accepted_sdd))
     if not np.isfinite(center) or center <= 0:
         return float("inf")
-    rel_spread = 0.25 if n_accepted == 1 else float(np.std(accepted_sdd, ddof=1)) / center  # N-1, as MATLAB
-    score = rel_spread - 0.05 * n_accepted + 0.02 * (cand_start - 1)
+    rel_spread = float(np.std(accepted_sdd, ddof=1)) / center if len(accepted_sdd) > 1 else 0.0  # N-1, as MATLAB
+    # Accepted rings add a little each, weighted by fit quality: between two
+    # otherwise equal readings (a lone sharp ring vs a broad beam-stop edge)
+    # the better-fitting ring wins.
+    score = -len(series) - 0.01 * sum(c.r_square for c in trial if c.accepted) + rel_spread
 
     # Every ring of one standard must report the same SDD, and ring centres
     # fit to a fraction of a pixel, so a correct assignment agrees far better
-    # than a percent. Disagreement past that is not fitting noise -- the
-    # assignment itself is wrong, and that outweighs every other term here.
-    # Raw `rel_spread` could not say so: on an AgBH pattern whose visible
-    # rings are orders 2 and 3, a 167x worse spread (0.04% -> 6.7%) moved the
-    # score by less than the 0.5 plausibility penalty below, so Smart Auto Run
-    # picked the inconsistent "orders 1,2,3" reading. Only the excess over the
-    # tolerance is amplified, leaving the original balance between spread,
-    # ring count and skipped candidates intact for assignments that agree.
+    # than a percent. Disagreement past that means the assignment is wrong.
     spread_tolerance = 0.01
     if rel_spread > spread_tolerance:
         score += 20.0 * (rel_spread - spread_tolerance)
 
-    # order_start > 1 implicitly claims the lower orders (1..order_start-1)
-    # were never even detected as candidates -- e.g. "1st peak hidden
-    # behind the beamstop". With a single visible ring this previously tied
-    # with order_start=1 on every other term, so the search silently kept
-    # whichever order_start happened to be tried first (always 1), even
-    # when the true first-visible ring was actually a higher order.
-    # Check plausibility instead: predict where each "missing" lower order
-    # would fall using this hypothesis's own SDD estimate. A predicted
-    # radius still inside the observable region (>= min_radius) means it
-    # should have shown up as its own candidate but didn't -- contradicts
-    # the hypothesis, so penalize heavily. One that already falls below
-    # min_radius is a genuine, physically consistent explanation for why
-    # it was never detected.
-    if order_start > 1:
-        implausible = 0
-        for missing_order in range(1, order_start):
-            try:
-                q_value = standard_q_value(sample_name, missing_order)
-                radius = predicted_ring_radius(center, pixel_size_mm, energy_kev, q_value)
-            except (ValueError, ZeroDivisionError):
-                continue
-            if np.isfinite(radius) and radius >= min_radius:
-                implausible += 1
-        if implausible:
-            score += 0.5 * implausible
-        else:
-            # Among several self-consistent "hidden lower order" explanations,
-            # prefer the smallest order_start (fewest assumed-hidden rings).
-            score += 0.001 * (order_start - 1)
-    elif len(trial) == 1:
-        # order_start=1 has no lower order to explain, so it always passed
-        # the check above for free -- even when the single visible ring
-        # was actually a higher order with 1st order hidden behind the
-        # beamstop. Silver behenate's order-1 and order-2 rings are
-        # normally comparable in intensity and order 2 sits at a strictly
-        # larger, less-obstructed radius, so if nothing else was found
-        # anywhere in the analyzed range, and order 2's radius (predicted
-        # from this order=1 hypothesis) should have fallen well inside
-        # that range, its absence is itself evidence against order_start=1.
-        try:
-            q_next = standard_q_value(sample_name, 2)
-            radius_next = predicted_ring_radius(center, pixel_size_mm, energy_kev, q_next)
-        except (ValueError, ZeroDivisionError):
-            radius_next = float("nan")
-        if np.isfinite(radius_next) and min_radius <= radius_next <= max_radius:
+    lowest = series[0]
+    for order in range(1, lowest):
+        if observable(radius_of(center, order)):
+            # A lower order that should have been on the detector. One that
+            # falls inside the beam stop region is the normal reason a
+            # pattern starts at order 2.
             score += 0.5
 
-    return score
+    if len(series) == 1 and lowest == 1 and observable(radius_of(center, 2)):
+        # A lone ring read as order 1 claims order 2 was visible but missed.
+        # AgBH orders 1 and 2 are comparably bright and order 2 sits further
+        # from the beam stop, so this weighs as much as a missing lower order.
+        score += 0.5
+
+    # Ties: fewest rings assumed hidden below the series.
+    return score + 0.001 * (lowest - 1)
 
 
 def candidates_to_dicts(report: SDDCandidateReport) -> list[dict[str, Any]]:

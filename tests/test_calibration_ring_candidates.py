@@ -72,9 +72,9 @@ def test_analyze_sdd_candidates_handles_no_peaks():
     assert report.message
 
 
-def test_analyze_sdd_candidates_non_silver_behenate_only_tries_order_one():
-    """Every non-SEBS/SB standard sample has no meaningful multi-order
-    search -- only order 1 starting at the first candidate is tried."""
+def test_analyze_sdd_candidates_sucrose_only_uses_order_one():
+    """Sucrose's other reflections are not multiples of its reference peak,
+    so a lone Sucrose ring is never read as a higher order."""
 
     q1 = standard_q_value("Sucrose", 1)
     r_axis, intensity, coverage = _synthetic_multi_ring_profile([150.0])
@@ -245,3 +245,79 @@ def test_order_assignment_still_reads_a_genuine_first_order_pattern():
     )
 
     assert [c["order"] for c in candidates_to_dicts(report) if c["accepted"]] == [1, 2]
+
+
+def _agbh_radii(true_sdd, orders, energy_kev=9.5, pixel_size_mm=0.075):
+    wavelength = 12.398419843320026 / energy_kev
+    return [
+        true_sdd * np.tan(2.0 * np.arcsin(standard_q_value("Silver behenate", n) * wavelength / (4.0 * np.pi))) / pixel_size_mm
+        for n in orders
+    ]
+
+
+def test_stray_peak_between_rings_does_not_shift_the_orders_after_it():
+    """Regression (testdata GItime, Monoclinic, ...): orders used to go to
+    consecutive candidates, so one stray peak among the rings (a detector
+    seam, the sample's own peak) pushed every later ring up an order and the
+    SDD came out 1.5-2.5x off. The stray peak must just be left out."""
+
+    true_sdd = 300.0
+    radii = _agbh_radii(true_sdd, range(1, 6))
+    stray = (radii[1] + radii[2]) / 2.0 + 7.0
+    r_axis, intensity, coverage = _synthetic_multi_ring_profile(sorted(radii + [stray]), n_bins=600)
+
+    report = analyze_sdd_candidates(r_axis, intensity, coverage, "Silver behenate", 9.5, 0.075)
+
+    rows = {round(c.fitted_radius): c for c in report.candidates}
+    assert rows[round(stray)].order is None and not rows[round(stray)].accepted
+    assert sorted(c.order for c in report.candidates if c.accepted) == [1, 2, 3, 4, 5]
+    assert report.final_sdd == pytest.approx(true_sdd, rel=0.005)
+
+
+def test_sebs_stray_peak_inside_the_first_ring_is_not_order_one():
+    """Regression (testdata SEBS 4 m): a beam-stop-edge peak inside the first
+    SEBS ring became "order 1", the real rings orders 2 and 3, and the SDD
+    came out at half its true value."""
+
+    q1 = standard_q_value("SEBS", 1)
+    wavelength = 12.398419843320026 / 11.25
+    r1 = 4000.0 * np.tan(2.0 * np.arcsin(q1 * wavelength / (4.0 * np.pi))) / 0.075
+    r2 = 4000.0 * np.tan(2.0 * np.arcsin(2 * q1 * wavelength / (4.0 * np.pi))) / 0.075
+    r_axis, intensity, coverage = _synthetic_multi_ring_profile([65.0, r1, r2], n_bins=700)
+
+    report = analyze_sdd_candidates(r_axis, intensity, coverage, "SEBS", 11.25, 0.075)
+
+    assert [c.order for c in report.candidates if c.accepted] == [1, 2]
+    assert report.final_sdd == pytest.approx(4000.0, rel=0.005)
+
+
+def test_doubled_sdd_reading_is_rejected_by_the_empty_odd_orders():
+    """Reading orders 1..4 as 2, 4, 6, 8 fits every ring at twice the SDD;
+    the odd orders it predicts between them were never seen."""
+
+    radii = _agbh_radii(300.0, range(1, 5))
+    r_axis, intensity, coverage = _synthetic_multi_ring_profile(radii, n_bins=500)
+
+    report = analyze_sdd_candidates(r_axis, intensity, coverage, "Silver behenate", 9.5, 0.075)
+
+    assert [c.order for c in report.candidates if c.accepted] == [1, 2, 3, 4]
+
+
+def test_broad_beam_stop_edge_does_not_outrank_a_sharp_lone_ring():
+    """Regression (testdata MesoSi 6.4 m, MX170HS): a broad bump at the beam
+    stop edge and the one sharp ring both read as a lone order 1 equally
+    well; the broad bump won as the first candidate and the SDD came out
+    14x too short. Ties now go to the better-fitting ring."""
+
+    r_axis = np.arange(900, dtype=np.float64) + 0.5
+    intensity = 5.0 + 400.0 * np.exp(-((r_axis - 70.0) ** 2) / (2.0 * 8.0**2))
+    intensity += 500.0 * np.exp(-((r_axis - 400.0) ** 2) / (2.0 * 4.0**2))
+    intensity += np.clip(2.0 * (110.0 - r_axis), 0.0, None)  # slope down from the beam stop
+
+    report = analyze_sdd_candidates(r_axis, intensity, np.ones_like(r_axis), "Mesoporous Silica", 11.09, 0.0886)
+
+    bump = report.candidates[0]
+    assert round(bump.fitted_radius) == 69 and 0.85 <= bump.r_square < 0.99  # a valid, but worse, lone ring
+    accepted = [c for c in report.candidates if c.accepted]
+    assert [round(c.fitted_radius) for c in accepted] == [400]
+    assert accepted[0].order == 1
