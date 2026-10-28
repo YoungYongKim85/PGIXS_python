@@ -416,14 +416,18 @@ class GIXS2Widget(QWidget):
         self.sub_mode_combo = QComboBox()
         self.order_check = QCheckBox("Order")
         layout.addWidget(_row(self.sub_mode_combo, self.order_check))
+        # Like TrXS-series' Tmode/Temp.Sort: changing them re-sorts and
+        # recolours the plots at once, without pressing Set X-Axis.
+        self.sub_mode_combo.currentTextChanged.connect(lambda _t: self._on_x_axis_option_changed())
+        self.order_check.toggled.connect(lambda _c: self._on_x_axis_option_changed())
         # MATLAB's Exp. time field (seconds, default 1) and time unit: the
         # Time axis is (t - t1 + Exp. time) / unit.
         self.time_offset_spin = _double_spin(-1.0e6, 1.0e6, 2, 1.0, 1.0)
         self.time_unit_combo = QComboBox()
         self.time_unit_combo.addItems(["second", "min", "hour"])
         layout.addWidget(_field("Exp. time", self.time_offset_spin, self.time_unit_combo))
-        self.time_offset_spin.editingFinished.connect(self._on_time_option_changed)
-        self.time_unit_combo.currentTextChanged.connect(lambda _t: self._on_time_option_changed())
+        self.time_offset_spin.editingFinished.connect(self._on_x_axis_option_changed)
+        self.time_unit_combo.currentTextChanged.connect(lambda _t: self._on_x_axis_option_changed())
         self.set_x_axis_button = QPushButton("Set X-Axis")
         self.set_x_axis_button.clicked.connect(self._on_set_x_axis_clicked)
         layout.addWidget(self.set_x_axis_button)
@@ -1850,8 +1854,9 @@ class GIXS2Widget(QWidget):
             "time_unit": self.time_unit_combo.currentText(),
         }
 
-    def _on_time_option_changed(self) -> None:
-        if gs.get_session().timestamps is not None:
+    def _on_x_axis_option_changed(self) -> None:
+        # The combo is briefly empty while Insitu refills it.
+        if gs.get_session().timestamps is not None and self.sub_mode_combo.currentText():
             self._on_set_x_axis_clicked()
 
     def _on_set_x_axis_clicked(self) -> None:
