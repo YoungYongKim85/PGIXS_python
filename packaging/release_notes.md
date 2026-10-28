@@ -4,6 +4,35 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## ⚠️ v0.3.8 — MATLAB과 결과 맞추기 / Results aligned with MATLAB
+
+MATLAB 원본과 결과를 하나하나 비교해서, 숫자가 달라지던 곳을 고쳤습니다.
+**IC/BC 정규화 값과 시간 X축 값의 크기가 이전 버전과 달라집니다.**
+
+Fixes from a line-by-line comparison with the MATLAB original. Normalized
+values and time-axis values change scale compared with v0.3.7.
+
+### 고친 문제 / Bugs fixed
+- **Heatmap (GIXS-series·TrXS-series).** Order나 Temp.Sort를 켜면 각 곡선이 다른
+  프레임의 온도·각도 위치에 그려졌습니다. 이제 곡선 플롯과 같은 순서를 따릅니다.
+- **Accumulation cut의 q축 (콘솔·GIXS-series).** y/z-pos로 띠를 옮기면 q가 그
+  이동량만큼 커져서 피크가 높은 q에 찍혔습니다(예: z +200 px에서 약 12%).
+  이제 MATLAB처럼 빔이 지나는 줄에서 q를 읽습니다.
+- **Integration 범위.** 적분 그래프와 Save Integ.가 **Q Min-Max / Deg Min-Max**
+  범위 안만 합합니다(MATLAB과 같음). GIXS-series에 두 칸이 새로 생겼고, 두 탭 모두
+  Exec를 할 때마다 데이터 범위로 다시 채워집니다. 피크 하나만 적분하려면 범위를 좁히면 됩니다.
+
+### MATLAB 방식으로 맞춘 것 / Aligned with MATLAB
+- **IC/BC 정규화**는 첫 프레임의 카운터를 1로 놓은 상대값으로 나눕니다. 정규화한
+  곡선도 첫 프레임 raw 값과 같은 크기로 나옵니다.
+- **시간 X축.** GIXS-series에 **Exp. time**(초, 기본 1), TrXS-series에 **Time offset**
+  (기본 1) 칸과 second/min/hour 단위 선택이 생겼습니다.
+  - GIXS: `(t − t₁ + Exp. time) / 단위` (10초 간격이면 1, 11, 21 …)
+  - TrXS: `(t − t₁) / 단위 + offset`
+- **콘솔 입사각.** 빔 아래쪽을 클릭해도 같은 거리의 양수 각도가 나옵니다.
+
+---
+
 ## v0.3.7 — SDD Send to Main을 MATLAB과 같게 / SDD Send to Main matches MATLAB
 
 **계산 결과는 v0.3.6과 같습니다.** 축약 경로는 바뀌지 않았습니다.
