@@ -1546,3 +1546,33 @@ def test_gixs2_widget_heatmap_buttons_require_exec_first(qapp, tmp_path):
 # this file's existing widget count reliably tipped the whole suite into
 # the native Windows access-violation crash from cumulative Qt/matplotlib
 # widget construction (see git history).
+
+
+def test_gixs2_widget_sub_mode_and_order_rearrange_the_plots_at_once(qapp, tmp_path):
+    """Sub-mode and Order used to take effect only on Set X-Axis; like
+    TrXS-series' Tmode/Temp.Sort they now re-sort the plots immediately."""
+
+    gs.reset_session()
+    widget = GIXS2Widget()
+    widget.insitu_combo.setCurrentText("Temperature")
+    _load_series_into_widget(widget, tmp_path, n_frames=3)
+    session = gs.get_session()
+    # Temperature1 runs 30, 10, 20; Temperature2 runs 1, 3, 2.
+    session.temperatures = np.array([[30.0, 1.0, 0.0], [10.0, 3.0, 0.0], [20.0, 2.0, 0.0]])
+    session.last_1d = {
+        "x_axis": np.array([0.1, 0.2]),
+        "intensity": np.array([[30.0, 30.0], [10.0, 10.0], [20.0, 20.0]], dtype=np.float32),
+    }
+
+    def plotted_first_values():
+        lines = [ln for ln in widget.oned_canvas.ax.get_lines() if ln is not widget.oned_canvas._hover_marker]
+        return [float(ln.get_ydata()[0]) for ln in lines]
+
+    widget.order_check.setChecked(True)
+    assert plotted_first_values() == [10.0, 20.0, 30.0]
+
+    widget.sub_mode_combo.setCurrentText("Temperature2")
+    assert plotted_first_values() == [30.0, 20.0, 10.0]
+
+    widget.order_check.setChecked(False)
+    assert plotted_first_values() == [30.0, 10.0, 20.0]
