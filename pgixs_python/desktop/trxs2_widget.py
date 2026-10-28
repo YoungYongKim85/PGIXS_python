@@ -480,6 +480,14 @@ class TrXS2Widget(QWidget):
         self.oned_qmax_spin = _sci_spin(-1.0e6, 1.0e6, 0.0, 1.0e-4)
         self.oned_qmin_spin.valueChanged.connect(lambda _v: self._on_range_changed())
         self.oned_qmax_spin.valueChanged.connect(lambda _v: self._on_range_changed())
+        # Norm(Pt) (MATLAB): while on, every frame is scaled to 1 at the Q
+        # picked on the 1D plot; turning it off restores the curves.
+        self.oned_normpt_button = QPushButton("Norm(Pt)")
+        self.oned_normpt_button.setCheckable(True)
+        self.oned_normpt_button.setToolTip(
+            "Click, then pick a Q on the 1D plot: every frame is divided by its own value there. Click again to undo."
+        )
+        self.oned_normpt_button.toggled.connect(self._on_norm_point_toggled)
         self.oned_heatmap_button = QPushButton("Heatmap")
         self.oned_heatmap_button.setToolTip("Open a Q vs. X-axis heatmap of every frame's 1D cut.")
         self.oned_heatmap_button.clicked.connect(self._on_1d_heatmap_clicked)
@@ -491,6 +499,7 @@ class TrXS2Widget(QWidget):
         oned_ctrl_row1.addWidget(_field("Colormap", self.oned_colormap_combo, label_width=60))
         oned_ctrl_row2 = QHBoxLayout()
         oned_ctrl_row2.addWidget(_field("Q Min-Max", self.oned_qmin_spin, self.oned_qmax_spin, label_width=64))
+        oned_ctrl_row2.addWidget(self.oned_normpt_button)
         oned_ctrl_row2.addWidget(self.oned_heatmap_button)
         oned_ctrl.addLayout(oned_ctrl_row1)
         oned_ctrl.addLayout(oned_ctrl_row2)
@@ -1256,6 +1265,7 @@ class TrXS2Widget(QWidget):
             self._set_status(result.get("message", "Circular Exec failed."), False)
             return
         self._reset_range(self.oned_qmin_spin, self.oned_qmax_spin, 0.0, 0.0)
+        self._uncheck_norm_point()
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         self._set_status(f"Circular series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1276,6 +1286,7 @@ class TrXS2Widget(QWidget):
             self._set_status(result.get("message", "Line Exec failed."), False)
             return
         self._reset_range(self.oned_qmin_spin, self.oned_qmax_spin, 0.0, 0.0)
+        self._uncheck_norm_point()
         self._refresh_1d({"normalize": self.normalize_1d_combo.currentText(), "subtract": self.subtract_check.isChecked()})
         self._set_status(f"1D Line series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1308,6 +1319,47 @@ class TrXS2Widget(QWidget):
     # redrawing matplotlib with whatever `session.last_1d["rendered"]`/
     # `last_azimuthal["rendered"]` ends up holding.
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Norm(Pt)
+    # ------------------------------------------------------------------
+    def _on_norm_point_toggled(self, on: bool) -> None:
+        self._disarm_norm_point()
+        if on:
+            if ts.get_session().last_1d is None:
+                self._uncheck_norm_point()
+                self._set_status("Run Circular/Line Exec first.", False)
+                return
+            self.oned_canvas.point_clicked.connect(self._on_norm_point_picked)
+            self._set_status("Norm(Pt): click the reference Q on the 1D plot.", True)
+            return
+        result = ts.trxs2_set_norm_point({"x": None})
+        if result.get("ok"):
+            self._render_1d_curve()
+            self._set_status("Norm(Pt) off.", True)
+
+    def _on_norm_point_picked(self, x: float, _y: float) -> None:
+        self._disarm_norm_point()
+        result = ts.trxs2_set_norm_point({"x": x})
+        if not result.get("ok"):
+            self._uncheck_norm_point()
+            self._set_status(result.get("message", "Norm(Pt) failed."), False)
+            return
+        self._render_1d_curve()
+        self._set_status(result["message"], result["unscaled"] == 0)
+
+    def _disarm_norm_point(self) -> None:
+        try:
+            self.oned_canvas.point_clicked.disconnect(self._on_norm_point_picked)
+        except (TypeError, RuntimeError):
+            pass
+
+    def _uncheck_norm_point(self) -> None:
+        # A new Exec starts without the point, so the button follows.
+        self._disarm_norm_point()
+        self.oned_normpt_button.blockSignals(True)
+        self.oned_normpt_button.setChecked(False)
+        self.oned_normpt_button.blockSignals(False)
+
     def _refresh_1d(self, payload: dict[str, Any] | None = None) -> None:
         result = ts.trxs2_render_1d(dict(payload or {}))
         if not result.get("ok"):

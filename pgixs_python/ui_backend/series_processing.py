@@ -681,6 +681,44 @@ def integrate_frames(matrix: np.ndarray, axis_values: np.ndarray, axis_range=Non
     return np.nansum(values, axis=1)
 
 
+def normalize_at_point(matrix: np.ndarray, axis_values: np.ndarray, point: float) -> np.ndarray:
+    """MATLAB's Norm(Pt): divide each frame (row) by its own value at the
+    bin nearest `point`, so every curve passes through 1 there. A frame
+    whose value there is NaN or 0 is left unscaled
+    (`sanitizePGIXSScaleFactors`)."""
+
+    values = np.asarray(matrix, dtype=np.float64)
+    axis = np.asarray(axis_values, dtype=np.float64)
+    index = int(np.nanargmin(np.abs(axis - float(point))))
+    factors = values[:, index].copy()
+    factors[~np.isfinite(factors) | (factors == 0)] = 1.0
+    return values / factors[:, np.newaxis]
+
+
+def frames_without_value_at(matrix: np.ndarray, axis_values: np.ndarray, point: float) -> int:
+    """How many frames `normalize_at_point` leaves unscaled (NaN or 0 at
+    the point, e.g. a detector gap), so the UI can say so."""
+
+    values = np.asarray(matrix, dtype=np.float64)
+    axis = np.asarray(axis_values, dtype=np.float64)
+    column = values[:, int(np.nanargmin(np.abs(axis - float(point))))]
+    return int(np.count_nonzero(~np.isfinite(column) | (column == 0)))
+
+
+def norm_point_message(point: float, unscaled: int, n_frames: int) -> str:
+    if unscaled == 0:
+        return f"Norm(Pt): every frame scaled to 1 at Q = {point:.4g} 1/A."
+    return (
+        f"Norm(Pt) at Q = {point:.4g} 1/A: {unscaled} of {n_frames} frame(s) have no value there "
+        "(gap or mask) and were left unscaled -- pick another Q."
+    )
+
+
+def nearest_axis_value(axis_values: np.ndarray, point: float) -> float:
+    axis = np.asarray(axis_values, dtype=np.float64)
+    return float(axis[int(np.nanargmin(np.abs(axis - float(point))))])
+
+
 def sort_x_axis(values: np.ndarray, should_sort: bool) -> np.ndarray:
     """Order indices for `values`, matching `sortPGIXSXAxis.m`: the
     T.Order/A.Order checkbox is a plain on/off for an ascending numeric

@@ -381,7 +381,8 @@ GIXS의 시리즈(여러 프레임을 한 번에) 버전이다. 시간/온도/�
 
 ![FIGURE 21: GIXS-series -- Frame Viewer (Play) 다이얼로그, 슬라이더로 프레임을 훑어보는 중](figures/fig21.png)
 
-- **1D Plot Viewer** (우상단) — 프레임마다의 1D 컷 커브를 전부 겹쳐서, 시리즈 X축 값 기준 색상(colorbar)으로 표시. Scale(`Linear`/`Logy`/`Logxy`), Colormap, **Q Min-Max**(Exec Cut마다 데이터 범위로 다시 채워짐), **Heatmap** 버튼(Q vs. X축 히트맵 창).
+- **1D Plot Viewer** (우상단) — 프레임마다의 1D 컷 커브를 전부 겹쳐서, 시리즈 X축 값 기준 색상(colorbar)으로 표시. Scale(`Linear`/`Logy`/`Logxy`), Colormap, **Q Min-Max**(Exec Cut마다 데이터 범위로 다시 채워짐), **Norm(Pt)** 버튼, **Heatmap** 버튼(Q vs. X축 히트맵 창).
+  - **Norm(Pt)** — 버튼을 누른 뒤 1D 그래프에서 기준 Q를 클릭하면, 각 프레임을 그 Q에서의 자기 값으로 나눠 모든 곡선이 그 점에서 1이 되게 한다(MATLAB의 Norm(Pt)와 같음). 저장(Save 1D/Integ.)·Integration·Heatmap에도 그대로 반영된다. 버튼을 다시 누르면 원래대로 돌아가고, 새로 Exec Cut을 하면 꺼진다(Auto Refresh는 유지). 고른 Q에 값이 없는 프레임(검출기 갭·마스크)은 나누지 않고 그대로 두며, 상태줄에 몇 개가 그랬는지 표시한다.
 - **Azimuthal Plot Viewer** (좌하단) — 프레임별 azimuthal 프로파일을 같은 방식으로 표시. Colormap, **Deg Min-Max**(Exec Azi마다 데이터 범위로 다시 채워짐), **Heatmap** 버튼(Angle vs. X축 히트맵 창).
 - **Series Integration Viewer** (우하단) — 프레임마다 적분값 하나를 X축에 대해 표시. ROI를 마지막으로 실행했으면 ROI별 곡선(색 매칭), 아니면 1D/Azimuthal 커브를 **Q Min-Max / Deg Min-Max 범위 안에서만** 합한 값(MATLAB과 같음 — 피크 하나만 적분하려면 범위를 좁힌다). Scale, **Re-Plot Series** 버튼.
 
@@ -464,7 +465,7 @@ TrXS의 시리즈 버전. 구조는 GIXS-series와 비슷하지만 normal-incide
 ### 5.9 오른쪽 패널 — 4분할 뷰어
 
 - **2D Image Plot** (좌상단) — GIXS-series와 같은 Scale/Colormap/Contrast/Play 구성. 오버레이는 Circular 섹터 / Line Ang 라인 / Azimuthal 링 중 마지막 것 + ROI 박스.
-- **1D Wave Vector Plot** (우상단) — Circular/Line 중 마지막 실행 결과, Subtraction이 켜져 있으면 실시간 반영. Scale, Colormap, **Q Min-Max** 범위, **Heatmap** 버튼.
+- **1D Wave Vector Plot** (우상단) — Circular/Line 중 마지막 실행 결과, Subtraction이 켜져 있으면 실시간 반영. Scale, Colormap, **Q Min-Max** 범위, **Norm(Pt)** 버튼(GIXS-series와 같음 — 배경도 그 Q에서 1로 맞춘 뒤 빼서 MATLAB의 Normalize 버튼과 같다), **Heatmap** 버튼.
 - **Azimuthal Stack Plot** (좌하단) — Scale, Colormap, **Deg Min-Max**(기본 0~360°, GIXS-series의 반원 기본값과 다름), **Heatmap** 버튼.
 - **Integration & ROI Plot** (우하단) — 1D/Azimuthal 적분은 **Q Min-Max / Deg Min-Max** 범위 안에서만 합한다(Save Integ.도 같음, 두 범위는 Exec마다 데이터 범위로 다시 채워짐). Scale, **Re-Plot Series** 버튼.
 

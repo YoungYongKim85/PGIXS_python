@@ -600,6 +600,14 @@ class GIXS2Widget(QWidget):
         if oned_cmap_default >= 0:
             self.oned_colormap_combo.setCurrentIndex(oned_cmap_default)
         self.oned_colormap_combo.currentTextChanged.connect(lambda _t: self._render_1d())
+        # Norm(Pt) (MATLAB): while on, every frame is scaled to 1 at the Q
+        # picked on the 1D plot; turning it off restores the curves.
+        self.oned_normpt_button = QPushButton("Norm(Pt)")
+        self.oned_normpt_button.setCheckable(True)
+        self.oned_normpt_button.setToolTip(
+            "Click, then pick a Q on the 1D plot: every frame is divided by its own value there. Click again to undo."
+        )
+        self.oned_normpt_button.toggled.connect(self._on_norm_point_toggled)
         self.oned_heatmap_button = QPushButton("Heatmap")
         self.oned_heatmap_button.setToolTip("Open a Q vs. X-axis heatmap of every frame's 1D cut (port of MATLAB's HeatmapQ_gui).")
         self.oned_heatmap_button.clicked.connect(self._on_1d_heatmap_clicked)
@@ -625,6 +633,7 @@ class GIXS2Widget(QWidget):
         self.oned_qmax_spin.valueChanged.connect(lambda _v: self._on_range_changed())
         oned_ctrl_row2 = QHBoxLayout()
         oned_ctrl_row2.addWidget(_field("Q Min-Max", self.oned_qmin_spin, self.oned_qmax_spin, label_width=64))
+        oned_ctrl_row2.addWidget(self.oned_normpt_button)
         oned_ctrl_row2.addWidget(self.oned_heatmap_button)
         oned_ctrl.addLayout(oned_ctrl_row1)
         oned_ctrl.addLayout(oned_ctrl_row2)
@@ -1332,8 +1341,51 @@ class GIXS2Widget(QWidget):
         # before a peak was ever picked -- point_clicked.connect() would
         # otherwise stack a second handler and double-fire the next click.
         self._disarm_zplot()
+        self._disarm_norm_point()
         self.oned_canvas.point_clicked.connect(self._on_zplot_curve_clicked)
         self._set_status("Click the specular peak on the 1D Plot Viewer.", True)
+
+    # ------------------------------------------------------------------
+    # Norm(Pt)
+    # ------------------------------------------------------------------
+    def _on_norm_point_toggled(self, on: bool) -> None:
+        self._disarm_norm_point()
+        if on:
+            if gs.get_session().last_1d is None:
+                self._uncheck_norm_point()
+                self._set_status("Run Exec Cut first.", False)
+                return
+            self._disarm_zplot()
+            self.oned_canvas.point_clicked.connect(self._on_norm_point_picked)
+            self._set_status("Norm(Pt): click the reference Q on the 1D plot.", True)
+            return
+        result = gs.gixs2_set_norm_point({"x": None})
+        if result.get("ok"):
+            self._render_1d()
+            self._set_status("Norm(Pt) off.", True)
+
+    def _on_norm_point_picked(self, x: float, _y: float) -> None:
+        self._disarm_norm_point()
+        result = gs.gixs2_set_norm_point({"x": x})
+        if not result.get("ok"):
+            self._uncheck_norm_point()
+            self._set_status(result.get("message", "Norm(Pt) failed."), False)
+            return
+        self._render_1d()
+        self._set_status(result["message"], result["unscaled"] == 0)
+
+    def _disarm_norm_point(self) -> None:
+        try:
+            self.oned_canvas.point_clicked.disconnect(self._on_norm_point_picked)
+        except (TypeError, RuntimeError):
+            pass
+
+    def _uncheck_norm_point(self) -> None:
+        # A new Exec starts without the point, so the button follows.
+        self._disarm_norm_point()
+        self.oned_normpt_button.blockSignals(True)
+        self.oned_normpt_button.setChecked(False)
+        self.oned_normpt_button.blockSignals(False)
 
     def _disarm_zplot(self) -> None:
         try:
@@ -1431,6 +1483,7 @@ class GIXS2Widget(QWidget):
             self._set_status(result.get("message", "Exec Cut failed."), False)
             return
         _set_range(self.oned_qmin_spin, self.oned_qmax_spin, 0.0, 0.0)
+        self._uncheck_norm_point()
         self._render_1d()
         self._set_status(f"1D series: {result['n_frames']} frames x {result['n_points']} points.", True)
 
@@ -1451,7 +1504,7 @@ class GIXS2Widget(QWidget):
         if session.last_1d is None:
             return
         matrix = gs.order_frames(
-            gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText())
+            gs.gixs2_1d_matrix(self.normalize_1d_combo.currentText())
         )
         color_values, colorbar_label = self._series_color_values(matrix.shape[0])
         scale = self.oned_scale_combo.currentText()
@@ -1550,7 +1603,7 @@ class GIXS2Widget(QWidget):
         if session.last_1d is None:
             self._set_status("Run Exec Cut first.", False)
             return
-        matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText()))
+        matrix = gs.order_frames(gs.gixs2_1d_matrix(self.normalize_1d_combo.currentText()))
         self._open_heatmap_dialog(
             "1D Heatmap", session.last_1d["x_axis"], "Q, 1/A", matrix, "1D",
         )
@@ -2000,7 +2053,7 @@ class GIXS2Widget(QWidget):
             y = gs.integrate_frames(matrix, session.last_azimuthal["x_axis"], self._integ_range())
             ylabel = "Integrated Azimuthal, arb. units"
         elif session.last_1d is not None:
-            matrix = gs.order_frames(gs.gixs2_normalized_matrix(session.last_1d["intensity"], self.normalize_1d_combo.currentText()))
+            matrix = gs.order_frames(gs.gixs2_1d_matrix(self.normalize_1d_combo.currentText()))
             y = gs.integrate_frames(matrix, session.last_1d["x_axis"], self._integ_range())
             ylabel = "Integrated 1D, arb. units"
         else:
