@@ -4,6 +4,21 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.11 — tif 방향·Angle X축 수정 / TIF orientation and Angle X axis fixes
+
+- **tif 이미지 방향**: tif·mat·텍스트 이미지에 H5 전용 축 뒤집기가 잘못 적용되던 문제를 고쳤습니다.
+  - Eiger4M tif가 열리지 않던 문제, MX170HS tif의 y·z가 바뀌어 중심이 어긋나던 문제가 해결됩니다.
+  - SDD Calibration, GIXS·TrXS 콘솔, 배경 불러오기에 모두 적용됩니다.
+  - 같은 표준시료의 h5와 tif가 똑같이 열립니다.
+- **Angle 모드 X축**: H5에 각도가 기록되지 않은 시리즈에서 X축이 비어 있던 문제를 고쳤습니다.
+  MATLAB처럼 프레임 번호(1, 2, 3, …)를 X축으로 씁니다.
+
+TIF/MAT/text images now load in their own orientation (Eiger4M TIFs open,
+MX170HS TIFs no longer swap y and z). Series X axes fall back to frame numbers
+when the chosen value was never logged.
+
+---
+
 ## v0.3.10 — 1D 플롯 Norm(Pt) / Norm(Pt) on the 1D plot
 
 - **GIXS-series·TrXS-series 1D 뷰어에 Norm(Pt) 버튼**을 추가했습니다(MATLAB과 같은 기능).
