@@ -1357,6 +1357,7 @@ class ConsoleWidget(QWidget):
             self._progress_dialog = None
 
     def _on_load_finished(self, payload: dict[str, Any]) -> None:
+        self._zplot_active = False  # that profile was of the old image
         self._activate()
         self._stop_progress_dialog()
         self.load_button.setEnabled(True)
@@ -1861,6 +1862,9 @@ class ConsoleWidget(QWidget):
         through here so the ColorScale-style X/Y log toggles apply
         uniformly, not just to whichever curve happened to be plotted
         last."""
+        # A new curve ends a pending z-plot pick (the z-plot re-arms it right
+        # after): a click on a Q or angle curve must not set the incidence.
+        self._zplot_active = False
 
         self.curve_canvas.render(
             x,

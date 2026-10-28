@@ -1276,18 +1276,18 @@ class GIXS2Widget(QWidget):
         # Guard against a duplicate connection if Z-Plot is clicked again
         # before a peak was ever picked -- point_clicked.connect() would
         # otherwise stack a second handler and double-fire the next click.
-        try:
-            self.oned_canvas.point_clicked.disconnect(self._on_zplot_curve_clicked)
-        except (TypeError, RuntimeError):
-            pass
+        self._disarm_zplot()
         self.oned_canvas.point_clicked.connect(self._on_zplot_curve_clicked)
         self._set_status("Click the specular peak on the 1D Plot Viewer.", True)
 
-    def _on_zplot_curve_clicked(self, x: float, _y: float) -> None:
+    def _disarm_zplot(self) -> None:
         try:
             self.oned_canvas.point_clicked.disconnect(self._on_zplot_curve_clicked)
         except (TypeError, RuntimeError):
             pass
+
+    def _on_zplot_curve_clicked(self, x: float, _y: float) -> None:
+        self._disarm_zplot()
         self.ai_pix_spin.setValue(abs(x))
         self._on_ai_pix_changed()
 
@@ -1387,6 +1387,9 @@ class GIXS2Widget(QWidget):
         edges) and is a poor choice for the sequential Time/Temperature
         progression this plot exists to show -- the Colormap combo lets the
         user pick a different one."""
+        # The cuts replace the z-plot profile: a click on them must not
+        # set the incidence angle (the pick was left unmade).
+        self._disarm_zplot()
 
         session = gs.get_session()
         if session.last_1d is None:

@@ -62,7 +62,8 @@ def load_standard_calibration(
         return None, report
 
     required = ["pc", "wavelength", "pixelsize", "sdd"]
-    missing = [name for name in required if name not in raw]
+    # A NaN saved to .json comes back as null: as good as missing.
+    missing = [name for name in required if raw.get(name) is None]
     if missing:
         report.missing_required = missing
         report.message = f"Missing required calibration field(s): {', '.join(missing)}"
@@ -74,8 +75,21 @@ def load_standard_calibration(
         report.message = f"Detector mismatch: expected {expected_detector}, file contains {detector}."
         return None, report
 
-    wavelength = _to_float(raw["wavelength"])
-    calibration = StandardCalibration(
+    try:
+        wavelength = _to_float(raw["wavelength"])
+        calibration = _build_calibration(raw, wavelength, detector)
+    except (TypeError, ValueError) as exc:  # e.g. a null inside pc
+        report.message = f"Unreadable calibration value: {exc}"
+        return None, report
+    if calibration.beam_center.size < 2 or not np.all(np.isfinite(calibration.beam_center[:2])):
+        report.message = "The beam center (pc) in this file is not a number."
+        return None, report
+    report.ok = True
+    return calibration, report
+
+
+def _build_calibration(raw: dict[str, Any], wavelength: float, detector: str) -> StandardCalibration:
+    return StandardCalibration(
         beam_center=_as_1d_float_array(raw["pc"]),
         wavelength=wavelength,
         pixel_size=_to_float(raw["pixelsize"]),
@@ -89,8 +103,6 @@ def load_standard_calibration(
         diagnostics=_to_plain_dict(raw.get("SDDDiagnostics", {})),
         raw=raw,
     )
-    report.ok = True
-    return calibration, report
 
 
 def save_standard_calibration_json(file_path: str | Path, calibration: StandardCalibration) -> None:

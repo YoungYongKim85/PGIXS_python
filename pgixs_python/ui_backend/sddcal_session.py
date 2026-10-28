@@ -149,10 +149,14 @@ def sddcal_load(payload: dict[str, Any]) -> dict[str, Any]:
 def _move_center(y: float, z: float) -> None:
     """Every SDD is measured around the center it was fitted at, so moving
     the center drops it -- Save would otherwise write the new center with
-    an SDD from the old one."""
+    an SDD from the old one. The same holds for the curve and its fit: a
+    Y/Z_Plot offset measured from the old center, sent to the new one,
+    put the beam off by however far the center had moved."""
 
     if (y, z) != tuple(_SESSION.center):
         _SESSION.sdd_result = None
+        _SESSION.last_curve = None
+        _SESSION.fit_result = None
     _SESSION.center = (y, z)
 
 

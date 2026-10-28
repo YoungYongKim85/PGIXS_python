@@ -2,6 +2,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 import pytest
 
 pytest.importorskip("PySide6")
@@ -178,3 +179,26 @@ def test_watch_auto_refreshes_new_frames_by_itself(qapp, tmp_path, tab):
     assert session_module.get_session().stack.shape[0] == 3
     widget.watch_check.setChecked(False)
     widget._auto_refresh_thread.wait(2000)
+
+
+def test_a_new_curve_ends_a_pending_z_plot_pick(qapp):
+    """z-plot left unpicked, then another curve drawn: a click on that curve
+    must not overwrite the incidence angle."""
+
+    console = ConsoleWidget(gixs_config())
+    console._zplot_active = True
+    ai_deg = console.ai_deg_spin.value()
+    console._render_curve(np.linspace(0.0, 360.0, 10), np.ones(10), xlabel="Angle, deg")
+    console._on_curve_clicked(45.0, 1.0)
+    assert console.ai_deg_spin.value() == ai_deg
+
+
+def test_series_cuts_disarm_a_pending_z_plot_pick(qapp):
+    from pgixs_python.desktop.gixs2_widget import GIXS2Widget
+
+    widget = GIXS2Widget()
+    widget.oned_canvas.point_clicked.connect(widget._on_zplot_curve_clicked)  # as Z-Plot arms it
+    ai_pix = widget.ai_pix_spin.value()
+    widget._render_1d()  # nothing loaded: returns early, but must still disarm
+    widget.oned_canvas.point_clicked.emit(0.25, 1.0)
+    assert widget.ai_pix_spin.value() == ai_pix
