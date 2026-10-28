@@ -50,7 +50,11 @@ from pgixs_python.ui_backend.series_processing import (
     apply_correction_to,
     compute_experiment_x_axis,
     grid_remove_stack,
+    frames_without_value_at,
     integrate_frames,
+    nearest_axis_value,
+    norm_point_message,
+    normalize_at_point,
     normalize_rows_by_counter,
     process_azimuthal_stack,
     process_linecut_stack,
@@ -1080,6 +1084,41 @@ def _save_path(directory: str, suffix: str) -> Path:
     return Path(directory) / prefix / f"{prefix}{suffix}"
 
 
+def gixs2_1d_matrix(method: str) -> np.ndarray:
+    """The per-frame 1D cuts as plotted and saved: IC/BC-normalized, then
+    divided at the Norm(Pt) point when one is set (`gixs2_set_norm_point`)."""
+
+    matrix = gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method)
+    point = _SESSION.last_1d.get("norm_point")
+    if point is None:
+        return matrix
+    return normalize_at_point(matrix, _SESSION.last_1d["x_axis"], point)
+
+
+def gixs2_set_norm_point(payload: dict[str, Any]) -> dict[str, Any]:
+    """Norm(Pt): `{"x": Q}` scales every frame's 1D cut to 1 at the bin
+    nearest Q (MATLAB `NormalFactor_Callback`); `{"x": None}` turns it off.
+    A new Exec Cut starts without it; Auto Refresh keeps it."""
+
+    if _SESSION.last_1d is None:
+        return {"ok": False, "message": "Run Exec Cut first."}
+    raw = payload.get("x")
+    if raw is None:
+        _SESSION.last_1d.pop("norm_point", None)
+        return {"ok": True, "x": None}
+    try:
+        x = float(raw)
+    except (TypeError, ValueError):
+        return {"ok": False, "message": "Norm(Pt) needs a Q value."}
+    if not np.isfinite(x):
+        return {"ok": False, "message": "Norm(Pt) needs a Q value."}
+    point = nearest_axis_value(_SESSION.last_1d["x_axis"], x)
+    _SESSION.last_1d["norm_point"] = point
+    intensity = _SESSION.last_1d["intensity"]
+    unscaled = frames_without_value_at(intensity, _SESSION.last_1d["x_axis"], point)
+    return {"ok": True, "x": point, "unscaled": unscaled, "message": norm_point_message(point, unscaled, len(intensity))}
+
+
 def gixs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.last_1d is None:
         return {"ok": False, "message": "Run Exec Cut first."}
@@ -1088,7 +1127,7 @@ def gixs2_save_1d(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "Choose a save directory."}
 
     method = str(payload.get("normalize", "None"))
-    matrix = order_frames(gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method))
+    matrix = order_frames(gixs2_1d_matrix(method))
     path = _save_path(directory, "_1D.csv")
     try:
         save_series_data(path, _SESSION.last_1d["x_axis"], "Q_1/A", matrix, _column_labels())
@@ -1147,8 +1186,7 @@ def gixs2_save_integration(payload: dict[str, Any]) -> dict[str, Any]:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Mean of empty slice")
             matrix = order_frames(integrate_frames(
-                gixs2_normalized_matrix(_SESSION.last_1d["intensity"], method),
-                _SESSION.last_1d["x_axis"], payload.get("range"),
+                gixs2_1d_matrix(method), _SESSION.last_1d["x_axis"], payload.get("range"),
             ))[None, :]
         columns = ["Integrated_1D"]
 

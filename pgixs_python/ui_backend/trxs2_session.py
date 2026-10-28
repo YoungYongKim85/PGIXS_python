@@ -59,7 +59,11 @@ from pgixs_python.ui_backend.series_processing import (
     compute_experiment_x_axis,
     counter_reference,
     grid_remove_stack,
+    frames_without_value_at,
     integrate_frames,
+    nearest_axis_value,
+    norm_point_message,
+    normalize_at_point,
     normalize_rows_by_counter,
     process_azimuthal_stack,
     process_circular_stack,
@@ -1036,12 +1040,52 @@ def trxs2_render_1d(payload: dict[str, Any]) -> dict[str, Any]:
     method = str(payload.get("normalize", _SESSION.last_1d.get("normalize", "None")))
     _SESSION.last_1d["normalize"] = method
 
-    rendered, warning = _subtract_background(
-        trxs2_normalized_matrix(_SESSION.last_1d["intensity"], method), _SESSION.bkg_1d, method
-    )
+    point = _SESSION.last_1d.get("norm_point")
+    if point is None:
+        rendered, warning = _subtract_background(
+            trxs2_normalized_matrix(_SESSION.last_1d["intensity"], method), _SESSION.bkg_1d, method
+        )
+    else:
+        # Norm(Pt), as MATLAB's applyNormalization: frames and background
+        # are each scaled to 1 at the point before the subtraction, so the
+        # IC/BC counters drop out.
+        x_axis = _SESSION.last_1d["x_axis"]
+        rendered = normalize_at_point(trxs2_normalized_matrix(_SESSION.last_1d["intensity"], method), x_axis, point)
+        warning = ""
+        if _SESSION.subtract_background and _SESSION.bkg_1d is not None:
+            rendered = rendered - normalize_at_point(np.asarray(_SESSION.bkg_1d)[np.newaxis, :], x_axis, point)
 
     _SESSION.last_1d["rendered"] = rendered.astype(np.float32)
     return {"ok": True, "x": downsample_1d_for_json(_SESSION.last_1d["x_axis"], max_points=600), "warning": warning}
+
+
+def trxs2_set_norm_point(payload: dict[str, Any]) -> dict[str, Any]:
+    """Norm(Pt): `{"x": Q}` scales every frame's 1D curve to 1 at the bin
+    nearest Q (MATLAB `NormalFactor_Callback`/`applyNormalization`);
+    `{"x": None}` turns it off. Re-renders `last_1d` either way."""
+
+    if _SESSION.last_1d is None:
+        return {"ok": False, "message": "Run Circular/Line Exec first."}
+    raw = payload.get("x")
+    if raw is None:
+        _SESSION.last_1d.pop("norm_point", None)
+    else:
+        try:
+            x = float(raw)
+        except (TypeError, ValueError):
+            return {"ok": False, "message": "Norm(Pt) needs a Q value."}
+        if not np.isfinite(x):
+            return {"ok": False, "message": "Norm(Pt) needs a Q value."}
+        _SESSION.last_1d["norm_point"] = nearest_axis_value(_SESSION.last_1d["x_axis"], x)
+    result = trxs2_render_1d({})
+    if not result.get("ok"):
+        return result
+    point = _SESSION.last_1d.get("norm_point")
+    if point is None:
+        return {**result, "x": None}
+    intensity = _SESSION.last_1d["intensity"]
+    unscaled = frames_without_value_at(intensity, _SESSION.last_1d["x_axis"], point)
+    return {**result, "x": point, "unscaled": unscaled, "message": norm_point_message(point, unscaled, len(intensity))}
 
 
 def trxs2_render_azimuthal(payload: dict[str, Any]) -> dict[str, Any]:
