@@ -49,7 +49,10 @@ def read_h5_metadata(file_path: str | Path, mode: str = "", reference_timestamp:
             temperature[0] = _read_first_available(h5, ["LowTemp1"])
             temperature[1] = _read_first_available(h5, ["LowTemp2"])
         elif mode == "Angle":
-            temperature[0] = _read_first_available(h5, ["IncAngle"])
+            # Beamlines write the incidence angle under either name (the
+            # Eiger files of 2026-10 use IAngle). A file with neither gives
+            # NaN, which callers already treat as "not logged".
+            temperature[0] = _read_first_available(h5, ["IncAngle", "IAngle"])
 
     return H5Metadata(
         counter1=float(counter1),

@@ -143,3 +143,29 @@ def test_read_h5_metadata_counter_fallback(tmp_path):
     assert meta.bc_counter == "Counter2"
     assert meta.timestamp == 23.5
     assert meta.temperature[0] == 300.0
+
+
+def test_read_h5_metadata_incidence_angle_under_either_name(tmp_path):
+    if importlib.util.find_spec("h5py") is None:
+        import pytest
+
+        pytest.skip("h5py is not installed")
+
+    import h5py
+
+    from pgixs_python.io.h5_metadata import read_h5_metadata
+
+    def write(name, params):
+        path = tmp_path / name
+        with h5py.File(path, "w") as h5:
+            base = h5.create_group("/entry/instrument/user/params")
+            for key, value in params.items():
+                base.create_dataset(key, data=np.array([value], dtype=np.float64))
+        return path
+
+    assert read_h5_metadata(write("inc.h5", {"IncAngle": 0.12}), mode="Angle").temperature[0] == np.float32(0.12)
+    assert read_h5_metadata(write("i.h5", {"IAngle": 0.15}), mode="Angle").temperature[0] == np.float32(0.15)
+    # Both written: IncAngle, the name the core always read, wins.
+    assert read_h5_metadata(write("both.h5", {"IncAngle": 0.1, "IAngle": 0.2}), mode="Angle").temperature[0] == np.float32(0.1)
+    # Neither: NaN, not an error -- the caller decides what to fall back to.
+    assert np.isnan(read_h5_metadata(write("none.h5", {"Counter1": 1.0}), mode="Angle").temperature[0])
