@@ -4,6 +4,20 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.13 — 입사각 메타데이터 IAngle 읽기 / Incidence angle stored as IAngle
+
+- H5 파일의 입사각을 `IncAngle`뿐 아니라 **`IAngle`**(`/entry/instrument/user/params`)에서도 읽습니다.
+  - 2026년 10월부터 Eiger 파일은 입사각을 `IAngle`로 기록해서, 지금까지는 이 파일들에서
+    GIXS-series의 **Angle X축**이 값을 찾지 못했습니다.
+  - 두 이름이 모두 있으면 `IncAngle`을 씁니다. 둘 다 없는 파일은 전처럼 값 없음(NaN)으로
+    처리되어, 프레임 번호로 대신 표시됩니다.
+
+The H5 metadata reader now takes the incidence angle from `IAngle` as well
+as `IncAngle`, so angle scans written by the 2026-10 Eiger files get their
+Angle X axis. `IncAngle` wins when both are present.
+
+---
+
 ## v0.3.12 — Smart Auto Run 링 차수 인식 개선 / Smart Auto Run ring orders
 
 - **SDD Calibration의 Smart Auto Run**이 링 차수를 더 정확히 붙입니다.
