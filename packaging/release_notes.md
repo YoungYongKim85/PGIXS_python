@@ -4,6 +4,24 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.14 — Mean이 실제 산술평균으로 / "Mean" is now the arithmetic mean
+
+- 1D 처리에서 **Mean**을 고르면 이제 실제 **산술평균**을 냅니다. **결과 숫자가 바뀌는 수정입니다.**
+  - 지금까지 Mean은 Huber 강건 평균이었습니다. 원형 평균, 라인컷, Azimuthal, 시리즈 처리, H5 1D export가 모두 해당됩니다.
+  - Huber는 링의 일부 방위각에만 있는 신호를 이상치로 보고 깎습니다.
+    그래서 배향된 박막이나 단결정 패턴을 원형 평균하면 Bragg 피크가 대부분 사라졌습니다.
+    예를 들어 PTCDI-C13 GIWAXS의 0.25 Å⁻¹ 피크가 pyFAI 대비 약 1/250로 줄었습니다.
+  - 등방적인 데이터는 결과가 0.1% 수준으로만 달라지고, 배향 시료는 사라졌던 피크가 돌아옵니다.
+  - TrXS 원형 평균이 MATLAB과 같은 방식이 되어, 두 버전의 차이가 중앙값 0.47%에서 0.07%로 줄었습니다.
+  - Std 오차막대는 표본 표준편차(N−1)입니다. 핫 픽셀을 걸러야 하면 **Median**을 고르세요.
+
+"Mean" in every 1D reduction is now the plain arithmetic mean. It used to be a
+Huber M-estimate, which removed most of the Bragg intensity from full-circle
+averages of textured patterns. Mean-based results change: by ~0.1% for
+isotropic data, and textured data recover their peaks.
+
+---
+
 ## v0.3.13 — 입사각 메타데이터 IAngle 읽기 / Incidence angle stored as IAngle
 
 - H5 파일의 입사각을 `IncAngle`뿐 아니라 **`IAngle`**(`/entry/instrument/user/params`)에서도 읽습니다.

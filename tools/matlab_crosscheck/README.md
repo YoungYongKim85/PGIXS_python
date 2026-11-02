@@ -85,7 +85,7 @@ Consequences you will see in the report and should not chase:
   horizon, which a single ray along it does not sample.
 - **The TrXS circular average matches closely** (median 0.07%, max 0.2%):
   both sides take the arithmetic mean of the same pixels in the same bins.
-  Python used a Huber M-estimator here before v0.3.13, which put up to 220x
+  Python used a Huber M-estimator here before v0.3.14, which put up to 220x
   differences into the bins at the beamstop edge.
 - **q axes differ by ~1e-5 relative.** The two programs use slightly different
   values of hc — MATLAB 12.3985167 keV·Å (from `h` and `c` in
