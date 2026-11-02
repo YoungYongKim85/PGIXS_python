@@ -1489,8 +1489,8 @@ def test_status_message_with_long_path_does_not_widen_panel(qapp):
     baseline_width = group.minimumSizeHint().width()
 
     long_path_message = (
-        r"Saved D:\Claude_Code\PGIXS_python\testdata\GrazingIncidence\HZO\HDH_155_0001_2Dinfo.h5 "
-        r"and D:\Claude_Code\PGIXS_python\testdata\GrazingIncidence\HZO\HDH_155_0001_2d.png."
+        r"Saved C:\Users\user\Documents\beamtime\GrazingIncidence\HZO\HDH_155_0001_2Dinfo.h5 "
+        r"and C:\Users\user\Documents\beamtime\GrazingIncidence\HZO\HDH_155_0001_2d.png."
     )
     console._set_status(long_path_message, True)
 

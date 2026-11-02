@@ -38,7 +38,7 @@ gitignored.
 
 | field | meaning |
 | --- | --- |
-| `matlab_repo` | Path to the `PGIXS_matlab` checkout. |
+| `matlab_repo` | Path to the `PGIXS_matlab` checkout; relative paths are taken from the current folder (the examples assume it sits next to this repo). |
 | `output_dir` | Where both runners write their CSVs. |
 | `mode` | `"gixs"` or `"trxs"`. |
 | `frame` | One detector image. |

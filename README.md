@@ -131,7 +131,7 @@ python -m pgixs_python.workflows.config_schema --workflow all --out docs
 Use Python 3.10 for the project runtime.
 
 ```powershell
-cd C:\Users\owner\Documents\PGIXS_matlab업그레이드\python_tab1
+cd PGIXS_python
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
