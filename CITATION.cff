@@ -7,6 +7,7 @@ authors:
     given-names: Young Yong
     email: kimyy@postech.ac.kr
     affiliation: Pohang Accelerator Laboratory
+    orcid: "https://orcid.org/0000-0001-6102-9518"
 license: MIT
 repository-code: https://github.com/YoungYongKim85/PGIXS_python
 abstract: "Standalone Python implementation of PGIXS, a data-reduction and analysis program for grazing-incidence and transmission X-ray scattering developed at the 3C beamline of the Pohang Light Source II."
