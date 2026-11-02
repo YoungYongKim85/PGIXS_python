@@ -221,7 +221,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 - **Min coverage** — 이 값보다 커버리지(유효 픽셀 비율)가 낮은 q-bin은 NaN 처리한다 (기본 0.80).
 - **Median** / **Std** 체크박스 — 평균 대신 중앙값 사용 / 표준편차도 함께 계산. **Std**를 켜고 **Plot (Circular Average)**을 실행하면, 1D Result에 계산된 표준편차가 **Y축(intensity) error bar**로 표시된다(각도 범위와 무관하게 Std 체크 여부로만 결정됨).
   - **계산 방식**: 지정한 각도 섹터(Ang. Avg) 안에서 q 값이 유효한(NaN 아니고 >0) 픽셀만 모아 픽셀 반경(빔 중심으로부터의 거리) 기준 1픽셀 폭 bin으로 나눈 뒤, bin마다 intensity를 평균(또는 Median 체크 시 중앙값)한다. q축 값은 그 bin에 실제로 들어간 픽셀들의 q_map 값 평균이다(기하학적으로 다시 계산한 값이 아니라 데이터 기반 평균).
-  - **Mean(기본)은 단순 산술평균이 아니라 Huber 강건 평균**이다: 먼저 MAD(중앙값 절대편차) 기반 표준편차로 초기 sigma를 잡고, `|잔차| ≤ 1.345σ`인 픽셀은 그대로, 그보다 벗어난 픽셀은 가중치를 낮춰(`1.345σ/|잔차|`) 2회 반복 재가중 평균을 낸다 — 우주선(cosmic ray) 스파이크 같은 이상치 픽셀 하나가 bin 평균을 크게 왜곡하지 않도록 하기 위함이다. bin에 유효 픽셀이 3개 미만이면 강건 평균 대신 그냥 중앙값을 쓴다. Std 계산 시 Median 모드는 `1.4826 × median(|값 - 중앙값|)`(MAD 기반), Mean 모드는 위 Huber 재가중의 표준편차를 쓴다.
+  - **Mean(기본)은 bin 안 유효 픽셀의 단순 산술평균**이다(MATLAB과 같다). v0.3.12까지는 Huber 강건 평균을 썼는데, 배향된 박막의 Bragg 피크처럼 링의 일부 방위각에만 있는 신호를 이상치로 보고 대부분 지워 버려서 바꿨다. 핫 픽셀·우주선 스파이크가 걱정되면 Median을 고르거나 마스크로 제외한다. Std 계산 시 Mean 모드는 표본 표준편차(N−1, 픽셀이 1개인 bin은 비움), Median 모드는 `1.4826 × median(|값 - 중앙값|)`(MAD 기반)를 쓴다.
   - **Min coverage는 실제로 값을 지운다**: `coverage = (유효 데이터 픽셀 수) / (섹터 안에서 그 bin에 기하학적으로 속하는 픽셀 수)`로 계산되며, 이 값이 **Min coverage보다 낮은 bin은 intensity(및 Std 켜져 있으면 std)가 NaN으로 지워진다** — 아래 1D Plot Process의 Cakecut/Accumulation과 달리, 여기서는 min_coverage가 단순 진단이 아니라 실제 컷오프로 동작한다.
 - **Draw Mask** 버튼 — 별도의 큰 다이얼로그 창이 열리고, 2D 이미지 위에 폴리곤을 클릭으로 그린다(더블클릭 또는 시작점 재클릭으로 닫힘). 폴리곤 **안쪽**은 Circular Average 계산에서 제외된다. Map format이 Pixel이어야 사용 가능.
 
@@ -239,7 +239,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
   - **Pos move를 주면 X축의 의미가 바뀐다**: 오프셋된 컷은 Qz(수평 컷의 경우)가 0이 아닌 고정값인 자리를 지나므로, `|Q|`로 라벨하면 그 고정 성분이 계속 더해져 실제로 스캔하는 좌표를 나타내지 못한다. 그래서 오프셋이 0이 아닐 때는 컷을 따라 실제로 변하는 성분(수평 컷은 Qxy, 수직 컷은 Qz)의 크기를 X축으로 쓴다. 오프셋이 0이면 종전대로 `|Q|`를 쓴다. **Accumulation은 오프셋과 무관하게 항상 `|Q|`** 를 쓴다(MATLAB 원본과 동일).
 - **Cakecut** 체크박스(GIXS만) + minus/plus 각도 범위 — 기준 각도를 중심으로 한 각도 쐐기(wedge) 컷.
 - **Accumulation** 체크박스(GIXS만) + minus/plus — 컷 라인에 수직인 픽셀 밴드 평균. 각도가 0/90/180일 때만 사용 가능. Cakecut과 동시에 켤 수 없다(하나 켜면 다른 하나는 자동으로 꺼짐).
-  - **Cakecut 계산 방식**: 기준 각도(Line angle) 기준 ±(minus/plus) 범위 안에 들어가는 픽셀만 골라(각도는 빔 중심 기준 atan2로 계산), 그 픽셀들을 다시 픽셀 반경 1px 폭 bin으로 나눠 Huber 강건 평균(또는 중앙값)을 낸다 — TrXS Circular Average와 같은 반경-binning 엔진을 각도 쐐기 하나에만 적용하는 셈이다.
+  - **Cakecut 계산 방식**: 기준 각도(Line angle) 기준 ±(minus/plus) 범위 안에 들어가는 픽셀만 골라(각도는 빔 중심 기준 atan2로 계산), 그 픽셀들을 다시 픽셀 반경 1px 폭 bin으로 나눠 산술평균(또는 중앙값)을 낸다 — TrXS Circular Average와 같은 반경-binning 엔진을 각도 쐐기 하나에만 적용하는 셈이다.
   - **Accumulation 계산 방식**: 0°/90°/180°처럼 축에 정렬된 각도에서만 동작하며, 각도-binning이 아니라 컷 라인에 **수직인 픽셀 띠(band)**를 정하고(폭은 minus/plus, 위치는 Pos move) 그 띠를 라인 방향을 따라 평균 낸다(예: 90° 세로 컷이면 각 행마다 폭만큼의 열들을 평균해 행 하나당 값 하나). Std는 이 모드에서는 계산되지 않는다.
   - **Coverage 진단(두 방식 공통)**: bin/위치마다 `coverage = 유효 데이터 픽셀 수 / 기하학적으로 그 자리에 속하는 픽셀 수`를 계산하지만, Circular Average의 Min coverage와 달리 **여기서는 값을 지우지 않는다** — coverage < 0.15인 지점("low coverage")과 인접 지점 대비 coverage가 급격히 떨어지는 지점("coverage drop")을 진단 정보로만 표시해서(1D Result 하단 상태줄의 "low bins …, drops …") 참고하게 한다.
 - **Median** 체크박스 — 공통.
@@ -254,7 +254,7 @@ TrXS의 대표적인 1D 처리 방식이다 (GIXS에는 없는 섹션).
 
 - **Pixel / Range(-/+)** — 빔 중심에서 이 픽셀 반경 ± Range만큼의 링(밴드)을 지정.
 - **Q [1/A]** — 현재 Azimuthal pixel 반경에 해당하는 Q값을 자동으로 표시(읽기 전용).
-  - **계산 방식**: 빔 중심에서 반경 `Pixel-Range` ~ `Pixel+Range` 안(고리형 밴드)에 드는 픽셀만 골라, 각도(빔 중심 기준 atan2, 0~360° 순환)로 등분한 bin(기본 해상도 1°/bin — 즉 GIXS는 180개 bin, TrXS는 360개 bin)마다 intensity를 평균/중앙값 낸다. 여기서도 Cakecut/Accumulation과 같은 Huber 강건 평균 엔진을 쓴다. Q [1/A] 라벨은 이 반경(Pixel)에 해당하는 q 값을 q-Map Cal. 결과에서 그대로 읽어와 보여줄 뿐, 별도로 계산하지 않는다.
+  - **계산 방식**: 빔 중심에서 반경 `Pixel-Range` ~ `Pixel+Range` 안(고리형 밴드)에 드는 픽셀만 골라, 각도(빔 중심 기준 atan2, 0~360° 순환)로 등분한 bin(기본 해상도 1°/bin — 즉 GIXS는 180개 bin, TrXS는 360개 bin)마다 intensity를 평균/중앙값 낸다. 여기서도 Cakecut/Accumulation과 같은 평균 엔진(산술평균 또는 중앙값)을 쓴다. Q [1/A] 라벨은 이 반경(Pixel)에 해당하는 q 값을 q-Map Cal. 결과에서 그대로 읽어와 보여줄 뿐, 별도로 계산하지 않는다.
 - **Position** 버튼 + **Mean/Median** 콤보 — Position은 클릭한 지점의 빔 중심까지 거리로 반경을 설정. Mean/Median은 각도별 평균 방식 선택.
 - **Draw** 버튼 — pixel±range 두 원을 2D 이미지에 그린다(Qxy/Qz 표시 모드면 Q 반경으로 자동 환산해서 그림).
 - **Plot** 버튼 — 각도별로 binning한 intensity를 계산해서 angle [deg] vs. intensity를 1D Result에 그린다. **GIXS는 0~180°만 스윕**(grazing incidence 특성상 수평선 위쪽만 산란), **TrXS는 0~360° 전체**를 스윕한다.
@@ -586,7 +586,7 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 | **Circular Average** | (TrXS 전용) 지정한 각도 범위에서 q-binned 평균 — TrXS의 기본 1D 처리 방식. |
 | **Azimuthal Process** | 고정된 반경(pixel/Q)에서 각도별 강도 분포를 뽑는 처리. GIXS는 0~180°, TrXS는 0~360°를 스윕. |
 | **Coverage** | `유효(non-NaN) 데이터 픽셀 수 / 그 bin에 기하학적으로 속하는 전체 픽셀 수`로 계산되는 값(0~1). 어떤 처리냐에 따라 낮은 coverage를 다루는 방식이 다르다 — **TrXS Circular Process**는 Min coverage보다 낮으면 해당 bin을 **NaN으로 지운다**(실제 컷오프), **GIXS 1D Plot Process(Cakecut/Accumulation)와 Azimuthal Process**는 값을 지우지 않고 낮은 coverage(<0.15)나 급격한 coverage 변화만 **진단 정보로 표시**한다, **SDD Calibration의 Smart Auto Run**은 링 후보를 채택할지 판단하는 기준(0.80 이상)으로 쓴다. |
-| **Mean/Median 계산 방식** | Median은 단순 중앙값(표준편차는 MAD 기반 `1.4826×median(\|값-중앙값\|)`). Mean(기본값)은 산술평균이 아니라 **Huber 강건 평균**이다 — 이상치(우주선 스파이크 등) 픽셀의 영향을 줄이도록 잔차 크기에 따라 가중치를 낮춰 2회 재계산하며, 유효 픽셀이 3개 미만인 bin은 강건 평균 대신 중앙값으로 대체된다. Circular Average/Cakecut/Accumulation/Azimuthal Process 등 반경·각도 binning을 쓰는 모든 처리에 공통으로 적용되는 계산 엔진이다. |
+| **Mean/Median 계산 방식** | Median은 단순 중앙값(표준편차는 MAD 기반 `1.4826×median(\|값-중앙값\|)`). Mean(기본값)은 **산술평균**이다(v0.3.12까지는 Huber 강건 평균 — 배향 시료의 Bragg 피크를 지워서 바꿨다). Std는 Mean이면 표본 표준편차, Median이면 MAD 기반이다. Circular Average/Cakecut/Accumulation/Azimuthal Process 등 반경·각도 binning을 쓰는 모든 처리에 공통으로 적용되는 계산 엔진이다. |
 | **Missing wedge** | Qxy≈0 부근에서, 균일 Q-grid로 리그리딩할 때 실제 픽셀 샘플링이 성기어져 생기는 커버리지 공백. GIXS-series Azimuthal Process의 "Reflect missing wedge" 옵션으로 반영할 수 있다. |
 | **ROI (Region of Interest)** | 2D 이미지 위에 사각형을 그려서 그 영역의 합계를 프레임별로 추적하는 기능 (series 탭에만 있음). |
 | **Auto Refresh** | 로드 디렉토리를 다시 스캔해서 새로 생긴 시리즈 파일을 찾아 불러오고, 마지막 처리에 이어붙이는 기능 (series 탭에만 있음). |
@@ -629,7 +629,6 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
 | --- | --- | --- |
 | GIXS 1D 라인컷 | 광선 하나를 이중선형 보간해서 샘플링 | ±1° 쐐기를 q-bin으로 평균 |
 | GIXS Azimuthal | 0.2° 극좌표 격자에서 최근접 픽셀 | 실제 환형 영역 픽셀을 1° bin에 집계 |
-| TrXS Circular Average | bin별 산술평균 | Huber 강건 평균 (c = 1.345) |
 
 이 차이 때문에 생기는, 눈에 보이지만 **정상인** 현상들:
 
@@ -638,12 +637,12 @@ Delta/Beta/Critical Angle은 XTrans와 같은 `refrac()` 계산 한 번(에너�
   빔스탑 안쪽까지 값을 만들어낸다 — 물리적으로 신뢰할 값은 아니다.
 - **수평(0°) 라인컷이 수직(90°)보다 훨씬 많이 흔들린다.** 쐐기 반폭이 반경에 비례해
   커지고(q = 0.5에서 ±4.7픽셀, q = 1.5에서 ±14픽셀), GIXS의 수평 방향은 Yoneda/horizon
-  처럼 세기가 급변하는 영역을 가로지른다. 상대차 중앙값 16.9% vs 5.7%인데, 부호 있는
-  중앙값은 여전히 0 근처다. 카운트가 낮은 구간에서는 MATLAB 쪽 한 줄 샘플의 Poisson
-  노이즈가 그대로 드러나는 것이고, **Python 쪽이 노이즈가 적은 추정이다.**
-- **TrXS Circular Average는 빔스탑 가장자리 몇 개 bin에서만 크게(최대 220배) 갈린다.**
-  가려진 픽셀과 안 가려진 픽셀이 한 bin에 섞여 분포가 양봉이 되는 자리다. 어느 추정량을
-  써도 신뢰할 수 없는 구간이므로, **빔스탑을 마스크로 제외하는 것이 옳다.**
+  처럼 세기가 급변하는 영역을 가로지른다. 상대차 중앙값 17.7% vs 6.0%이고, 부호 있는
+  중앙값도 +2.9%로 가장 크다 — 쐐기가 horizon 바로 위의 더 밝은 픽셀까지 담기 때문이다.
+  카운트가 낮은 구간에서는 MATLAB 쪽 한 줄 샘플의 Poisson 노이즈가 그대로 드러나는 것이고, **Python 쪽이 노이즈가 적은 추정이다.**
+- **TrXS Circular Average는 거의 같다**(상대차 중앙값 0.07%, 최대 0.2%). 양쪽 모두 같은
+  bin의 같은 픽셀을 산술평균한다. v0.3.12까지는 Python이 Huber 강건 평균을 써서 빔스탑
+  가장자리 bin에서 최대 220배까지 갈렸다.
 - **q축이 상대적으로 약 1e-5 다르다.** 두 프로그램이 쓰는 hc 값이 미세하게 다르다
   (MATLAB 12.3985167 keV·Å, Python 12.3984198). 7.8 ppm이며 실사용에 영향이 없다.
 

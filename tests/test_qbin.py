@@ -23,16 +23,32 @@ def test_qbin_average_reports_coverage():
     assert np.allclose(result.coverage, [0.5, 1.0])
 
 
-def test_qbin_average_huber_resists_outlier():
-    data = np.array([1.0, 1.1, 1.2, 100.0], dtype=np.float32)
-    bins = np.array([0, 0, 0, 0])
+def test_qbin_average_mean_mode_is_arithmetic_mean():
+    data = np.array([1.0, 1.1, 1.2, 100.0, 5.0], dtype=np.float32)
+    bins = np.array([0, 0, 0, 0, 1])
 
-    mean, _ = mean_by_bin(data, bins, 1)
-    robust = qbin_average(data, bins, 1, use_median=False, calc_std=True)
+    result = qbin_average(data, bins, 2, use_median=False, calc_std=True)
 
-    assert mean[0] > 20
-    assert robust.intensity[0] < 10
-    assert robust.std[0] > 0
+    assert np.isclose(result.intensity[0], np.mean(data[:4]))
+    assert np.isclose(result.std[0], np.std(data[:4], ddof=1))
+    # One pixel has no spread to report, as MATLAB's std over a single value.
+    assert result.intensity[1] == 5.0
+    assert np.isnan(result.std[1])
+
+
+def test_qbin_average_keeps_signal_on_a_small_part_of_the_ring():
+    """A textured Bragg ring lights up only a few per cent of its azimuth.
+    The old Huber default read those pixels as outliers and kept about the
+    background; the mean must carry the ring's full average intensity."""
+
+    background = np.full(200, 10.0)
+    background[:6] = 5000.0  # 3% of the ring is the Bragg spot
+    bins = np.zeros(background.size, dtype=np.int64)
+
+    result = qbin_average(background, bins, 1)
+
+    assert np.isclose(result.intensity[0], background.mean())
+    assert result.intensity[0] > 150
 
 
 def test_qbin_average_median_mode():
@@ -59,7 +75,7 @@ def test_median_by_bin_is_independent_of_within_bin_value_order():
     """`_median_by_bin` groups by bin with a stable argsort rather than
     lexsorting the values too -- a median doesn't depend on input order, and
     the cheaper sort is ~5x faster on a full detector frame (it runs twice per
-    Huber/MAD reduction, on every frame of a series). Shuffling the values
+    median/MAD reduction, on every frame of a series). Shuffling the values
     within each bin must not move the result."""
 
     rng = np.random.default_rng(7)

@@ -59,7 +59,8 @@ Judge a run by these two lines:
   energy and the detector corrections all being right, so the two sides must
   agree to well under one bin. Observed on `PTCDIC13_0001.h5`: ≤ 6e-4 1/Å.
 - **`signed median diff`** — catches a systematic scale or offset error. Should
-  sit near zero. Observed: −0.16% / +0.57% / −0.68%.
+  sit near zero. Observed: −0.49% / +2.86% / −0.58% (line 90°, line 0°,
+  azimuthal); +0.07% for the TrXS circular average.
 
 **`|rel| median` is not an error measure.** It is expected to be nonzero, and on
 low-count data it can be tens of percent, because the two programs do not use
@@ -70,7 +71,6 @@ differences:
 | --- | --- | --- |
 | GIXS 1D line cut | one bilinearly interpolated ray | ±1° wedge, averaged per q bin |
 | GIXS azimuthal | polar grid, 0.2°, nearest pixel | real annulus pixels, 1° bins |
-| TrXS circular average | arithmetic mean per bin | Huber M-estimator, c = 1.345 |
 
 Consequences you will see in the report and should not chase:
 
@@ -80,10 +80,13 @@ Consequences you will see in the report and should not chase:
 - **The horizontal (0°) line cut scatters more than the vertical one.** The
   wedge half-width grows with radius (±4.7 px at q = 0.5, ±14 px at q = 1.5), and
   in GIXS the horizontal direction crosses the fast-varying Yoneda/horizon
-  region. Median 16.9% vs 5.7% — with the signed median still near zero.
-- **The TrXS circular average diverges hugely in a few bins near the beamstop
-  edge** (up to 220x) where masked and unmasked pixels mix into a bimodal
-  distribution. Neither estimator is trustworthy there; mask the beamstop.
+  region. Median 17.7% vs 6.0%. Its signed median (+2.9%) is the largest of the
+  set for the same reason: the wedge takes in the brighter pixels just above the
+  horizon, which a single ray along it does not sample.
+- **The TrXS circular average matches closely** (median 0.07%, max 0.2%):
+  both sides take the arithmetic mean of the same pixels in the same bins.
+  Python used a Huber M-estimator here before v0.3.13, which put up to 220x
+  differences into the bins at the beamstop edge.
 - **q axes differ by ~1e-5 relative.** The two programs use slightly different
   values of hc — MATLAB 12.3985167 keV·Å (from `h` and `c` in
   `processGIXS2D.m`), Python 12.3984198 (`calibration/sdd.py`). 7.8 ppm. Both

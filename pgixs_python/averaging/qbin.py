@@ -73,7 +73,12 @@ def qbin_average(
     calc_std: bool = False,
     geom_mask: np.ndarray | None = None,
 ) -> QBinAverageResult:
-    """Robust NaN-omitting q-bin average with detector-gap diagnostics.
+    """NaN-omitting q-bin mean (or median) with detector-gap diagnostics.
+
+    The mean is the plain arithmetic mean, as in MATLAB's circular average.
+    A robust (Huber) mean used to be the default here, but it treats signal
+    that fills only part of a ring -- Bragg peaks of a textured film, a
+    single-crystal spot -- as outliers and removes most of it.
 
     `bin_index` is zero-based. Negative bin ids are ignored. Coverage is
     `finite data count / geometry pixel count`, which makes detector-gap
@@ -105,7 +110,7 @@ def qbin_average(
         intensity = _median_by_bin(values[finite], bins[finite], n_bins_int)
         std = _mad_std_by_bin(values[finite], bins[finite], intensity, n_bins_int)
     else:
-        intensity, std = _huber_by_bin(values[finite], bins[finite], n_bins_int)
+        intensity, std = _mean_std_by_bin(values[finite], bins[finite], counts)
 
     if not calc_std:
         std = np.full(n_bins_int, np.nan, dtype=np.float32)
@@ -132,7 +137,7 @@ def _median_by_bin(values: np.ndarray, bins: np.ndarray, n_bins: int) -> np.ndar
     # Group by bin only. A median doesn't care how its inputs are ordered, so
     # sorting the values within each bin as well (`np.lexsort((values, bins))`)
     # bought nothing and cost ~5x as much -- on a full Eiger4M frame that was
-    # ~1.0 s per call versus ~0.2 s, paid twice per Huber/MAD reduction, on
+    # ~1.0 s per call versus ~0.2 s, paid twice per median/MAD reduction, on
     # every frame of a series. Results are bit-identical either way.
     order = np.argsort(bins, kind="stable")
     sorted_bins = bins[order]
@@ -154,44 +159,18 @@ def _mad_std_by_bin(values: np.ndarray, bins: np.ndarray, center: np.ndarray, n_
     return 1.4826 * _median_by_bin(abs_dev, bins[finite_bin], n_bins)
 
 
-def _huber_by_bin(values: np.ndarray, bins: np.ndarray, n_bins: int) -> tuple[np.ndarray, np.ndarray]:
-    if values.size == 0:
-        empty = np.full(n_bins, np.nan, dtype=np.float64)
-        return empty, empty.copy()
+def _mean_std_by_bin(values: np.ndarray, bins: np.ndarray, counts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Arithmetic mean and sample standard deviation (N-1, NaN below two
+    pixels) per bin, as MATLAB `processPGIXSRadiusBin1D`'s `mean`/`std`."""
 
-    counts = np.bincount(bins, minlength=n_bins)[:n_bins]
-    med = _median_by_bin(values, bins, n_bins)
-    sum_i = np.bincount(bins, weights=values, minlength=n_bins)[:n_bins]
-    sum_i2 = np.bincount(bins, weights=values * values, minlength=n_bins)[:n_bins]
+    n_bins = counts.size
     mean = np.full(n_bins, np.nan, dtype=np.float64)
-    var = np.full(n_bins, np.nan, dtype=np.float64)
+    std = np.full(n_bins, np.nan, dtype=np.float64)
     ok = counts > 0
-    mean[ok] = sum_i[ok] / counts[ok]
-    var[ok] = np.maximum(0.0, sum_i2[ok] / counts[ok] - mean[ok] ** 2)
-
-    sigma = _mad_std_by_bin(values, bins, med, n_bins)
-    bad = ~np.isfinite(sigma) | (sigma <= 0)
-    sigma[bad] = np.sqrt(var[bad])
-    bad = ~np.isfinite(sigma) | (sigma <= 0)
-    sigma[bad] = np.finfo(np.float32).eps
-
-    mu = med.copy()
-    huber_c = 1.345
-    for _ in range(2):
-        residual = values - mu[bins]
-        cutoff = huber_c * sigma[bins]
-        abs_residual = np.abs(residual)
-        weights = np.ones_like(values, dtype=np.float64)
-        large = abs_residual > cutoff
-        weights[large] = cutoff[large] / abs_residual[large]
-        weight_sum = np.bincount(bins, weights=weights, minlength=n_bins)[:n_bins]
-        weighted_sum = np.bincount(bins, weights=weights * values, minlength=n_bins)[:n_bins]
-        next_mu = mu.copy()
-        valid_weight = weight_sum > 0
-        next_mu[valid_weight] = weighted_sum[valid_weight] / weight_sum[valid_weight]
-        next_mu[counts < 3] = med[counts < 3]
-        mu = next_mu
-
-    mu[counts < 1] = np.nan
-    sigma[counts < 1] = np.nan
-    return mu, sigma
+    mean[ok] = np.bincount(bins, weights=values, minlength=n_bins)[:n_bins][ok] / counts[ok]
+    # Two-pass: squared deviations from the bin mean, not E[x^2] - E[x]^2,
+    # which cancels badly on bright, flat bins.
+    sq_dev = np.bincount(bins, weights=(values - mean[bins]) ** 2, minlength=n_bins)[:n_bins]
+    many = counts > 1
+    std[many] = np.sqrt(sq_dev[many] / (counts[many] - 1))
+    return mean, std
