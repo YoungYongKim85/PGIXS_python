@@ -1,0 +1,21 @@
+title: "PGIXS (Python)"
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Kim
+    given-names: Young Yong
+    email: kimyy@postech.ac.kr
+    affiliation: Pohang Accelerator Laboratory
+    orcid: "https://orcid.org/0000-0001-6102-9518"
+license: MIT
+repository-code: https://github.com/YoungYongKim85/PGIXS_python
+abstract: "Standalone Python implementation of PGIXS, a data-reduction and analysis program for grazing-incidence and transmission X-ray scattering developed at the 3C beamline of the Pohang Light Source II."
+keywords:
+  - grazing-incidence X-ray scattering
+  - GIWAXS
+  - GISAXS
+  - SAXS
+  - WAXS
+  - synchrotron
+  - data reduction
