@@ -1,5 +1,5 @@
 {
-  "matlab_repo": "D:/Claude_Code/PGIXS_matlab",
+  "matlab_repo": "../PGIXS_matlab",
   "output_dir": "validation_outputs/crosscheck_gixs",
 
   "mode": "gixs",
