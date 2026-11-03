@@ -1128,14 +1128,14 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
     data_for_1d = _values_for_reduction(
         _SESSION.corrected_data if _SESSION.corrected_data is not None else _SESSION.data
     )
-    mask_active = False
+    keep_mask = None
     if _SESSION.circular_mask is not None and _SESSION.circular_mask.shape == data_for_1d.shape:
-        # ROI mask (see console_set_circular_mask): pixels outside the
-        # user-drawn polygon become NaN, matching TrXS_gui.m's
-        # `I2d(BW <= 0) = NaN`. np.where copies -- session data is never
-        # mutated in place.
-        data_for_1d = np.where(_SESSION.circular_mask, data_for_1d, np.nan).astype(np.float32)
-        mask_active = True
+        # ROI mask (see console_set_circular_mask): the drawn polygon is
+        # left out of the geometry, as TrXS_gui.m's CircularAve does, so a
+        # bin is the mean of the rest and is not dropped by min_coverage
+        # just because the user masked part of its ring.
+        keep_mask = _SESSION.circular_mask
+    mask_active = keep_mask is not None
     beam_pos = _SESSION.calibration["beam_pos"]
 
     result = sector_average(
@@ -1145,6 +1145,7 @@ def console_circular_average(payload: dict[str, Any]) -> dict[str, Any]:
         angle_range=(angle_min, angle_max),
         use_median=use_median,
         calc_std=calc_std,
+        keep_mask=keep_mask,
     )
     if not result.is_valid:
         return {"ok": False, "message": "No pixels selected for this angular range."}

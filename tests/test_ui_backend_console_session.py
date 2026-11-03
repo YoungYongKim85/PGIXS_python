@@ -1146,8 +1146,8 @@ def test_console_set_circular_mask_accepts_and_clears(tmp_path):
 def test_console_circular_average_applies_mask(tmp_path):
     """Regression for "circular process에서 mask를 만들 수 있도록 해줘": once a
     mask is set, console_circular_average must actually exclude
-    outside-mask pixels (matching TrXS_gui.m's `I2d(BW <= 0) = NaN`), not
-    just store the mask inertly."""
+    outside-mask pixels (as TrXS_gui.m's CircularAve does), not just store
+    the mask inertly."""
 
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -1170,6 +1170,28 @@ def test_console_circular_average_applies_mask(tmp_path):
     assert masked["ok"], masked.get("message")
     assert masked["mask_active"]
     assert masked["preview"]["intensity"] != unmasked["preview"]["intensity"]
+
+
+def test_console_circular_mask_is_left_out_of_coverage(tmp_path):
+    """Masking half the detector must not null every bin at the default
+    min_coverage: the drawn region leaves the geometry (TrXS_gui.m's
+    CircularAve), so coverage only counts real missing data."""
+
+    cs.reset_session()
+    frame_path = tmp_path / "frame.h5"
+    _write_synthetic_frame(frame_path, shape=(64, 64))
+    _load(frame_path, mode="trxs")
+    cs.get_session().calibration_loaded = True
+    cs.console_qmap({"energy_kev": 9.5, "sdd_mm": 300.0, "beam_y": 32.0, "beam_z": 32.0})
+
+    mask = np.zeros((64, 64), dtype=bool)
+    mask[:, :32] = True
+    assert cs.console_set_circular_mask({"mask": mask})["ok"]
+    masked = cs.console_circular_average({"angle_min": 0, "angle_max": 360, "min_coverage": 0.8})
+    assert masked["ok"], masked.get("message")
+    coverage = np.array([c for c in masked["preview"]["coverage"] if c is not None], dtype=float)
+    assert np.nanmin(coverage) > 0.99
+    assert any(v is not None and np.isfinite(v) for v in masked["preview"]["intensity"])
 
 
 def test_console_load_clears_circular_mask(tmp_path):

@@ -139,8 +139,15 @@ def sector_average(
     angle_range: tuple[float, float],
     use_median: bool = False,
     calc_std: bool = False,
+    keep_mask: np.ndarray | None = None,
 ) -> SectorAverageResult:
-    """Radius-bin average inside an angular sector with coverage sidecars."""
+    """Radius-bin average inside an angular sector with coverage sidecars.
+
+    `keep_mask` (True = keep) is a user-drawn ROI mask. Its excluded pixels
+    leave the geometry like the outside of the sector does, so each bin is
+    the mean of what remains and its coverage still only counts missing
+    data (detector gaps) -- as TrXS_gui.m / TrXS2_gui.m's `geom_valid`.
+    """
 
     image = np.asarray(data, dtype=np.float32)
     q = np.asarray(q_map, dtype=np.float32)
@@ -150,6 +157,11 @@ def sector_average(
     finite_q = np.isfinite(q) & (q > 0)
     sector_mask = make_sector_mask(image.shape, center, angle_range)
     sector_geom_mask = finite_q & sector_mask
+    if keep_mask is not None:
+        keep = np.asarray(keep_mask, dtype=bool)
+        if keep.shape != image.shape:
+            raise ValueError("keep_mask must match data shape.")
+        sector_geom_mask = sector_geom_mask & keep
 
     sector_bins = build_radius_bin_map(q, center, sector_geom_mask)
     if sector_bins.is_valid:
