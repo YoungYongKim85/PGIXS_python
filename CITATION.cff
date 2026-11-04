@@ -8,6 +8,12 @@ authors:
     email: kimyy@postech.ac.kr
     affiliation: Pohang Accelerator Laboratory
     orcid: "https://orcid.org/0000-0001-6102-9518"
+  - family-names: Kim
+    given-names: Jehan
+    affiliation: Pohang Accelerator Laboratory
+  - family-names: Kim
+    given-names: Nahyung
+    affiliation: Pohang Accelerator Laboratory
 license: MIT
 repository-code: https://github.com/YoungYongKim85/PGIXS_python
 abstract: "Standalone Python implementation of PGIXS, a data-reduction and analysis program for grazing-incidence and transmission X-ray scattering developed at the 3C beamline of the Pohang Light Source II."
