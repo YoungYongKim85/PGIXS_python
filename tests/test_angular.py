@@ -98,3 +98,18 @@ def test_angular_profile_rejects_a_reversed_or_empty_angle_range():
     for bad in ((350.0, 10.0), (90.0, 90.0)):
         with pytest.raises(ValueError, match="angle_range"):
             angular_profile(image, center=(10.0, 10.0), radius_range=(2.0, 5.0), angle_range=bad)
+
+
+def test_sector_average_keep_mask_leaves_the_geometry():
+    q_map = np.hypot(*np.mgrid[-10:11, -10:11]).astype(np.float32) + 1
+    data = np.ones((21, 21), dtype=np.float32)
+    data[:, 11:] = 1000.0  # what the user masks out
+    keep = np.ones((21, 21), dtype=bool)
+    keep[:, 11:] = False
+
+    result = sector_average(data, q_map, center=(11, 11), angle_range=(0, 0), keep_mask=keep)
+
+    finite = np.isfinite(result.intensity)
+    assert finite.any()
+    assert np.allclose(result.intensity[finite], 1.0)
+    assert np.all(result.coverage[finite] == 1.0)
