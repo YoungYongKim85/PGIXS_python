@@ -4,6 +4,22 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.15 — 원형 평균 마스크가 bin을 지우지 않음 / Circular mask no longer drops bins
+
+- TrXS 콘솔의 **Circular Average**에서 그린 마스크 영역을 이제 계산 대상(기하)에서 뺍니다.
+  - 지금까지는 마스크 영역을 데이터 결손으로 보았습니다. 그래서 마스크가 링의 20% 넘게 덮으면
+    그 q bin의 coverage가 **Min cov**(기본 0.80) 아래로 떨어져 bin이 통째로 지워졌습니다.
+  - 이제 각 bin은 마스크를 뺀 나머지 영역의 평균이고, coverage는 검출기 갭 같은 실제 결손만 셉니다.
+  - TrXS-series의 원형 평균과 MATLAB의 TrXS, TrXS-series는 원래 이 방식이었습니다.
+  - 마스크를 쓰지 않은 결과는 바뀌지 않습니다.
+
+The TrXS console's Circular Average now leaves the drawn ROI mask out of the
+bin geometry, as TrXS-series and the MATLAB version already did. Each bin is
+the mean of what remains; masking a large part of a ring no longer pushes the
+bin under Min cov. Results without a mask are unchanged.
+
+---
+
 ## v0.3.14 — Mean이 실제 산술평균으로 / "Mean" is now the arithmetic mean
 
 - 1D 처리에서 **Mean**을 고르면 이제 실제 **산술평균**을 냅니다. **결과 숫자가 바뀌는 수정입니다.**
