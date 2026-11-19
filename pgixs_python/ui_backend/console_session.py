@@ -49,6 +49,7 @@ from pgixs_python.averaging.qbin import summarize_coverage
 from pgixs_python.calibration.calibration_io import load_standard_calibration
 from pgixs_python.calibration.sdd import wavelength_from_energy_kev
 from pgixs_python.export.data_export import OneDExport, save_1d_data
+from pgixs_python.io.h5_metadata import read_incidence_angle
 from pgixs_python.io.h5_series import natural_sort_key
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.two_d_info import TwoDInfo, save_two_d_info_h5
@@ -277,10 +278,16 @@ def console_load(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.source_path = str(file_path)
     _SESSION.calibration["pixel_mm"] = detector_mask.pixel_size_mm
     _reset_for_new_data()
+    # The angle the file itself records becomes the session's ai (TrXS is
+    # normal incidence). A file without one leaves the typed angle alone.
+    file_angle = read_incidence_angle(file_path) if mode == "gixs" else None
+    if file_angle is not None:
+        _SESSION.calibration["incident_angle_deg"] = file_angle
 
     return {
         "ok": True,
         "path": str(file_path),
+        "file_incident_angle_deg": file_angle,
         "mode": mode,
         "detector": detector,
         "shape": list(masked.shape),

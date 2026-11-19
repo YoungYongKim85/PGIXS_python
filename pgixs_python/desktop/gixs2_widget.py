@@ -941,7 +941,32 @@ class GIXS2Widget(QWidget):
         warnings = result.get("warnings") or []
         if warnings:
             QMessageBox.warning(self, "GIXS2 Load Series", "\n\n".join(warnings))
-        self._set_status(f"Loaded {result['n_files']} files, shape {tuple(result['shape'])}. Showing the average image.", True)
+        self._set_status(
+            f"Loaded {result['n_files']} files, shape {tuple(result['shape'])}. "
+            f"Showing the average image.{self._apply_file_angles(result)}",
+            True,
+        )
+
+    def _apply_file_angles(self, result: dict[str, Any]) -> str:
+        """Fill ai (and tick Change ai for an angle scan) from what the
+        loaded files record; returns the status note saying so."""
+
+        missing = result.get("file_angles_missing")
+        if missing is None:
+            return f" The files record no incidence angle; ai stays {self.ai_deg_spin.value():g} deg."
+        if missing:
+            return f" {missing} file(s) record no incidence angle; ai stays {self.ai_deg_spin.value():g} deg."
+        self.ai_deg_spin.setValue(float(result["file_incident_angle_deg"]))
+        pix = gs.gixs2_ai_from_degree({"ai_deg": self.ai_deg_spin.value()})
+        if pix.get("ok"):  # needs Load Info's SDD; the angle stands without it
+            self.ai_pix_spin.blockSignals(True)
+            self.ai_pix_spin.setValue(pix["pix"])
+            self.ai_pix_spin.blockSignals(False)
+        if result.get("file_angles_vary"):
+            self.change_ai_check.setChecked(True)
+            low, high = result["file_angle_range"]
+            return f" ai {low:g}-{high:g} deg from the files: Change ai is on and q-Cal uses each file's angle."
+        return f" ai {self.ai_deg_spin.value():g} deg from the files."
 
     def _on_load_info_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Select a calibration file", self._last_dir, "Calibration (*.json)")
@@ -1448,7 +1473,11 @@ class GIXS2Widget(QWidget):
         self._current_image_data = None
         self._render_image()
         self._mark_ok(self.qcal_button, True)
-        note = " (Change ai: per-frame Q-map)" if result.get("change_ai") else ""
+        note = ""
+        if result.get("ai_from_files"):
+            note = " (Change ai: per-frame Q-map at each file's own angle)"
+        elif result.get("change_ai"):
+            note = " (Change ai: per-frame Q-map)"
         self._set_status(f"q-Cal applied to the whole series.{note}", True)
 
     # ------------------------------------------------------------------

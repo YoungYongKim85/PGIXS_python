@@ -19,6 +19,8 @@ class H5Metadata:
     bc_counter: str
     timestamp: float
     temperature: np.ndarray
+    # Degrees; NaN when the file records none (read whatever `mode` is).
+    incidence_angle: float = float("nan")
 
 
 def read_h5_metadata(file_path: str | Path, mode: str = "", reference_timestamp: float | None = None) -> H5Metadata:
@@ -40,6 +42,7 @@ def read_h5_metadata(file_path: str | Path, mode: str = "", reference_timestamp:
         if reference_timestamp is not None and np.isfinite(timestamp) and np.isfinite(reference_timestamp):
             timestamp = timestamp - float(reference_timestamp)
 
+        incidence_angle = _read_incidence_angle(h5)
         temperature = np.array([np.nan, np.nan, np.nan], dtype=np.float32)
         if mode == "Temperature":
             temperature[0] = _read_first_available(h5, ["Temp1", "Temperature1"])
@@ -49,10 +52,7 @@ def read_h5_metadata(file_path: str | Path, mode: str = "", reference_timestamp:
             temperature[0] = _read_first_available(h5, ["LowTemp1"])
             temperature[1] = _read_first_available(h5, ["LowTemp2"])
         elif mode == "Angle":
-            # Beamlines write the incidence angle under either name (the
-            # Eiger files of 2026-10 use IAngle). A file with neither gives
-            # NaN, which callers already treat as "not logged".
-            temperature[0] = _read_first_available(h5, ["IncAngle", "IAngle"])
+            temperature[0] = incidence_angle
 
     return H5Metadata(
         counter1=float(counter1),
@@ -60,7 +60,29 @@ def read_h5_metadata(file_path: str | Path, mode: str = "", reference_timestamp:
         bc_counter=bc_counter,
         timestamp=float(timestamp),
         temperature=temperature,
+        incidence_angle=incidence_angle,
     )
+
+
+def read_incidence_angle(file_path: str | Path) -> float | None:
+    """The incidence angle the beamline wrote into the file, in degrees,
+    or None when it wrote none (not H5, unreadable, or neither name)."""
+
+    path = Path(file_path)
+    if path.suffix.lower() not in {".h5", ".hdf5"}:
+        return None
+    try:
+        with _import_h5py().File(path, "r") as h5:
+            value = _read_incidence_angle(h5)
+    except (OSError, ImportError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def _read_incidence_angle(h5: Any) -> float:
+    # Beamlines write it under either name (the Eiger files of 2026-10 use
+    # IAngle). Stored as float32: 0.15 comes back as 0.15000000596...
+    return round(_read_first_available(h5, ["IncAngle", "IAngle"]), 6)
 
 
 def _read_first_available(h5: Any, names: list[str]) -> float:

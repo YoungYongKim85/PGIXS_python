@@ -69,6 +69,8 @@ class H5SeriesLoadResult:
     temperatures: np.ndarray
     retry_failed_frames: np.ndarray
     metadata_failed_frames: np.ndarray
+    # Per file, degrees; NaN where the file records none.
+    incidence_angles: np.ndarray | None = None
 
 
 def _load_one_frame(
@@ -154,6 +156,7 @@ def load_h5_series(
     counts = np.full((len(paths), 2), np.nan, dtype=np.float64)
     timestamps = np.full(len(paths), np.nan, dtype=np.float64)
     temperatures = np.full((len(paths), 3), np.nan, dtype=np.float64)
+    incidence_angles = np.full(len(paths), np.nan, dtype=np.float64)
     retry_failed: list[int] = []
     metadata_failed: list[int] = []
     known_size = fallback_size
@@ -176,6 +179,7 @@ def load_h5_series(
             counts[index0, 1] = metadata.counter_bc
             timestamps[index0] = metadata.timestamp
             temperatures[index0, :] = metadata.temperature
+            incidence_angles[index0] = metadata.incidence_angle
         if not metadata_ok:
             metadata_failed.append(index0 + 1)
 
@@ -247,4 +251,5 @@ def load_h5_series(
         temperatures=temperatures,
         retry_failed_frames=np.asarray(sorted(retry_failed), dtype=np.int32),
         metadata_failed_frames=np.asarray(sorted(metadata_failed), dtype=np.int32),
+        incidence_angles=incidence_angles,
     )

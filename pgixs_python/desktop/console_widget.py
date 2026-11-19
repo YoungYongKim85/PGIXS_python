@@ -1369,11 +1369,15 @@ class ConsoleWidget(QWidget):
             return
         self.ic_label.setText(str(payload.get("ic") if payload.get("ic") is not None else "0"))
         self.bc_label.setText(str(payload.get("bc") if payload.get("bc") is not None else "0"))
-        # Only the detector's pixel size comes from the load. Energy, SDD,
-        # beam centre and incidence angle stay as typed: MATLAB's
-        # Openimage_Callback never touches those fields, and overwriting them
-        # with the session's last Load Info/q-Map values silently threw away
-        # edits made since.
+        # The detector's pixel size comes from the load, and the incidence
+        # angle when the file records one. Energy, SDD and beam centre stay
+        # as typed: overwriting them with the session's last Load Info/q-Map
+        # values silently threw away edits made since.
+        file_angle = payload.get("file_incident_angle_deg") if self.ai_deg_spin is not None else None
+        if file_angle is not None:
+            self.ai_deg_spin.blockSignals(True)
+            self.ai_deg_spin.setValue(float(file_angle))
+            self.ai_deg_spin.blockSignals(False)
         pixel_mm = payload.get("calibration", {}).get("pixel_mm")
         if pixel_mm:
             self._pixel_mm = float(pixel_mm)
@@ -1400,7 +1404,16 @@ class ConsoleWidget(QWidget):
         self.image_canvas.reset_view()
         series_note = f" (averaged {payload['series_file_count']} files)" if payload.get("series_file_count") else ""
         shape = payload.get("shape", [])
-        self._set_status(f"Loaded {'x'.join(str(s) for s in shape)} from {payload.get('path')}.{series_note}", True)
+        # Say where ai came from, so a file without the angle is noticed.
+        if self.ai_deg_spin is None:
+            angle_note = ""
+        elif file_angle is not None:
+            angle_note = f" ai {float(file_angle):g} deg from the file."
+        else:
+            angle_note = f" The file records no incidence angle; ai stays {self.ai_deg_spin.value():g} deg."
+        self._set_status(
+            f"Loaded {'x'.join(str(s) for s in shape)} from {payload.get('path')}.{series_note}{angle_note}", True
+        )
         self._clear_curve_error()
 
     # ------------------------------------------------------------------

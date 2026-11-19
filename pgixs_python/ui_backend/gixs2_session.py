@@ -127,6 +127,11 @@ class GIXS2Session:
     change_ai: bool = False
     ai_step: float = 0.01
     aivar: np.ndarray | None = None
+    # The incidence angle each file records (NaN where it records none),
+    # and whether the last "Change ai" q-Cal took `aivar` from them
+    # instead of the ai + i*ai_step ramp.
+    file_angles: np.ndarray | None = None
+    aivar_from_files: bool = False
     q_stack: np.ndarray | None = None
     grid_removed: bool = False
     corrected: bool = False
@@ -254,6 +259,32 @@ def _mean_ignoring_all_nan(stack: np.ndarray) -> np.ndarray:
         return np.nanmean(stack, axis=0)
 
 
+def _file_angles_vary() -> bool:
+    """Every file records an incidence angle and they are not all the same:
+    an angle scan, which needs a q-map per frame."""
+
+    angles = _SESSION.file_angles
+    return bool(
+        angles is not None and angles.size > 1 and np.all(np.isfinite(angles)) and np.ptp(angles) > 1e-6
+    )
+
+
+def _file_angle_report() -> dict[str, Any]:
+    """What the loaded files record, for the widget's ai fields."""
+
+    angles = _SESSION.file_angles
+    if angles is None or not np.any(np.isfinite(angles)):
+        return {"file_incident_angle_deg": None, "file_angles_vary": False, "file_angles_missing": None}
+    missing = int(np.count_nonzero(~np.isfinite(angles)))
+    return {
+        # Only when every file has one: a partly-logged series keeps the typed angle.
+        "file_incident_angle_deg": None if missing else float(angles[0]),
+        "file_angles_vary": _file_angles_vary(),
+        "file_angles_missing": missing,
+        "file_angle_range": [float(np.nanmin(angles)), float(np.nanmax(angles))],
+    }
+
+
 def _clear_results() -> None:
     _SESSION.last_1d = None
     _SESSION.last_azimuthal = None
@@ -268,6 +299,7 @@ def _invalidate_qcal() -> None:
     _SESSION.angle_map = None
     _SESSION.change_ai = False
     _SESSION.aivar = None
+    _SESSION.aivar_from_files = False
     _SESSION.q_stack = None
     _SESSION.corrected_stack = None
     _SESSION.correction_factor = None
@@ -458,6 +490,10 @@ def gixs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.temperatures = result.temperatures.astype(np.float64)
     _SESSION.file_paths = paths
     _SESSION.insitu_mode = insitu_mode
+    _SESSION.file_angles = result.incidence_angles
+    angle_report = _file_angle_report()
+    if angle_report["file_incident_angle_deg"] is not None:
+        _SESSION.calibration["incident_angle_deg"] = angle_report["file_incident_angle_deg"]
     _reset_for_new_series()
     _SESSION.auto_n_old = len(paths)
     # The Set/Table listing that found these files names the series for
@@ -480,6 +516,7 @@ def gixs2_load_series(payload: dict[str, Any]) -> dict[str, Any]:
         "n_files": len(paths),
         "shape": list(stack.shape),
         "warnings": warnings_list,
+        **angle_report,
         "preview": downsample_2d_for_json(_SESSION.data, max_points=1024),
     }
 
@@ -673,6 +710,7 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     # (per-frame factors, so it has to be materialized here).
     static_factor = None
     corrected = None
+    use_file_angles = False
 
     if not change_ai:
         try:
@@ -702,7 +740,14 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": str(exc)}
 
-        aivar = incident_angle_deg + np.arange(n_frames, dtype=np.float64) * ai_step
+        # An angle scan's files say what each frame's angle was; the ramp is
+        # for files that do not (or `ai_from_files: false`).
+        use_file_angles = bool(payload.get("ai_from_files", True)) and _file_angles_vary()
+        if use_file_angles:
+            aivar = _SESSION.file_angles.astype(np.float64)
+            incident_angle_deg = float(aivar[0])
+        else:
+            aivar = incident_angle_deg + np.arange(n_frames, dtype=np.float64) * ai_step
         q_stack = np.empty((n_frames, n_rows, n_cols), dtype=np.float32)
         corrected_frames: list[np.ndarray] = []
         # "Change ai" recomputes a whole new q-map per frame (unlike the
@@ -742,6 +787,7 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.x_axis_order = None
         _SESSION.x_axis_label = ""
     _SESSION.change_ai = change_ai
+    _SESSION.aivar_from_files = use_file_angles
     _SESSION.ai_step = ai_step
     _SESSION.angle_map = pixel_angle_map(shape, center=beam_pos)
     _SESSION.corrected_stack = corrected
@@ -761,6 +807,7 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "calibration": dict(_SESSION.calibration),
         "change_ai": change_ai,
+        "ai_from_files": use_file_angles,
         "preview": downsample_2d_for_json(_SESSION.data, max_points=1024),
     }
 
@@ -1304,6 +1351,9 @@ def gixs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
     new_timestamps = result.timestamps.astype(np.float64)
     if _SESSION.timestamp_reference is not None:
         new_timestamps = new_timestamps - _SESSION.timestamp_reference
+    new_file_angles = result.incidence_angles.astype(np.float64)
+    if _SESSION.file_angles is not None:
+        _SESSION.file_angles = np.concatenate([_SESSION.file_angles, new_file_angles])
 
     if _SESSION.corrected_stack is not None and _SESSION.change_ai and _SESSION.q_stack is not None and _SESSION.aivar is not None:
         pixel_mm = float(_SESSION.calibration["pixel_mm"])
@@ -1320,6 +1370,10 @@ def gixs2_auto_refresh(payload: dict[str, Any]) -> dict[str, Any]:
         # original series' q-Cal established, not a fresh one starting
         # over from the incidence-angle field's current value.
         new_aivar = last_ai + _SESSION.ai_step * np.arange(1, n_new + 1, dtype=np.float64)
+        # A series whose angles came from its files takes the new files'
+        # own too (the ramp only where one of them records none).
+        if _SESSION.aivar_from_files and np.all(np.isfinite(new_file_angles)):
+            new_aivar = new_file_angles
         try:
             base_correction = _change_ai_base_correction(shape, beam_pos, pixel_mm, sdd_mm)
             kapton_table, si_table = _change_ai_attenuation_tables()
