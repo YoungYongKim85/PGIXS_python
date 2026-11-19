@@ -181,3 +181,61 @@ def test_workflow_stack_has_the_gui_orientation(tmp_path):
     stack = load_h5_input_stack(args).stack
     assert stack.shape == (1, 40, 30)
     assert stack[0, 10, 20] == 7.0
+
+
+def _eiger_pair(tmp_path):
+    rng = np.random.default_rng(3)
+    _frame(tmp_path / "S_0001.h5", rng.uniform(10, 100, size=(2167, 2070)))
+    bkg_dir = tmp_path / "bkg"
+    bkg_dir.mkdir()
+    _frame(bkg_dir / "BKG_0001.h5", rng.uniform(10, 100, size=(2167, 2070)))
+    return bkg_dir
+
+
+def test_console_grid_remove_also_corrects_the_background(tmp_path):
+    """Either order of Load Bkg. and Grid Remove leaves the same background,
+    grid-corrected like the data it is subtracted from."""
+
+    bkg_dir = _eiger_pair(tmp_path)
+    load = {"directory": str(tmp_path), "filename": "S_0001.h5", "detector": "Eiger4M"}
+    bkg = {"directory": str(bkg_dir), "filename": "BKG_0001.h5"}
+
+    cs.reset_session()
+    assert cs.console_load(load)["ok"]
+    assert cs.console_background_load(bkg)["ok"]
+    as_loaded = cs.get_session().background.copy()
+    assert cs.console_grid_remove({})["ok"]
+    bkg_first = cs.get_session().background.copy()
+    assert not np.array_equal(bkg_first, as_loaded, equal_nan=True)
+
+    cs.reset_session()
+    assert cs.console_load(load)["ok"]
+    assert cs.console_grid_remove({})["ok"]
+    assert cs.console_background_load(bkg)["ok"]
+    np.testing.assert_array_equal(cs.get_session().background, bkg_first)
+
+
+def test_trxs2_grid_remove_also_corrects_the_background(tmp_path):
+    bkg_dir = _eiger_pair(tmp_path)
+    series = {"directory": str(tmp_path), "filenames": ["S_0001.h5"], "insitu_mode": "Temperature", "detector": "Eiger4M"}
+    bkg = {"directory": str(bkg_dir), "filename": "BKG_0001.h5"}
+
+    ts.reset_session()
+    assert ts.trxs2_load_series(series)["ok"]
+    assert ts.trxs2_background_load(bkg)["ok"]
+    session = ts.get_session()
+    as_loaded = session.background_raw.copy()
+    assert ts.trxs2_grid_remove({})["ok"]
+    bkg_first = session.background_raw.copy()
+    assert not np.array_equal(bkg_first, as_loaded, equal_nan=True)
+    np.testing.assert_array_equal(session.background, bkg_first)
+
+    # A new series starts without Grid Remove: so does the kept background.
+    assert ts.trxs2_load_series(series)["ok"]
+    np.testing.assert_array_equal(ts.get_session().background_raw, as_loaded)
+
+    ts.reset_session()
+    assert ts.trxs2_load_series(series)["ok"]
+    assert ts.trxs2_grid_remove({})["ok"]
+    assert ts.trxs2_background_load(bkg)["ok"]
+    np.testing.assert_array_equal(ts.get_session().background_raw, bkg_first)

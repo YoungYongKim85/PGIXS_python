@@ -49,6 +49,7 @@ from pgixs_python.processing.corrections import (
     apply_detector_correction,
     detector_correction_factor,
 )
+from pgixs_python.processing.grid_remove import grid_remove
 from pgixs_python.processing.masking import detector_mask_for_type, dilate_gap_mask, masked_display_frame
 from pgixs_python.processing.normalization import normalize_by_count
 from pgixs_python.qmap.trxs import qmap_trxs
@@ -133,6 +134,10 @@ class TrXS2Session:
     # The averaged background before any correction. `background` is always
     # derived from it, so a re-q-Cal never corrects an already-corrected one.
     background_raw: np.ndarray | None = None
+    # The background as loaded. `background_raw` is this, grid-removed
+    # when the series is: the background outlives a series, and the
+    # next one may or may not get Grid Remove.
+    background_loaded: np.ndarray | None = None
     # User-drawn ROI mask for Circular Process (True = keep, False =
     # exclude) -- mirrors console_session.py's own circular_mask.
     circular_mask: np.ndarray | None = None
@@ -257,6 +262,17 @@ def _invalidate_qcal() -> None:
         _SESSION.background = _SESSION.background_raw.copy()
 
 
+def _grid_removed_background(frame: np.ndarray) -> np.ndarray:
+    """The background with its own grid lines corrected, as Grid Remove
+    does each data frame (its own reference-pixel ratio). The data's grid
+    pixels are rescaled by Grid Remove; a background left as loaded would
+    be subtracted from them on a different scale. A background the
+    correction does not apply to comes back unchanged."""
+
+    corrected, report = grid_remove(frame.T, _SESSION.detector)
+    return np.ascontiguousarray(corrected.T) if report.applied else frame
+
+
 def _reset_for_new_series() -> None:
     """Reset per-series derived state on a fresh Load/Set-Table Import --
     deliberately leaves `background`/`background_counts`/
@@ -271,10 +287,15 @@ def _reset_for_new_series() -> None:
         # Kept across series like MATLAB -- unless it is from another
         # detector, which no Exec could subtract (it raised instead).
         _SESSION.background_raw = None
+        _SESSION.background_loaded = None
         _SESSION.background = None
         _SESSION.background_counts = None
         _SESSION.subtract_background = False
     _SESSION.grid_removed = False
+    if _SESSION.background_loaded is not None:
+        # The new series has not had Grid Remove: nor has its background.
+        _SESSION.background_raw = _SESSION.background_loaded
+        _SESSION.background = _SESSION.background_loaded.copy()
     _SESSION.roi_list = []
     _SESSION.x_axis_values = None
     _SESSION.x_axis_order = None
@@ -520,6 +541,12 @@ def trxs2_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG00
     _SESSION.stack = stack
     _SESSION.data = _mean_ignoring_all_nan(_SESSION.stack)
     _SESSION.grid_removed = True
+    if _SESSION.background_loaded is not None:
+        # q-Cal has not run (see the guard above), so there is no
+        # detector correction to reapply.
+        _SESSION.background_raw = _grid_removed_background(_SESSION.background_loaded)
+        _SESSION.background = _SESSION.background_raw.copy()
+        _background_cuts()
     return {"ok": True, "message": applied_message, "preview": downsample_2d_for_json(_SESSION.data, max_points=1024)}
 
 
@@ -597,6 +624,9 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
         (counts_sum / meta_loaded).astype(np.float32) if meta_loaded else np.full(2, np.nan, dtype=np.float32)
     )
 
+    _SESSION.background_loaded = background
+    if _SESSION.grid_removed:
+        background = _grid_removed_background(background)
     _SESSION.background_raw = background
     _SESSION.background = background.copy()
     _SESSION.background_counts = background_counts

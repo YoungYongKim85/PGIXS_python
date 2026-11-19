@@ -328,6 +328,17 @@ def console_load_info(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "path": path, "calibration": _json_calibration(), "message": message}
 
 
+def _grid_removed_background(frame: np.ndarray) -> np.ndarray:
+    """The background with its own grid lines corrected, as Grid Remove
+    does each data frame (its own reference-pixel ratio). The data's grid
+    pixels are rescaled by Grid Remove; a background left as loaded would
+    be subtracted from them on a different scale. A background the
+    correction does not apply to comes back unchanged."""
+
+    corrected, report = grid_remove(frame.T, _SESSION.detector)
+    return np.ascontiguousarray(corrected.T) if report.applied else frame
+
+
 def console_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001 - payload kept for endpoint symmetry.
     if _SESSION.data is None:
         return {"ok": False, "message": "Load a detector image first."}
@@ -342,6 +353,8 @@ def console_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG
 
     _SESSION.data = corrected
     _SESSION.grid_removed = True
+    if _SESSION.background is not None:
+        _SESSION.background = _grid_removed_background(_SESSION.background)
     # Same staleness trap BKG sub. & Norm. hit (see console_normalize): every
     # render and every 1D cut prefers `corrected_data` when it is set, so
     # leaving the pre-grid-removal copy in place would make Grid Remove run
@@ -386,7 +399,8 @@ def console_background_load(payload: dict[str, Any]) -> dict[str, Any]:
             "message": f"Background shape {masked.shape} does not match data shape {_SESSION.data.shape}.",
         }
 
-    _SESSION.background = masked
+    # Loaded after Grid Remove: bring it to the data's state.
+    _SESSION.background = _grid_removed_background(masked) if _SESSION.grid_removed else masked
     _SESSION.background_counts = np.asarray(counts, dtype=np.float32)
     return {"ok": True, "path": str(file_path)}
 
