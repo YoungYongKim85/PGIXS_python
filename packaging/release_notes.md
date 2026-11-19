@@ -4,6 +4,44 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.16 — 로직 점검에서 찾은 문제 수정 / Fixes from a logic review
+
+**결과 숫자가 바뀔 수 있는 수정입니다.**
+
+- **q-Map Cal. 뒤의 BKG sub. & Norm. / Grid Remove**: 검출기 보정이 빠진 채로 1D 곡선이 나오던 문제를
+  고쳤습니다. 보정 계수를 기억해 두었다가 다시 적용하므로 q-Map Cal.을 다시 누르지 않아도 됩니다.
+- **GIXS q-map**: 빔 중심 Y가 정수 픽셀일 때 빔 열 한 줄의 Qxy와 |q|에서 qx가 빠지던 문제를 고쳤습니다
+  (검출기 끝에서 최대 4.7% 낮음). 90° accumulation cut의 q축이 이 열을 씁니다.
+- **TrXS-series 배경**: 카운트가 0인 픽셀을 평균에서 빼던 것을 그만두었습니다. 카운트가 낮은 배경이
+  실제보다 높게 나오던 문제입니다.
+- **Smart Auto Run 중심 미세 조정**: 결과가 실제 중심에서 최대 0.5픽셀 벗어나던 문제를 고쳤습니다.
+- 위 세 가지(GIXS q-map, 배경, 중심 조정)는 MATLAB 버전에도 같은 수정이 들어갔습니다.
+
+그 밖의 수정:
+
+- Circular Average에서 Std를 켜면 저장한 CSV에 std 열이 들어갑니다.
+- q-Map Cal.을 다시 하면 예전 1D 곡선이 지워져, 새 2D-info 옆에 예전 곡선이 저장되지 않습니다.
+- TrXS-series: q-Cal을 하면 그 전에 만든 결과가 지워집니다. 두 시리즈 탭 모두 Azimuthal은 q-Cal 뒤에만
+  실행됩니다(MATLAB과 같은 조건).
+- GIXS-series: q-Cal의 "Change ai"를 바꾸면 X축 설정이 초기화됩니다. Set X-Axis를 다시 해 주세요.
+- SDD 보정: 중심을 옮기면 예전 radial 곡선과 fit이 지워집니다. 반경이나 에너지가 0 이하이면 거부합니다.
+- 에너지에 0을 넣으면 오류 대신 안내 메시지가 나옵니다.
+- 검출기 밖으로 나간 accumulation cut은 가장자리 값을 돌려주지 않고 결과 없음으로 처리합니다.
+- detector 이름이 빈 `.mat` 보정 파일을 읽을 수 있습니다.
+- 명령행 workflow(`gixs_process`, `trxs_process`)가 H5 이미지를 GUI와 같은 방향으로 읽습니다.
+  이전에는 q-map이 대각선 기준으로 뒤집혔습니다.
+
+Fixes found in a logic review; some change results. BKG sub. & Norm. or Grid
+Remove after q-Map Cal. no longer drops the detector correction. GIXS Qxy and
+|q| keep qx on the beam column when the beam Y is a whole pixel. The TrXS-series
+background keeps measured zeros. Smart Auto Run's centre refinement no longer
+ends up to 0.5 px off. The saved Circular Average curve carries its Std column,
+stale curves and series results are dropped when the calibration changes, bad
+inputs (energy 0, radius <= 0) are refused with a message, and the CLI workflows
+read H5 frames in the GUI's orientation.
+
+---
+
 ## v0.3.15 — 원형 평균 마스크가 bin을 지우지 않음 / Circular mask no longer drops bins
 
 - TrXS 콘솔의 **Circular Average**에서 그린 마스크 영역을 이제 계산 대상(기하)에서 뺍니다.
