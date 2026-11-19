@@ -4,6 +4,25 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.18 — 파일의 incidence angle 자동 반영 / Incidence angle taken from the file
+
+- **GIXS 탭**: Load 하면 파일에 기록된 incidence angle(`IncAngle` 또는 `IAngle`)이 ai 칸에 자동으로 들어갑니다.
+  각도가 없는 파일은 입력해 둔 값을 그대로 쓰고, 상태줄에 어느 쪽인지 표시합니다.
+- **GIXS-series**: Load Series 때 파일마다 각도를 읽습니다.
+  - 모든 파일의 각도가 같으면 ai 칸에 그 값이 들어갑니다.
+  - 파일마다 각도가 다르면(angle scan) **Change ai**가 자동으로 켜지고, q-Cal은 ai step 대신
+    각 파일의 실제 각도로 프레임별 q-map을 만듭니다. Auto Refresh로 추가되는 파일도 같습니다.
+  - 각도가 없거나 일부 파일에만 있으면 입력한 값을 그대로 씁니다.
+- MATLAB 버전에도 같은 수정이 들어갔습니다.
+
+Loading a file that records its incidence angle (`IncAngle` / `IAngle`) now fills
+ai in the GIXS tab and in GIXS-series. A series whose files record different
+angles is treated as an angle scan: Change ai is ticked and q-Cal uses each
+file's own angle instead of the typed ramp. Files without the angle keep the
+typed value.
+
+---
+
 ## v0.3.17 — Grid Remove가 배경에도 적용 / Grid Remove also corrects the background
 
 - **Grid Remove**를 누르면 불러온 **배경**에도 같은 보정이 들어갑니다. TrXS/GIXS 콘솔과 TrXS-series가 해당됩니다.
