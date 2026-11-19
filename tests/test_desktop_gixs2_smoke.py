@@ -730,6 +730,7 @@ def test_gixs2_widget_azimuthal_plot_uses_series_colormap_with_colorbar(qapp, tm
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
+    gs.get_session().corrected = True  # Exec Azi needs q-Cal.
     _exec_azi_sync(widget)
 
     # Same live X-axis recompute as the 1D Plot Viewer -- see
@@ -772,6 +773,7 @@ def test_gixs2_widget_azimuthal_plot_colorbar_uses_x_axis_label_after_set_x_axis
     widget.azi_pix_spin.setValue(60.0)
     widget.azi_minus_spin.setValue(-5.0)
     widget.azi_plus_spin.setValue(5.0)
+    gs.get_session().corrected = True  # Exec Azi needs q-Cal.
     _exec_azi_sync(widget)
 
     widget._on_set_x_axis_clicked()

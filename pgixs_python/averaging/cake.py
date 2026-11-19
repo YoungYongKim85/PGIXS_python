@@ -195,6 +195,7 @@ def accumulation_average(
     if angle in (0.0, 180.0):
         # beam_z is 1-based; the slice below is 0-based.
         row_center = beam_z - 1.0 - float(perp_offset)
+        off_detector = row_center + band_plus < 0 or row_center + band_minus > n_rows - 1
         row_start = max(0, min(n_rows - 1, int(np.floor(row_center + band_minus))))
         row_end = max(row_start, min(n_rows - 1, int(np.ceil(row_center + band_plus))))
         band = image[row_start : row_end + 1, :]
@@ -211,6 +212,7 @@ def accumulation_average(
         r_axis = np.abs(col_offset)
     else:  # angle == 90.0
         col_center = beam_y - 1.0 + float(perp_offset)
+        off_detector = col_center + band_plus < 0 or col_center + band_minus > n_cols - 1
         col_start = max(0, min(n_cols - 1, int(np.floor(col_center + band_minus))))
         col_end = max(col_start, min(n_cols - 1, int(np.ceil(col_center + band_plus))))
         band = image[:, col_start : col_end + 1]
@@ -225,6 +227,10 @@ def accumulation_average(
 
     coverage = finite_counts.astype(np.float32) / max(1, band_width)
     keep = keep & np.isfinite(mean_q) & (mean_q > 0) & np.isfinite(intensity)
+    if off_detector:
+        # The clamps above would hand back the edge row/column as if it
+        # were the band that was asked for.
+        keep[:] = False
 
     if not np.any(keep):
         empty_f = np.array([], dtype=np.float32)

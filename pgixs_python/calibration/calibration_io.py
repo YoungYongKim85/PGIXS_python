@@ -291,6 +291,8 @@ def _to_string(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     arr = np.asarray(value)
+    if arr.size == 0:
+        return ""  # MATLAB '' loads as an empty array, not as "[]".
     if arr.size == 1:
         value = arr.reshape(-1)[0]
         if isinstance(value, bytes):

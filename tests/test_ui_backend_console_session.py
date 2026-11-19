@@ -7,6 +7,7 @@ import pytest
 from pgixs_python.calibration.sdd import wavelength_from_energy_kev
 from pgixs_python.io.image_loader import load_image_file
 from pgixs_python.io.two_d_info import load_two_d_info_h5
+from pgixs_python.processing.corrections import apply_detector_correction
 from pgixs_python.ui_backend import console_session as cs
 
 
@@ -875,9 +876,10 @@ def test_console_normalize_invalidates_a_stale_corrected_data_from_an_earlier_qc
     image), console_widget.py's own render always prefers corrected_data
     over data when it's set, so committing a background subtraction left
     the displayed image showing the old, stale corrected copy even though
-    session.data itself was genuinely updated. confirm=true must drop the
-    stale corrected_data so the render falls back to the now-current
-    data."""
+    session.data itself was genuinely updated. confirm=true must rebuild
+    corrected_data from the now-current data -- with the factor q-Map Cal.
+    cached, so later cuts stay detector-corrected (dropping it instead left
+    the q-map valid and every cut silently uncorrected)."""
 
     cs.reset_session()
     frame_path = tmp_path / "frame.h5"
@@ -895,7 +897,12 @@ def test_console_normalize_invalidates_a_stale_corrected_data_from_an_earlier_qc
     committed = cs.console_normalize({"method": "None", "confirm": True})
 
     assert committed["ok"], committed.get("message")
-    assert cs.get_session().corrected_data is None
+    session = cs.get_session()
+    assert session.correction_factor is not None
+    np.testing.assert_allclose(
+        session.corrected_data, apply_detector_correction(session.data, session.correction_factor), equal_nan=True
+    )
+    assert not np.array_equal(session.corrected_data, session.data, equal_nan=True)
 
 
 def test_console_save_requires_qmap(tmp_path):
@@ -1565,9 +1572,12 @@ def test_console_grid_remove_after_qmap_is_not_a_silent_no_op(tmp_path):
 
     assert cs.console_grid_remove({})["ok"]
 
-    # The stale corrected copy must be gone, so renders/cuts fall back to the
-    # grid-removed `data` instead of silently ignoring the correction.
-    assert cs.get_session().corrected_data is None
+    # The stale corrected copy must be gone: it is rebuilt from the
+    # grid-removed `data` with the cached detector-correction factor.
+    session = cs.get_session()
+    np.testing.assert_allclose(
+        session.corrected_data, apply_detector_correction(session.data, session.correction_factor), equal_nan=True
+    )
 
 
 def test_gap_buffer_is_blanked_for_1d_reductions_but_not_for_the_image(tmp_path):

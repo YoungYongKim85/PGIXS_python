@@ -318,7 +318,7 @@ def load_h5_input_stack(args) -> H5SeriesLoadResult:
     mask = None
     if getattr(args, "mask_detector", False):
         mask = detector_mask_for_type(getattr(args, "detector", "")).mask
-    return load_h5_series(
+    result = load_h5_series(
         files,
         dataset_path=args.dataset,
         frame_index=args.frame_index,
@@ -327,6 +327,11 @@ def load_h5_input_stack(args) -> H5SeriesLoadResult:
         metadata_mode=args.metadata_mode,
         reference_timestamp=args.reference_timestamp,
     )
+    # `load_h5_frame` hands frames back transposed; the GUI sessions undo
+    # that (see trxs2_session's load) and every calibration's beam centre is
+    # (column, row) of that display orientation. Without the same transpose
+    # here the Q-map was mirrored about the diagonal relative to the GUI's.
+    return replace(result, stack=np.ascontiguousarray(np.transpose(result.stack, (0, 2, 1))))
 
 
 def format_h5_series_summary(label: str, result: H5SeriesLoadResult) -> str:
@@ -444,7 +449,9 @@ def process_workflow_stack(
             norm_failure = norm_report.message
 
         if getattr(args, "grid_remove", False):
-            frame, grid_report = grid_remove(frame, detector_type=getattr(args, "detector", ""))
+            # grid_remove takes the `load_h5_frame` orientation.
+            frame, grid_report = grid_remove(frame.T, detector_type=getattr(args, "detector", ""))
+            frame = np.ascontiguousarray(frame.T)
             grid_applied[idx] = 1 if grid_report.applied else 0
 
         if correction_factor is not None:

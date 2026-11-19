@@ -17,7 +17,11 @@ class SDDRingResult:
 def wavelength_from_energy_kev(energy_kev: float) -> float:
     """Return wavelength in Angstrom from photon energy in keV."""
 
-    return 12.398419843320026 / float(energy_kev)
+    energy = float(energy_kev)
+    # Callers reject a non-finite wavelength; 0 keV must not divide.
+    if not energy > 0:
+        return float("nan")
+    return 12.398419843320026 / energy
 
 
 def compute_sdd_from_ring(pixel_radius: float, pixel_size_mm: float, energy_kev: float, q_value: float) -> SDDRingResult:

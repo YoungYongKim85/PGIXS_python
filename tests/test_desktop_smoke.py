@@ -206,10 +206,10 @@ def test_subtract_after_qcal_actually_updates_the_displayed_image(qapp, tmp_path
     corrected_data (built from the pre-normalization image) took priority
     over the freshly normalized data in _render_pixel_image's own
     fallback, so the confirmation dialog worked but the visible image
-    never changed. console_normalize now drops that stale copy on
-    confirm; the widget must also flag q-Map Cal. as needing a re-run so
-    the user isn't left thinking the (uncorrected) image on screen already
-    has the detector correction applied."""
+    never changed. console_normalize now rebuilds that copy from the
+    normalized image with q-Map Cal.'s cached factor, so the image on
+    screen is the new data with the detector correction applied and
+    q-Map Cal. stays done."""
 
     import h5py
     import numpy as np
@@ -233,11 +233,16 @@ def test_subtract_after_qcal_actually_updates_the_displayed_image(qapp, tmp_path
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
     console._on_subtract_clicked()
 
-    assert cs.get_session().corrected_data is None
-    assert console.qmap_button.property("state") != "ok"
-    # The rendered image is now genuinely the new (normalized) data, not
-    # the stale pre-normalization corrected copy.
-    np.testing.assert_array_equal(console._current_image_data, cs.get_session().data)
+    from pgixs_python.processing.corrections import apply_detector_correction
+
+    session = cs.get_session()
+    assert console.qmap_button.property("state") == "ok"
+    # The rendered image is now genuinely the new (normalized) data with
+    # the correction reapplied, not the stale pre-normalization copy.
+    np.testing.assert_allclose(
+        session.corrected_data, apply_detector_correction(session.data, session.correction_factor), equal_nan=True
+    )
+    np.testing.assert_array_equal(console._current_image_data, session.corrected_data)
 
 
 def test_subtract_shows_the_preview_before_asking_and_reverts_on_discard(qapp, tmp_path, monkeypatch):

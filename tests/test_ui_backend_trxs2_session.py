@@ -472,6 +472,7 @@ def test_trxs2_azimuthal_exec_matches_single_frame_console_0_360_result(tmp_path
     session = ts.get_session()
     session.calibration.update({"beam_pos": center})
     session.calibration_loaded = True
+    session.corrected = True  # Exec Azi needs q-Cal; this test cuts raw frames.
 
     result = ts.trxs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
     assert result["ok"], result.get("message")

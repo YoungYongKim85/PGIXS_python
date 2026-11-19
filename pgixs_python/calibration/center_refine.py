@@ -120,21 +120,26 @@ def fine_tune_center(
         keep_u = idx_u > 0
         p_up = _side_fit(search_range[keep_u], array[(idx_u[keep_u] - 1).astype(np.int64), i_col - 1])
 
-        shift_y = 0.0
-        shift_z = 0.0
+        # The side fits are offsets from the rounded pixel (i_col, i_row),
+        # so the centre they give is that pixel plus half their difference.
+        # Adding the half-difference to the unrounded centre instead, as
+        # fineTuneCenter did, left up to 0.5 px of error and only settled
+        # when the true centre sat on a whole pixel.
+        step_y = 0.0
+        step_z = 0.0
         moved = False
         if np.isfinite(p_right) and np.isfinite(p_left):
-            shift_y = (p_right - p_left) / 2.0
+            step_y = i_col + (p_right - p_left) / 2.0 - cur_y
             moved = True
         if np.isfinite(p_down) and np.isfinite(p_up):
-            shift_z = (p_down - p_up) / 2.0
+            step_z = i_row + (p_down - p_up) / 2.0 - cur_z
             moved = True
         if not moved:
             break
 
-        cur_y += shift_y * 0.8
-        cur_z += shift_z * 0.8
-        if abs(shift_y) < 0.05 and abs(shift_z) < 0.05:
+        cur_y += step_y * 0.8
+        cur_z += step_z * 0.8
+        if abs(step_y) < 0.05 and abs(step_z) < 0.05:
             break
 
     return cur_y, cur_z

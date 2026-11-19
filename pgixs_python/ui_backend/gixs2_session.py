@@ -734,6 +734,13 @@ def gixs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.calibration.update(
         {"energy_kev": energy_kev, "sdd_mm": sdd_mm, "beam_pos": beam_pos, "incident_angle_deg": incident_angle_deg}
     )
+    if change_ai != _SESSION.change_ai:
+        # The X axis set before belonged to the other mode (frame numbers
+        # vs the per-frame incidence angle): saves would label the new
+        # results with it. Set X-Axis has to be chosen again.
+        _SESSION.x_axis_values = None
+        _SESSION.x_axis_order = None
+        _SESSION.x_axis_label = ""
     _SESSION.change_ai = change_ai
     _SESSION.ai_step = ai_step
     _SESSION.angle_map = pixel_angle_map(shape, center=beam_pos)
@@ -900,6 +907,10 @@ def gixs2_linecut_exec(payload: dict[str, Any]) -> dict[str, Any]:
 def gixs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
     if _SESSION.stack is None:
         return {"ok": False, "message": "Load a series first."}
+    if not _SESSION.corrected:
+        # As Azilinecut2_Callback ("Q-Cal first."): until then the beam
+        # centre is still the placeholder.
+        return {"ok": False, "message": "Run q-Cal first."}
 
     try:
         pixel = float(payload.get("pixel", 202.0))

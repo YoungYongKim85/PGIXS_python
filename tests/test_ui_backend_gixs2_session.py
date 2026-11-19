@@ -480,6 +480,7 @@ def test_gixs2_azimuthal_exec_end_to_end(tmp_path):
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
     session.calibration_loaded = True
+    session.corrected = True  # Exec Azi needs q-Cal; this test cuts raw frames.
 
     result = gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})
 
@@ -498,6 +499,7 @@ def test_gixs2_azimuthal_exec_reports_and_clears_load_progress(tmp_path):
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
     session.calibration_loaded = True
+    session.corrected = True  # Exec Azi needs q-Cal; this test cuts raw frames.
 
     seen = []
     original_process = gs.process_azimuthal_stack
@@ -1009,6 +1011,7 @@ def test_gixs2_azimuthal_exec_blanks_the_gap_shoulder_like_every_other_reduction
     session = gs.get_session()
     session.calibration.update({"beam_pos": center})
     session.calibration_loaded = True
+    session.corrected = True  # Exec Azi needs q-Cal; this test cuts raw frames.
     session.gap_buffer = _angle_wedge_gap_buffer(session.stack.shape[-2:], center, 40.0, 50.0)
 
     assert gs.gixs2_azimuthal_exec({"pixel": 60.0, "range_minus": -5.0, "range_plus": 5.0})["ok"]

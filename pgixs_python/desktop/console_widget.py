@@ -1444,10 +1444,9 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
-        # console_grid_remove dropped the now-stale corrected_data, so flag
-        # q-Map Cal. for a re-run to get the correction reapplied on top of
-        # the grid-removed image (same handling as BKG sub. & Norm.).
-        self._mark_ok(self.qmap_button, False)
+        # console_grid_remove reapplied q-Map Cal.'s cached correction to
+        # the grid-removed image, so q-Map Cal. stays done (same handling
+        # as BKG sub. & Norm.).
         self._render_pixel_image()
         self._set_status(result.get("message", "Grid remove complete."), True)
 
@@ -1565,12 +1564,9 @@ class ConsoleWidget(QWidget):
         self.map_format_combo.blockSignals(True)
         self.map_format_combo.setCurrentText("Pixel")
         self.map_format_combo.blockSignals(False)
-        # console_normalize just dropped the now-stale corrected_data (it
-        # was built from the pre-normalization image) -- flag q-Map Cal.
-        # as needing a re-run so its correction gets reapplied to the new
-        # data, matching the "not done yet" indicator a fresh Load Data
-        # already resets it to.
-        self._mark_ok(self.qmap_button, False)
+        # console_normalize rebuilt corrected_data from the normalized
+        # image with q-Map Cal.'s cached factor, so the q-map and its
+        # correction still hold: nothing to re-run.
         # Background subtraction routinely changes the data's whole
         # intensity scale (raw counts vs. a subtracted/normalized
         # difference) -- Contrast holding onto whatever min/max applied to

@@ -84,6 +84,10 @@ class ConsoleSession:
     detector: str = "Eiger4M"
     data: np.ndarray | None = None
     corrected_data: np.ndarray | None = None
+    # The factor q-Map Cal. applied (geometry only, so it outlives a
+    # change of `data`): BKG sub. & Norm. and Grid Remove reapply it
+    # instead of leaving later cuts uncorrected. None = no correction.
+    correction_factor: np.ndarray | None = None
     mask: np.ndarray | None = None
     # Detector gap/dead pixels grown by 3 px (`dilate_gap_mask`). Pixels
     # bordering a module gap can carry biased counts, so every 1D reduction
@@ -317,6 +321,7 @@ def console_load_info(payload: dict[str, Any]) -> dict[str, Any]:
         _SESSION.qmap = None
         _SESSION.angle_map = None
         _SESSION.corrected_data = None
+        _SESSION.correction_factor = None
         _SESSION.last_curve = None
         message = "New calibration loaded: run q-Map Cal. again."
 
@@ -342,9 +347,8 @@ def console_grid_remove(payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG
     # leaving the pre-grid-removal copy in place would make Grid Remove run
     # after q-Map Cal. a silent no-op -- unchanged image, unchanged curves.
     # MATLAB has no such second array (its correction overwrites `param.data`
-    # in place), so this only needs guarding here. Drop the stale copy and let
-    # the widget flag q-Map Cal. as needing a re-run.
-    _SESSION.corrected_data = None
+    # in place), so this only needs guarding here.
+    _recorrect_after_data_change()
     return {
         "ok": True,
         "message": report.message,
@@ -436,12 +440,29 @@ def console_normalize(payload: dict[str, Any]) -> dict[str, Any]:
     # now-current `data`) and let the qmap_button's own "needs re-run"
     # indicator (see console_widget.py's _on_subtract_clicked) prompt the
     # user to redo q-Map Cal. for a freshly-corrected image.
-    _SESSION.corrected_data = None
+    # (Since v0.3.16 the factor is cached and reapplied below, so cuts
+    # made without that re-run are still detector-corrected.)
+    _recorrect_after_data_change()
     return {
         "ok": True,
         "message": f"Applied {report.method} normalization.",
         "preview": downsample_2d_for_json(preview, max_points=1024),
     }
+
+
+def _recorrect_after_data_change() -> None:
+    """`data` just changed under an existing q-map (BKG sub. & Norm.,
+    Grid Remove). Rebuild `corrected_data` from it with the factor q-Map
+    Cal. cached: dropping it instead left the q-map valid while every
+    later cut silently lost the solid-angle/polarisation correction.
+    The curve cut from the old data goes too."""
+
+    _SESSION.last_curve = None
+    factor = _SESSION.correction_factor
+    if _SESSION.qmap is None or factor is None or factor.shape != _SESSION.data.shape:
+        _SESSION.corrected_data = None
+        return
+    _SESSION.corrected_data = apply_detector_correction(_SESSION.data, factor)
 
 
 def console_qmap(payload: dict[str, Any]) -> dict[str, Any]:
@@ -547,6 +568,7 @@ def console_qmap(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.angle_map = pixel_angle_map(_SESSION.data.shape, center=(beam_y, beam_z))
 
     corrected_data = _SESSION.data
+    _SESSION.correction_factor = None
     if apply_correction:
         try:
             factor = detector_correction_factor(
@@ -564,7 +586,11 @@ def console_qmap(payload: dict[str, Any]) -> dict[str, Any]:
             corrected_data = apply_detector_correction(_SESSION.data, factor)
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"Q-map computed, but detector correction failed: {exc}"}
+        _SESSION.correction_factor = factor
     _SESSION.corrected_data = corrected_data
+    # A curve cut against the previous q-map must not be saved beside
+    # this one's 2D-info.
+    _SESSION.last_curve = None
 
     return {
         "ok": True,
@@ -1307,6 +1333,8 @@ def _export_last_curve(target_dir: Path, stem: str) -> Path:
         x=x_axis,
         intensity=curve["intensity"],
         coverage=curve.get("coverage"),
+        # Circular Average's Std error bars, when they were asked for.
+        std=curve.get("std"),
         x_label="q" if is_q_axis else "angle_deg",
         # Only "line" curves ever carry this (GIXS's q uncertainty,
         # see console_line_1d) -- absent (None) for every other kind.
@@ -1338,6 +1366,7 @@ def _curve_filename_suffix(curve: dict[str, Any]) -> str:
 def _reset_for_new_data() -> None:
     _SESSION.qmap = None
     _SESSION.corrected_data = None
+    _SESSION.correction_factor = None
     _SESSION.normalized = False
     _SESSION.grid_removed = False
     _SESSION.angle_map = None

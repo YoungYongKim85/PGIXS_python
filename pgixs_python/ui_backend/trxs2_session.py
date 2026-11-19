@@ -589,8 +589,10 @@ def trxs2_background_load(payload: dict[str, Any]) -> dict[str, Any]:
     if loaded == 0:
         return {"ok": False, "message": "No background frames could be loaded."}
 
+    # Gaps are already NaN (masked_display_frame). A measured zero is a
+    # real count: turning it into NaN, as Bkgload2_Callback did, biased a
+    # low-count background high (mean 0.3 counts read as 1.16).
     background = (running_sum / loaded).astype(np.float32)
-    background[background == 0] = np.nan
     background_counts = (
         (counts_sum / meta_loaded).astype(np.float32) if meta_loaded else np.full(2, np.nan, dtype=np.float32)
     )
@@ -698,6 +700,13 @@ def trxs2_qcal(payload: dict[str, Any]) -> dict[str, Any]:
     _SESSION.angle_map = pixel_angle_map(shape, center=beam_pos)
     _SESSION.correction_factor = factor
     _SESSION.corrected = True
+    # Anything run before q-Cal (ROI needs none) came from uncorrected
+    # frames: Auto Refresh would append corrected rows to it.
+    _SESSION.last_1d = None
+    _SESSION.last_azimuthal = None
+    _SESSION.last_roi = None
+    _SESSION.bkg_1d = None
+    _SESSION.bkg_azi = None
     # mean_i(x_i / f) == mean_i(x_i) / f for a frame-independent f.
     _SESSION.data = apply_detector_correction(_mean_ignoring_all_nan(_SESSION.stack), factor)
 
@@ -861,6 +870,10 @@ def trxs2_azimuthal_exec(payload: dict[str, Any]) -> dict[str, Any]:
 
     if _SESSION.stack is None:
         return {"ok": False, "message": "Load a series first."}
+    if not _SESSION.corrected:
+        # As Azilinecut2_Callback: without q-Cal the beam centre is still
+        # the placeholder.
+        return {"ok": False, "message": "Run q-Cal first."}
 
     try:
         pixel = float(payload.get("pixel", 202.0))

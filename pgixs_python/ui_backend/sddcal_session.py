@@ -154,6 +154,12 @@ def _move_center(y: float, z: float) -> None:
 
     if (y, z) != tuple(_SESSION.center):
         _SESSION.sdd_result = None
+        # A radial profile is only valid around the centre it was
+        # averaged at: fitting the old one would pair its ring radius
+        # with the new centre.
+        if _SESSION.last_curve is not None and _SESSION.last_curve.get("kind") == "radial":
+            _SESSION.last_curve = None
+            _SESSION.fit_result = None
     _SESSION.center = (y, z)
 
 
@@ -358,6 +364,10 @@ def sddcal_calc_sdd(payload: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, TypeError, ValueError) as exc:
         return {"ok": False, "message": f"Invalid Calc SDD parameters: {exc}"}
     standard_sample = str(payload.get("standard_sample", "Silver behenate"))
+    if not np.isfinite(pixel_radius) or pixel_radius <= 0:
+        return {"ok": False, "message": "The ring radius must be greater than 0 pixels."}
+    if not np.isfinite(energy_kev) or energy_kev <= 0:
+        return {"ok": False, "message": "The energy must be greater than 0 keV."}
 
     try:
         q_value = standard_q_value(standard_sample, order)
