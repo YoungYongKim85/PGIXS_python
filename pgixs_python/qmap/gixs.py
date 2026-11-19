@@ -56,11 +56,13 @@ def qmap_gixs(
     qy = qy_lab
     qz = -s_ai * qx_lab + c_ai * qz_lab
 
-    qr = np.sign(qy) * np.hypot(qx, qy)
-    # Not hypot(qr, qz): sign(0) zeroes qr on the beam column when beam_y
-    # is a whole pixel, which dropped qx from |q| there (4.7% low at the
-    # detector edge) -- the column a 90 deg accumulation cut reads q from.
-    q = np.sqrt(qx * qx + qy * qy + qz * qz)
+    # qr takes qy's sign, with qy == 0 (the beam column, when beam_y is a
+    # whole pixel) counted as positive. np.sign(0) = 0 zeroed qr there,
+    # which dropped qx from it and from the |q| built on it (4.7% low at
+    # the detector edge) -- the column a 90 deg accumulation cut reads q
+    # from. Qmaping_gi.m carries the same fix.
+    qr = np.where(qy < 0, -1.0, 1.0) * np.hypot(qx, qy)
+    q = np.hypot(qr, qz)
 
     af2d = np.degrees(np.arcsin(np.clip(qz / wave_number - s_ai, -1.0, 1.0)))
     tth2d = np.degrees(np.arcsin(np.clip(qy_lab / wave_number / cos_af, -1.0, 1.0)))
