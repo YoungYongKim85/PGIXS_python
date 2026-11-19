@@ -4,6 +4,19 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.19 — Load Info 뒤 ai 픽셀 칸 갱신 / ai pixel box follows Load Info
+
+- **GIXS-series**: Load Series 때 파일의 incidence angle이 ai(degree) 칸에 들어가도, Load Info 전에는
+  SDD가 없어서 ai(pixel) 칸이 예전 값으로 남았습니다. 이제 Load Info를 하면 픽셀 칸도 맞춰집니다.
+  q-Cal은 degree 값을 쓰므로 계산 결과는 달라지지 않습니다.
+- MATLAB 버전(GIXS, GIXS-series)에도 같은 수정이 들어갔습니다.
+
+In GIXS-series the ai pixel box now follows the ai degree box after Load Info.
+It used to keep its old value when the files' angle filled ai before the SDD
+was known. Results are unchanged: q-Cal uses the degree value.
+
+---
+
 ## v0.3.18 — 파일의 incidence angle 자동 반영 / Incidence angle taken from the file
 
 - **GIXS 탭**: Load 하면 파일에 기록된 incidence angle(`IncAngle` 또는 `IAngle`)이 ai 칸에 자동으로 들어갑니다.
