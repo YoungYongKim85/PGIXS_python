@@ -979,6 +979,8 @@ class GIXS2Widget(QWidget):
             return
         cal = result["calibration"]
         self._mark_ok(self.load_info_button, True)
+        # ai deg may predate the SDD (the files' angle on Load Series): pix catches up.
+        self._on_ai_deg_changed()
         # GIXS_gui.m Openinfo_Callback: param.Expinfo = 1; renderImage() --
         # the pixel axis re-centers on the beam position from here on.
         self._pixel_centered = True

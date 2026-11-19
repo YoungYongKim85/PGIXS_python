@@ -316,10 +316,18 @@ def test_gixs2_widget_load_info_marks_button_ok_on_success(qapp, tmp_path, monke
         staticmethod(lambda *a, **k: (str(calibration_path), "")),
     )
 
+    # ai deg set before there was an SDD (the files' angle on Load Series).
+    widget.ai_deg_spin.blockSignals(True)
+    widget.ai_deg_spin.setValue(0.5)
+    widget.ai_deg_spin.blockSignals(False)
+    stale_pix = widget.ai_pix_spin.value()
+
     widget._on_load_info_clicked()
 
     assert widget.load_info_button.property("state") == "ok"
     assert "Loaded Info" in widget.status_label.text()
+    expected_pix = gs.gixs2_ai_from_degree({"ai_deg": 0.5})["pix"]
+    assert widget.ai_pix_spin.value() == expected_pix != stale_pix
 
 
 def test_gixs2_widget_load_info_recenters_pixel_axis(qapp, tmp_path, monkeypatch):
