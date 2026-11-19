@@ -4,6 +4,24 @@ creates when a v* tag is pushed; gh appends its auto-generated commit list
 below it. This file is release-specific -- update it before tagging.
 -->
 
+## v0.3.17 — Grid Remove가 배경에도 적용 / Grid Remove also corrects the background
+
+- **Grid Remove**를 누르면 불러온 **배경**에도 같은 보정이 들어갑니다. TrXS/GIXS 콘솔과 TrXS-series가 해당됩니다.
+  - 지금까지는 데이터의 grid 픽셀만 스케일이 바뀌어서, 배경을 뺄 때 그 픽셀들만 어긋났습니다.
+  - Grid Remove 뒤에 배경을 불러와도 바로 보정합니다. 어느 순서로 해도 결과가 같습니다.
+  - 배경은 데이터 프레임과 마찬가지로 자기 자신의 기준 픽셀 비율로 보정합니다.
+  - Eiger4M이 아니거나 보정을 적용할 수 없는 배경은 그대로 둡니다.
+  - TrXS-series에서 새 시리즈를 불러오면 유지되는 배경은 불러온 원래 상태로 돌아갑니다.
+    새 시리즈에 Grid Remove를 하면 그때 다시 보정합니다.
+- Grid Remove와 배경 빼기를 함께 쓴 결과는 grid 픽셀에서 숫자가 달라집니다. MATLAB 버전에도 같은 수정이 들어갔습니다.
+
+Grid Remove now gives the loaded background the same correction as the data
+(console and TrXS-series), whichever of Load Bkg. and Grid Remove comes first.
+Before, only the data's grid-line pixels were rescaled, so a subtracted
+background was off on those pixels.
+
+---
+
 ## v0.3.16 — 로직 점검에서 찾은 문제 수정 / Fixes from a logic review
 
 **결과 숫자가 바뀔 수 있는 수정입니다.**
