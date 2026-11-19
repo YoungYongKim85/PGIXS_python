@@ -214,6 +214,25 @@ def test_gixs2_widget_load_series_updates_image_and_status(qapp, tmp_path):
     assert widget.set_table_button.property("state") == "ok"
 
 
+def test_gixs2_widget_load_series_fills_ai_from_the_files(qapp, tmp_path):
+    gs.reset_session()
+    widget = GIXS2Widget()
+    files = _load_series_into_widget(widget, tmp_path, n_frames=3)
+    loaded = {"ok": True, "n_files": len(files), "shape": [3, 200, 200], "warnings": []}
+
+    widget._on_series_loaded({**loaded, "file_angles_missing": None})
+    assert "no incidence angle" in widget.status_label.text()
+    assert not widget.change_ai_check.isChecked()
+
+    widget._on_series_loaded({
+        **loaded, "file_incident_angle_deg": 0.12, "file_angles_missing": 0,
+        "file_angles_vary": True, "file_angle_range": [0.12, 0.3],
+    })
+    assert widget.ai_deg_spin.value() == 0.12
+    assert widget.change_ai_check.isChecked()
+    assert "from the files" in widget.status_label.text()
+
+
 def test_gixs2_widget_load_data_marks_button_ok_and_resets_downstream_buttons(qapp, tmp_path, monkeypatch):
     gs.reset_session()
     widget = GIXS2Widget()
